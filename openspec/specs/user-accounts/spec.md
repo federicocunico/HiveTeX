@@ -7,7 +7,7 @@ Gives every person using p2platex a durable identity (username + password) with 
 ## Requirements
 
 ### Requirement: Account registration
-The system SHALL let a person create an account with a unique username, an email address and a password. Usernames SHALL be 3–32 characters of `[a-z0-9_-]`, compared case-insensitively. Passwords SHALL be at least 12 characters and SHALL be rejected if they appear in a known-breached password list.
+The system SHALL let a person create an account with a unique username, an email address and a password. Usernames SHALL be 3–32 characters of `[a-z0-9_-]`, compared case-insensitively. Passwords SHALL be at least 12 characters and SHALL be rejected if they appear in a known-breached password list. A failure to send the verification email SHALL NOT fail the registration.
 
 #### Scenario: Successful registration
 - **WHEN** a visitor submits an unused username, a valid email and a compliant password
@@ -20,6 +20,10 @@ The system SHALL let a person create an account with a unique username, an email
 #### Scenario: Weak password
 - **WHEN** a visitor submits a password shorter than 12 characters or present in the breached list
 - **THEN** registration is rejected with an explanation and no account is created
+
+#### Scenario: Mail server unavailable
+- **WHEN** a visitor registers while the mail server is unreachable
+- **THEN** the account is created and the user is signed in, and they can request a new verification email later
 
 ### Requirement: Password storage
 The system MUST store only a memory-hard salted hash of each password and MUST never log, return or transmit the plaintext password after receipt.

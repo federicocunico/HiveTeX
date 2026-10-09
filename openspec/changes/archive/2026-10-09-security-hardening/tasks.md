@@ -28,4 +28,4 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Run `make check` and the Desktop workflow on a pushed branch; verify both are green and the new security tests ran on Windows, macOS and Linux
+- [x] 5.1 Run `make check` and the Desktop workflow on a pushed branch; verify both are green and the new security tests ran on Windows, macOS and Linux

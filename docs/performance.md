@@ -19,7 +19,8 @@ rendering.
 | 3 | 3.1 ms | 8.1 ms | 9.4 ms | 364 ms |
 | 4 | 3.0 ms | 5.3 ms | 9.3 ms | 292 ms |
 
-About 200 ms of the convergence time is the typing pauses inside the test itself. The test asserts p95 < 250 ms (the
+On the GitHub Actions runner (2 vCPUs running all 7 browsers plus the dev servers): p50 9.9 ms, p95 20.5 ms, max 39.1 ms,
+convergence 783 ms. About 200 ms of the convergence time is the typing pauses inside the test itself. The test asserts p95 < 250 ms (the
 spec) and that every user ends with identical text containing all 70 concurrent insertions.
 
 ### Sync stack at group scale: `make bench`

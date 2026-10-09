@@ -14,7 +14,7 @@ Document sources, binary assets, compiled PDFs and edit operations MUST travel o
 - **THEN** no document text, file names inside the project, assets or PDFs are present
 
 ### Requirement: Peer discovery and connection bootstrap
-A member device SHALL discover other online member devices of the project and establish encrypted peer connections. Connection-setup messages relayed by the control plane MUST be end-to-end encrypted between the two devices.
+A member device SHALL discover other online member devices of the project and establish encrypted peer connections. Connection-setup messages relayed by the control plane MUST be end-to-end encrypted between the two devices. A device SHALL prove possession of its device key to the signaling relay before it is announced to other members.
 
 #### Scenario: Second member comes online
 - **WHEN** member A is editing and member B opens the same project
@@ -23,6 +23,10 @@ A member device SHALL discover other online member devices of the project and es
 #### Scenario: Already in the mesh
 - **WHEN** a device is already connected to at least one peer and a new peer appears
 - **THEN** the connection to the new peer MAY be negotiated through existing peers instead of the control plane
+
+#### Scenario: Copied ticket
+- **WHEN** a member connects to the signaling relay with another member's ticket but without that device's private key
+- **THEN** the relay refuses the connection and other members see no presence change for that device
 
 ### Requirement: Peer authentication
 Before exchanging any project data, both peers MUST verify each other's membership ticket and prove possession of the device key named in the ticket, bound to the specific encrypted connection.
@@ -72,7 +76,7 @@ A project SHALL contain a tree of text files (e.g. `.tex`, `.bib`, `.sty`, `.cls
 - **THEN** all devices end with a single `introduction.tex` containing the edit
 
 ### Requirement: Binary asset transfer
-Binary files SHALL be transferred by content hash in chunks, fetched on demand from any peer holding them, and verified against their hash before use.
+Binary files SHALL be transferred by content hash in chunks, fetched on demand from any peer holding them, and verified against their hash before use. A transfer whose declared size exceeds the project's maximum file size SHALL be rejected.
 
 #### Scenario: Image added
 - **WHEN** an editor adds a 5 MB image
@@ -81,6 +85,10 @@ Binary files SHALL be transferred by content hash in chunks, fetched on demand f
 #### Scenario: Corrupt chunk
 - **WHEN** a received chunk does not match its expected hash
 - **THEN** it is discarded and re-requested from another peer
+
+#### Scenario: Oversized transfer
+- **WHEN** a peer announces a chunk count implying a blob larger than the maximum file size
+- **THEN** the receiving device ignores that transfer without allocating memory for it and tries other peers
 
 ### Requirement: Read-only enforcement
 Every peer MUST reject content changes originating from a device whose current ticket role is `viewer`, and MUST NOT forward them.
@@ -109,3 +117,26 @@ Each device SHALL keep restorable snapshots of the project state so an editor ca
 #### Scenario: Restore
 - **WHEN** an editor restores a snapshot from yesterday
 - **THEN** the project returns to that content on all devices and the restore itself can be undone
+
+### Requirement: Real-time propagation at group scale
+With up to 12 connected member devices on a healthy connection, an edit SHALL reach every other device within 250 ms at the 95th percentile, and each edit SHALL be sent at most once over each peer connection in a fully connected mesh. When some devices cannot connect directly, edits SHALL still reach every device through the others.
+
+#### Scenario: Seven co-authors typing
+- **WHEN** seven members are connected and one types a character
+- **THEN** the other six see it within 250 ms (95th percentile over a typing session)
+
+#### Scenario: Everyone types at once
+- **WHEN** all connected members type concurrently in the same file
+- **THEN** every device converges to identical text containing every insertion
+
+#### Scenario: No duplicate relaying in a full mesh
+- **WHEN** twelve devices are all directly connected and one edits a file
+- **THEN** the edit is sent once to each of the eleven others and is not forwarded again by them
+
+#### Scenario: Partial mesh
+- **WHEN** devices A and B cannot connect directly but both are connected to C
+- **THEN** A's edits reach B through C, without duplicates being re-forwarded endlessly
+
+#### Scenario: Connection attempt that stalls
+- **WHEN** a connection attempt between two members never completes and never reports a failure (lost signaling message, overloaded machine)
+- **THEN** it is abandoned after a timeout and retried with backoff until the two members are connected

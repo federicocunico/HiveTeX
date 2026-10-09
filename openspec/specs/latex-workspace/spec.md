@@ -7,11 +7,19 @@ Defines the user-facing workspace â€” LaTeX editor, file tree and PDF preview â€
 ## Requirements
 
 ### Requirement: Two delivery modes with one feature set
-The workspace SHALL be available as a web app served from the public deployment and as an installable desktop app for Windows, macOS and Linux. Both SHALL interoperate in the same project.
+The workspace SHALL be available as a web app served from the public deployment and as an installable desktop app for Windows, macOS and Linux. Both SHALL interoperate in the same project. The desktop app SHALL use the hosted control plane over the network, and the control plane SHALL accept those cross-origin requests from the desktop app only.
 
 #### Scenario: Mixed clients
 - **WHEN** one member uses the web app and another uses the desktop app on the same project
 - **THEN** they edit together and see the same compiled PDF
+
+#### Scenario: Desktop signs in to the hosted control plane
+- **WHEN** a user signs in from the desktop app pointed at the public deployment
+- **THEN** sign-in, project list, tickets and relay credentials work as in the web app
+
+#### Scenario: Other websites
+- **WHEN** a page on another website calls the control plane API from a visitor's browser
+- **THEN** the browser blocks the response because that origin is not allowed
 
 ### Requirement: LaTeX editor
 The editor SHALL provide LaTeX/BibTeX syntax highlighting, bracket matching, command and `\ref`/`\cite` completion from the project's labels and bibliography, search/replace across the project, and inline display of compile errors.
@@ -49,7 +57,7 @@ A signed-in user SHALL be able to create a project from an uploaded zip archive 
 - **THEN** the project contains those files and `main.tex` is set as the main file
 
 ### Requirement: Local folder mirror (desktop)
-The desktop app SHALL let a member bind a project to a local folder. Project state SHALL be written to the folder as plain files, and changes made to those files by any external program SHALL be merged into the project as normal edits by that member.
+The desktop app SHALL let a member bind a project to a local folder. Project state SHALL be written to the folder as plain files, and changes made to those files by any external program SHALL be merged into the project as normal edits by that member. The folder SHALL be chosen by the user in a native dialog; the app SHALL NOT read or write folders whose path was supplied by page content.
 
 #### Scenario: External AI tool edits a file
 - **WHEN** Claude Code (or any program) modifies `sections/method.tex` in the bound folder
@@ -62,6 +70,10 @@ The desktop app SHALL let a member bind a project to a local folder. Project sta
 #### Scenario: Viewer folder
 - **WHEN** a viewer binds a folder and an external program modifies a file in it
 - **THEN** the change is not propagated, the file is restored to project state, and the user is notified
+
+#### Scenario: Path supplied by script
+- **WHEN** script running in the app asks the native side to mirror or import a folder by path, without the user picking it
+- **THEN** the request is refused and no file outside user-picked folders is read or written
 
 ### Requirement: Mirror ignores build artifacts
 The local folder mirror SHALL ignore build artifacts and tool metadata (e.g. `.aux`, `.log`, `.synctex.gz`, `.git/`, `.claude/`, `.cursor/`, `node_modules/`) and any patterns in a project-level ignore file.
@@ -83,3 +95,10 @@ The workspace SHALL be keyboard-navigable and remain usable on screens down to 1
 #### Scenario: Keyboard only
 - **WHEN** a user navigates the file tree, editor and preview using only the keyboard
 - **THEN** all primary actions are reachable
+
+### Requirement: Mirror imports only complete file writes
+The desktop folder mirror SHALL import a file change from disk only once the file content is stable, so a file caught in the middle of being rewritten (for example truncated before new content is written) is never merged into the project.
+
+#### Scenario: Tool rewrites a file while a co-author types
+- **WHEN** an external program rewrites `main.tex` in the bound folder (truncating it first) while a co-author appends a line remotely
+- **THEN** every device ends with the program's change and the co-author's line in their correct places, with no content lost or reordered

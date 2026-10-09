@@ -54,6 +54,10 @@ A signed-in user SHALL join a project by entering its ID and, if protected, its 
 - **WHEN** more than 5 failed join attempts for one project ID come from one account or IP within 15 minutes
 - **THEN** further join attempts from that account/IP for that project are refused for 15 minutes
 
+#### Scenario: Project ID scanning
+- **WHEN** more than 20 failed join attempts across any project IDs come from one account or IP within 15 minutes
+- **THEN** further join attempts from that account/IP are refused for 15 minutes, for every project ID
+
 #### Scenario: Removed user rejoins
 - **WHEN** a user previously removed by the owner and marked "banned" tries to join with the correct password
 - **THEN** the join is refused
@@ -99,11 +103,15 @@ The control plane SHALL issue each member device a signed, short-lived (≤ 15 m
 - **THEN** every receiving peer refuses the connection
 
 ### Requirement: Revocation
-Removing a member or lowering a role SHALL increment the project's membership epoch. Connected peers SHALL disconnect or downgrade a peer whose ticket is revoked, at the latest when that ticket expires.
+Removing a member or lowering a role SHALL increment the project's membership epoch. Connected peers SHALL disconnect or downgrade a peer whose ticket is revoked, at the latest when that ticket expires. A peer SHALL NOT regain a role by presenting a ticket older than one it already presented.
 
 #### Scenario: Member removed while connected
 - **WHEN** an owner removes a member whose device is currently connected
 - **THEN** within 15 minutes all honest peers stop exchanging data with that device, and the removed member cannot obtain new tickets
+
+#### Scenario: Old ticket replay after demotion
+- **WHEN** a member demoted from editor to viewer presents their new viewer ticket and then re-sends an older, still unexpired editor ticket
+- **THEN** peers keep treating the member as a viewer and drop their document updates
 
 ### Requirement: Project listing
 A signed-in user SHALL see the list of projects they are a member of with their role, and owners SHALL see the list of members with roles.
