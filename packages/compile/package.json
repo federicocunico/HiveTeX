@@ -1,0 +1,13 @@
+{
+  "name": "@p2platex/compile",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit -p .",
+    "lint": "biome lint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "@p2platex/protocol": "workspace:*" }
+}

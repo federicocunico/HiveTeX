@@ -1,0 +1,12 @@
+{
+  "name": "@p2platex/desktop",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "echo \"desktop: built via tauri build\"",
+    "lint": "echo ok",
+    "test": "echo ok"
+  },
+  "devDependencies": { "@tauri-apps/cli": "^2.8.0" }
+}
