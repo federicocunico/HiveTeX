@@ -1,5 +1,5 @@
-//! Native LaTeX compilation: detects a system TeX distribution (TeX Live / MiKTeX / MacTeX) or a
-//! `tectonic` binary and runs it in a hardened, incremental working directory.
+//! Native LaTeX compilation: detects a system TeX distribution (TeX Live / MiKTeX / MacTeX) and runs it
+//! in a hardened, incremental working directory.
 //!
 //! Hardening: shell escape disabled, path-restricted file access, wall-clock timeout, memory limit
 //! (Windows job object / Unix rlimit), whole process tree killed on timeout, files confined to the
@@ -51,7 +51,11 @@ pub struct CompileResp {
 }
 
 pub fn find_exe(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
+    find_exe_in(name, &std::env::var_os("PATH")?)
+}
+
+/// `find_exe` over an explicit search path (tests).
+pub fn find_exe_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
     let exts: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .unwrap_or(".EXE;.CMD;.BAT".into())
@@ -61,7 +65,7 @@ pub fn find_exe(name: &str) -> Option<PathBuf> {
     } else {
         vec![String::new()]
     };
-    for dir in std::env::split_paths(&path) {
+    for dir in std::env::split_paths(path) {
         for ext in &exts {
             let cand = dir.join(format!("{name}{ext}"));
             if cand.is_file() {
@@ -82,10 +86,15 @@ fn version_text(exe: &Path) -> String {
 }
 
 pub fn detect() -> Option<EngineInfo> {
+    detect_in(&std::env::var_os("PATH")?)
+}
+
+/// `detect` over an explicit search path (tests).
+pub fn detect_in(path: &std::ffi::OsStr) -> Option<EngineInfo> {
     let mut supports = Vec::new();
     let mut flavor = String::new();
     for e in ["pdflatex", "xelatex", "lualatex"] {
-        if let Some(p) = find_exe(e) {
+        if let Some(p) = find_exe_in(e, path) {
             supports.push(e.to_string());
             if flavor.is_empty() {
                 let v = version_text(&p);
@@ -100,13 +109,13 @@ pub fn detect() -> Option<EngineInfo> {
             }
         }
     }
+    // Tectonic alone is deliberately not offered: it writes no recorder file, so what a document read cannot be
+    // verified (see verify_reads), and its I/O reads absolute paths directly. A device without a regular TeX
+    // distribution therefore advertises no engine and is never elected.
     if supports.is_empty() {
-        if find_exe("tectonic").is_some() {
-            return Some(EngineInfo { flavor: "tectonic".into(), supports: vec!["xelatex".into()], has_latexmk: false });
-        }
         return None;
     }
-    Some(EngineInfo { flavor, supports, has_latexmk: find_exe("latexmk").is_some() })
+    Some(EngineInfo { flavor, supports, has_latexmk: find_exe_in("latexmk", path).is_some() })
 }
 
 /// Build tool configuration that must never come from a project (latexmk rc files are executable Perl).
@@ -569,6 +578,23 @@ mod tests {
     }
 
     #[test]
+    fn tectonic_alone_is_never_advertised() {
+        // A PATH holding only a fake `tectonic` executable: detection must report no engine.
+        let d = tmp("tectonic-only");
+        let name = if cfg!(windows) { "tectonic.exe" } else { "tectonic" };
+        fs::write(d.join(name), b"").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(d.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Only this module's own lookup is exercised, with an explicit PATH instead of the process environment.
+        assert!(find_exe_in("pdflatex", d.as_os_str()).is_none());
+        assert!(find_exe_in("tectonic", d.as_os_str()).is_some());
+        assert!(detect_in(d.as_os_str()).is_none(), "a tectonic-only machine must not advertise an engine");
+    }
+
+    #[test]
     fn detects_a_distribution_or_skips() {
         match detect() {
             Some(i) => assert!(!i.supports.is_empty()),
@@ -671,14 +697,19 @@ mod tests {
             let doc = format!("\\documentclass{{article}}\\usepackage{{graphicx}}\\begin{{document}}x{body}\\end{{document}}\n");
             let r = compile(&root, req(&format!("p10{n}"), vec![file("main.tex", &doc)], 120_000));
             assert!(!r.log.contains("LEAKED"), "{n}: content of a file outside the project was shared:\n{}", r.log);
-            // Either the engine refused the file (MiKTeX with its unsafe-path switches off), or it read it and the
-            // whole result was withheld (TeX Live, which does not restrict reads).
-            let refused = r.log.contains("not found") || r.log.contains("couldn't open") || r.log.contains("I couldn't");
-            let withheld = r.pdf_b64.is_none() && r.synctex_b64.is_none() && r.log.contains("outside the project");
-            assert!(refused || withheld || r.pdf_b64.is_none(), "{n}: a PDF was shared after reading outside the project:\n{}", r.log);
-            if n == "bib" && r.pdf_b64.is_some() {
-                let pdf = B64.decode(r.pdf_b64.as_ref().unwrap()).unwrap();
-                assert!(!String::from_utf8_lossy(&pdf).contains("LEAKEDBIB"), "bib: private bibliography in the PDF");
+            // Whether the engine refused the file (MiKTeX switches; bibtex with openin_any=p) or read it (TeX Live
+            // ignores openin_any for \input/\includegraphics) depends on the distribution. What must hold everywhere:
+            // if anything private was actually read, nothing produced by the run is shared.
+            let build = root.join("builds").join(format!("p10{n}"));
+            let fls = fs::read_to_string(build.join("main.fls")).unwrap_or_default();
+            let bbl = fs::read_to_string(build.join("main.bbl")).unwrap_or_default();
+            let read_private = fls.contains("secret.tex") || fls.contains("private.png") || bbl.contains("LEAKEDBIB");
+            if read_private {
+                assert!(
+                    r.pdf_b64.is_none() && r.synctex_b64.is_none() && r.log.contains("outside the project"),
+                    "{n}: a private file was read but the result was shared:\n{}",
+                    r.log
+                );
             }
         }
     }
