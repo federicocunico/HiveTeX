@@ -10,6 +10,8 @@ Status after investigating the failed run [`CI` #37941941428](https://github.com
 | `CI / test` failed at *Lint, type-check and unit tests* | `@p2platex/compile` › `pipeline.test.ts` › "compiles … on the leader only" expected 0 compiles on a non-leader and got 1. The test used a 50 ms election heartbeat, so a peer counted as gone after 150 ms. On the 2-vCPU runner, with turbo running every package's tests in parallel, a short event-loop stall made a non-leader elect itself and compile once. Production uses 2 s × 3 beats plus a 1.5 s settle, so the app was not affected. | Test timing raised to a 100 ms heartbeat (300 ms timeout) and a 400 ms settle. Passes 4 parallel copies locally and a full Linux reproduction of the CI job. |
 | `CI / test` failed again: `server` › `projects.test.ts` "Hook timed out in 10000ms" | Every server test boots an in-memory PGlite database and applies the migrations in `beforeEach` (about 1.5 s locally, over 10 s on the loaded runner) | `server/vitest.config.ts`: 60 s hook and test timeouts |
 | `CI / e2e` failed: "layout … at phone width" | At 390 px the header (username + "Sign out") overflowed whenever the random test username was long enough, so the test was flaky | Header wraps and truncates long usernames (`app.css`); the test now always uses a 28-char username (fails without the fix, passes with it) |
+| `CI / e2e` `full-flow.spec.ts` timed out (4 min) waiting for the joined peer to receive the file tree | Intermittent WebRTC connection set-up between three browsers on a 2-vCPU runner (known flakiness, see below) | CI retries flaky e2e tests up to 2 times (still reported as flaky) and `actionTimeout` is 30 s so a stuck step fails fast |
+| `Desktop / rust-tests (windows)` failed: `tex::tests::compiles_a_sample_document` with an empty log | A fresh MiKTeX from Chocolatey has no package database and no auto-install, so the engine exits before writing a log | Workflow configures MiKTeX (AutoInstall, package database, fndb), and *Detect TeX* now compiles a sample with `pdflatex` and `latexmk` and prints the output |
 | `Desktop` workflow never ran | It triggers on pushes to `main`, but the repository branch is `master` | Triggers on `[main, master]` |
 | `LICENSE` missing | README and package.json declare AGPL-3.0-or-later but the file was absent | Added the official AGPL-3.0 text (bootstrap task 1.4) |
 
@@ -50,9 +52,8 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
       `main`.
 
 ### Unverified until the workflows run on GitHub
-- [ ] `Desktop / rust-tests` on Windows (MiKTeX via Chocolatey), macOS (BasicTeX) and Ubuntu (TeX Live). It has never
-      run, because of the branch trigger fixed above. The TeX install steps are the most likely to need adjusting
-      (MiKTeX path, first-run package installs).
+- [x] `Desktop / rust-tests` on macOS (BasicTeX) and Ubuntu (TeX Live) pass, including real LaTeX compilation.
+- [ ] `Desktop / rust-tests` on Windows (MiKTeX via Chocolatey): MiKTeX setup fixed in this commit; confirm the next run is green.
 - [ ] `Desktop / release` on a `v*` tag: needs the signing secrets above.
 
 ### Known product issues that affect CI stability

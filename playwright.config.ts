@@ -10,8 +10,11 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
+  // P2P tests (several browsers connecting over WebRTC) are occasionally flaky on CI runners; see TODO_CI.md.
+  // Retried tests still show up as "flaky" in the report.
+  retries: process.env.CI ? 2 : 0,
   reporter: [['list']],
-  use: { baseURL, trace: 'retain-on-failure', ...devices['Desktop Chrome'] },
+  use: { baseURL, trace: 'retain-on-failure', actionTimeout: 30_000, ...devices['Desktop Chrome'] },
   ...(process.env.SKIP_WEBSERVER
     ? {}
     : {

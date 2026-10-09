@@ -41,7 +41,16 @@ jobs:
         shell: pwsh
         run: |
           choco install miktex --no-progress -y
-          echo "C:\Program Files\MiKTeX\miktex\bin\x64" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $bin = "C:\Program Files\MiKTeX\miktex\bin\x64"
+          $env:PATH = "$bin;$env:PATH"
+          # A fresh MiKTeX refuses to run until its package database exists, and it must be allowed to fetch
+          # missing packages (article.cls, fonts...) without a prompt.
+          initexmf --admin --set-config-value="[MPM]AutoInstall=1"
+          miktex --admin packages update-package-database
+          miktex --admin packages update
+          initexmf --admin --update-fndb
+          initexmf --update-fndb
+          echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Prepare frontend dist (required by tauri::generate_context)
         run: |
           corepack enable
@@ -53,6 +62,12 @@ jobs:
           export PATH="$PATH:/Library/TeX/texbin"
           which pdflatex || true
           pdflatex --version | head -1 || true
+          # Compile a tiny document the same way the app does, so a broken TeX setup shows its real error here.
+          mkdir -p "$RUNNER_TEMP/texcheck" && cd "$RUNNER_TEMP/texcheck"
+          printf '\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n' > main.tex
+          pdflatex -interaction=nonstopmode -synctex=1 -no-shell-escape main.tex || echo "pdflatex FAILED ($?)"
+          latexmk -pdf -interaction=nonstopmode main.tex || echo "latexmk FAILED ($?)"
+          ls -la
       - name: Rust tests
         working-directory: apps/desktop/src-tauri
         run: cargo test --lib
