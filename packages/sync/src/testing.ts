@@ -9,6 +9,8 @@ export class FakeRtcNetwork {
   readonly factory: RtcFactory = () => new FakePc(this, `pc${++this.counter}`);
   /** When set, SDP fingerprints are rewritten to simulate a signaling-server MITM. */
   tamper: ((sdp: string) => string) | null = null;
+  /** The next N connection attempts silently never complete (lost signal / ICE stuck), without a failure event. */
+  stallNext = 0;
   register(pc: FakePc) {
     this.pcs.set(pc.id, pc);
   }
@@ -60,6 +62,10 @@ export class FakePc implements RtcPeerLike {
     const sdp = this.net.tamper ? this.net.tamper(d.sdp ?? '') : (d.sdp ?? '');
     this.remoteDescription = { ...d, sdp };
     if (d.type === 'answer') {
+      if (this.net.stallNext > 0) {
+        this.net.stallNext--;
+        return;
+      }
       const otherId = /a=x-pcid:(\S+)/.exec(d.sdp ?? '')?.[1] ?? '';
       const other = this.net.get(otherId);
       if (!other) return;

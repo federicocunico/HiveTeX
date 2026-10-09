@@ -28,6 +28,8 @@ export interface ManagerOptions {
   /** The relay closes sockets after ~300 s; reconnect slightly earlier. */
   reconnectAfterMs?: number;
   idleCloseMs?: number;
+  /** A link that has not produced a transport within this time is abandoned and retried. Default 20 s. */
+  linkTimeoutMs?: number;
 }
 
 const WS_OPEN = 1;
@@ -54,6 +56,8 @@ export class ConnectionManager {
   /** Devices currently attached to the relay (so we only use it for targets that can hear us there). */
   private onRelay = new Set<string>();
   private links = new Map<string, RtcLink>();
+  /** Failed or stalled link attempts per device, for retry backoff (reset when the peer connects). */
+  private attempts = new Map<string, number>();
   private iceServers: Promise<unknown[]> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private rotateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -220,21 +224,45 @@ export class ConnectionManager {
   private async createLink(dev: string, initiator: boolean): Promise<RtcLink> {
     this.iceServers ??= this.o.getIceServers().catch(() => []);
     const ice = await this.iceServers;
+    // A connection attempt can stall without ever failing (a lost signaling message, ICE stuck on a loaded
+    // machine): without a deadline the stale entry would block every later attempt towards that device.
+    const timer = setTimeout(() => {
+      if (this.links.get(dev) !== link) return;
+      link.close();
+      this.links.delete(dev);
+      this.retryLater(dev);
+    }, this.o.linkTimeoutMs ?? 20_000);
     const link = new RtcLink({
       factory: this.o.rtcFactory,
       iceServers: ice,
       initiator,
       send: (s) => void this.sendSignal(dev, s),
       onTransport: (t) => {
+        clearTimeout(timer);
         this.links.delete(dev);
-        this.o.mesh.addTransport(t).catch(() => {});
+        this.o.mesh.addTransport(t).catch(() => this.retryLater(dev));
       },
       onFail: () => {
+        clearTimeout(timer);
         if (this.links.get(dev) === link) this.links.delete(dev);
+        this.retryLater(dev);
       },
     });
     this.links.set(dev, link);
     return link;
+  }
+
+  /** Tries a device again with exponential backoff (1 s, 2 s, 4 s ... capped at 30 s, at most 8 attempts). */
+  private retryLater(dev: string) {
+    if (this.stopped) return;
+    const n = (this.attempts.get(dev) ?? 0) + 1;
+    if (n > 8) return;
+    this.attempts.set(dev, n);
+    const base = Math.min(30_000, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** n : 1000 * 2 ** (n - 1));
+    setTimeout(() => {
+      const k = this.known.get(dev);
+      if (k && !this.stopped && !this.connected(dev) && !this.links.has(dev)) this.maybeConnect(k);
+    }, base);
   }
 
   // ---- encrypted signaling ----
@@ -286,6 +314,7 @@ export class ConnectionManager {
   // ---- peer exchange ----
 
   private onPeerJoin(p: PeerInfo) {
+    this.attempts.delete(p.deviceId);
     this.links.get(p.deviceId)?.close();
     this.links.delete(p.deviceId);
     this.known.set(p.deviceId, { claims: p.claims, raw: p.ticket });

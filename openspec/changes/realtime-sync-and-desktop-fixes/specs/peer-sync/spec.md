@@ -20,3 +20,7 @@ With up to 12 connected member devices on a healthy connection, an edit SHALL re
 #### Scenario: Partial mesh
 - **WHEN** devices A and B cannot connect directly but both are connected to C
 - **THEN** A's edits reach B through C, without duplicates being re-forwarded endlessly
+
+#### Scenario: Connection attempt that stalls
+- **WHEN** a connection attempt between two members never completes and never reports a failure (lost signaling message, overloaded machine)
+- **THEN** it is abandoned after a timeout and retried with backoff until the two members are connected

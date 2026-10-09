@@ -3,7 +3,7 @@
 ## 1. Native compile hardening (desktop)
 
 - [x] 1.1 Pass `-norc` to latexmk and skip `latexmkrc`/`.latexmkrc` when writing the build directory (`tex.rs`); verify a new Rust test where a project `.latexmkrc` tries to create a marker file and the marker never appears, and existing tex tests still pass with `cargo test --lib`
-- [ ] 1.2 Set `MIKTEX_CORE_ALLOWUNSAFEINPUTFILES=f` / `MIKTEX_CORE_ALLOWUNSAFEOUTPUTFILES=f` in `base_command`; verify new Rust tests that `\input` of an absolute path and of `../` to a file containing `\errmessage{LEAKED}` never put `LEAKED` in the log (run locally on MiKTeX 25.4 and in the Desktop workflow on all three OSes)
+- [x] 1.2 Set `MIKTEX_CORE_ALLOWUNSAFEINPUTFILES=f` / `MIKTEX_CORE_ALLOWUNSAFEOUTPUTFILES=f` in `base_command`; verify new Rust tests that `\input` of an absolute path and of `../` to a file containing `\errmessage{LEAKED}` never put `LEAKED` in the log (run locally on MiKTeX 25.4 and in the Desktop workflow on all three OSes)
 - [x] 1.3 Update the "Compile isolation" section of `docs/compilation.md` and `docs/security.md`; verify the documented protections match the tests
 
 ## 2. GitHub OAuth and backup binding

@@ -87,6 +87,12 @@ file access (for example an OS sandbox): left for a future change.
 ### D6. Stack nginx
 `proxy_set_header X-Forwarded-For $remote_addr;` (the stack has a single proxy hop).
 
+### D7. Stalled links are retried (added during apply)
+CI showed the 7-browser mesh never completing on a 2-vCPU runner. `RtcLink` only reports failure on a `failed`/`closed`
+state, and `ConnectionManager` never retried, so a stalled attempt (lost signal, ICE stuck) blocked that pair forever.
+Each link now has a setup deadline (20 s) and failed or stalled attempts are retried with exponential backoff
+(1 s … 30 s, at most 8 times), reset when the peer connects.
+
 ## Risks / Trade-offs
 
 - [Browser e2e with 7 WebRTC peers is heavy on 2-vCPU CI runners] → generous budget (spec threshold 250 ms is far

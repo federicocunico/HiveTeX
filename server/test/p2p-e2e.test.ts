@@ -50,7 +50,7 @@ interface Dev {
   dev: string;
 }
 
-async function makeDevice(client: Client, pid: string, name: string): Promise<Dev> {
+async function makeDevice(client: Client, pid: string, name: string, extra: { linkTimeoutMs?: number } = {}): Promise<Dev> {
   const keys = await generateDeviceKeys();
   const dev = (await client.post('/devices', { ed25519Pub: keys.edPub, x25519Pub: keys.xPub, label: name })).json.deviceId as string;
   const ticket = (await client.post(`/projects/${pid}/ticket`, { deviceId: dev })).json.ticket as string;
@@ -72,6 +72,7 @@ async function makeDevice(client: Client, pid: string, name: string): Promise<De
     getIceServers: async () => [],
     now: env.deps.now,
     idleCloseMs: 50,
+    ...extra,
   });
   cleanup.push(() => {
     mgr.stop();
@@ -121,6 +122,21 @@ describe('P2P bootstrap and content privacy (5.3, 6.9)', () => {
     const viaMesh = [a, b, c].reduce((n, d) => n + d.mgr.stats.signalsViaMesh, 0);
     expect(viaMesh).toBeGreaterThan(0);
   });
+
+  it('retries links that stall without failing, so the mesh still becomes complete', async () => {
+    const { owner, pid, join } = await setupProject('retry-project-1');
+    const [bob, cy] = [await join('bob'), await join('cyd')];
+    for (const name of ['bob', 'cyd']) {
+      const uid = (await env.db.select().from(schema.users)).find((u) => u.username === name)?.id;
+      await owner.patch(`/projects/${pid}/members/${uid}`, { role: 'editor' });
+    }
+    rtc.stallNext = 2; // the first two WebRTC attempts hang forever (no 'failed' event)
+    const devs = [await makeDevice(owner, pid, 'a', { linkTimeoutMs: 200 }), await makeDevice(bob, pid, 'b', { linkTimeoutMs: 200 }), await makeDevice(cy, pid, 'c', { linkTimeoutMs: 200 })];
+    for (const d of devs) d.mgr.start();
+    await waitFor(() => devs.every((d) => d.mesh.peers.length === 2), 15_000).catch((e) => {
+      throw new Error(`mesh incomplete: ${JSON.stringify(devs.map((d) => ({ n: d.name, peers: d.mesh.peers.length })))} ${e}`);
+    });
+  }, 30_000);
 
   it('keeps document text, file names and blobs off the control plane', async () => {
     const { owner, pid, join } = await setupProject('privacy-project-1');
