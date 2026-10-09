@@ -132,7 +132,8 @@ describe('membership epoch policy (6.2)', () => {
     expect(owner.mesh.peers[0]?.claims.uname).toBe('fay');
     // ...and cannot simply reconnect with the same stale ticket once the grace period is over
     await expect(net.link(owner, stale)).rejects.toThrow();
-    expect(owner.mesh.rejected).toContain('stale membership epoch');
+    // link() rejects as soon as either side fails: wait for the owner to record why it refused
+    await waitFor(() => owner.mesh.rejected.includes('stale membership epoch'));
   });
 
   it('disconnects peers whose ticket expired without refresh', async () => {
