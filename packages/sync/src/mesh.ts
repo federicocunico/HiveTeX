@@ -326,6 +326,7 @@ export class Mesh {
     if (info) info.claims = claims;
     this.noteEpoch(claims.ep);
     if (claims.ep >= this.maxEpoch) this.staleSince.delete(conn);
+    else if (!this.staleSince.has(conn)) this.staleSince.set(conn, this.now());
   }
 
   /** Keeps traffic flowing and drops peers that went silent (closed laptop, killed tab, lost network). */

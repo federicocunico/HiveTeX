@@ -67,6 +67,7 @@ export class CompileLeader {
   compiles = 0;
   private leaderSince = 0;
   private resultCbs = new Set<(r: CompileResult) => void>();
+  private lastRequestAt = new Map<string, number>();
 
   constructor(
     private o: {
@@ -81,11 +82,21 @@ export class CompileLeader {
       timeoutMs?: number;
       /** A newly elected leader waits this long before its first build, so a device that only briefly thought it was best (election still converging) never compiles. */
       settleMs?: number;
+      /** Minimum time between honored recompile requests from the same peer. */
+      requestThrottleMs?: number;
     },
   ) {
     o.model.onDocUpdate(() => this.schedule());
-    o.mesh.onApp('compile-request', () => {
-      if (this.o.election.isLeader()) void this.run();
+    o.mesh.onApp('compile-request', (from) => {
+      if (!this.o.election.isLeader()) return;
+      // Any member (viewers included) may ask, so a flood must not keep the leader busy: one request per peer per window.
+      const now = Date.now();
+      if (now - (this.lastRequestAt.get(from.deviceId) ?? 0) < (this.o.requestThrottleMs ?? 5000)) return;
+      this.lastRequestAt.set(from.deviceId, now);
+      void this.run().then((r) => {
+        // Unchanged project: nothing was rebuilt, so make sure the requester has the current result.
+        if (r && r === this.lastResult && this.lastResult.seq === r.seq) void o.mesh.sendApp(from.deviceId, 'compiled', r);
+      });
     });
     o.mesh.onPeerJoin((p) => {
       if (this.lastResult && this.o.election.isLeader()) void o.mesh.sendApp(p.deviceId, 'compiled', this.lastResult);

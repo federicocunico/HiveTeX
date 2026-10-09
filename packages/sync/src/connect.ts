@@ -1,5 +1,5 @@
-import { type StoredDeviceKeys, fromB64u, open, seal, verifyTicket } from '@p2platex/crypto';
-import type { TicketClaims, TrustedKey } from '@p2platex/protocol';
+import { type StoredDeviceKeys, fromB64u, open, seal, sign, toB64u, verifyTicket } from '@p2platex/crypto';
+import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@p2platex/protocol';
 import { fromUtf8, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
 import { type LinkSignal, RtcLink, type RtcFactory } from './rtc.js';
@@ -131,14 +131,14 @@ export class ConnectionManager {
     this.ws = ws;
     this.stats.socketOpens++;
     ws.onopen = () => {
-      ws.send(JSON.stringify({ t: 'auth', ticket: this.o.getTicket() }));
+      // Authentication happens when the relay's challenge arrives (see onServerMessage).
       this.backoff = 1000;
       this.rotateTimer = setTimeout(() => {
         // proactive rotation before the platform cuts the connection
         ws.close();
       }, this.o.reconnectAfterMs ?? 280_000);
     };
-    ws.onmessage = (ev) => void this.onServerMessage(String(ev.data));
+    ws.onmessage = (ev) => void this.onServerMessage(String(ev.data), ws);
     const lost = () => {
       if (this.ws === ws) {
         this.ws = null;
@@ -153,11 +153,18 @@ export class ConnectionManager {
     ws.onerror = () => ws.close();
   }
 
-  private async onServerMessage(raw: string) {
-    let m: { t: string; tickets?: string[]; ticket?: string; dev?: string; from?: string; fromTicket?: string; env?: string };
+  private async onServerMessage(raw: string, ws?: WebSocketLike) {
+    let m: { t: string; nonce?: string; tickets?: string[]; ticket?: string; dev?: string; from?: string; fromTicket?: string; env?: string };
     try {
       m = JSON.parse(raw);
     } catch {
+      return;
+    }
+    if (m.t === 'challenge' && typeof m.nonce === 'string') {
+      // Prove we hold the device key named in our ticket (a copied ticket alone must not be enough).
+      const ticket = this.o.getTicket();
+      const sig = await sign(this.o.keys, utf8(signalAuthMessage(this.o.projectId, this.selfDev, m.nonce)));
+      (ws ?? this.ws)?.send(JSON.stringify({ t: 'auth', ticket, sig: toB64u(sig) }));
       return;
     }
     if (m.t === 'ready') {

@@ -191,6 +191,31 @@ describe('manual compile (8.8)', () => {
     await waitFor(() => big.engine.calls.length > calls);
   });
 
+  it('throttles recompile floods from one peer and re-sends the result when nothing changed (security)', async () => {
+    net = await Net.create();
+    const [big, vic] = [await device('big', 'owner', 3), await device('vic', 'viewer', 1)];
+    await net.link(big.node, vic.node);
+    await waitFor(() => vic.election.leader() === big.node.dev);
+    await big.node.model.createTextNow('main.tex', 'content');
+    await waitFor(() => pdfText(vic).includes('content'));
+    big.engine.delayMs = 0;
+    let snapshots = 0;
+    const orig = big.leader.snapshot.bind(big.leader);
+    big.leader.snapshot = async () => {
+      snapshots++;
+      return orig();
+    };
+    const calls = big.engine.calls.length;
+    vic.client.latest = null; // pretend the viewer lost its copy
+    for (let i = 0; i < 200; i++) vic.client.requestCompile();
+    await waitFor(() => (vic.client as { latest: unknown }).latest !== null);
+    await sleep(300);
+    expect(snapshots).toBe(1); // 200 requests, one honored
+    expect(big.engine.calls.length).toBe(calls); // unchanged state: no rebuild
+    const latest = () => vic.client.latest; // (re-read: TS narrowed it to null above)
+    expect(latest()?.by.uname).toBe('big'); // ...but the requester got the current result
+  });
+
   it('compiles locally on a non-leader without distributing the result (also offline)', async () => {
     net = await Net.create();
     const small = await device('small', 'editor', 1);

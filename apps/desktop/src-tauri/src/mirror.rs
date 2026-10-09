@@ -19,6 +19,53 @@ pub struct MirrorState {
     roots: Mutex<HashMap<String, Root>>,
 }
 
+/// Folders the user chose in the native folder dialog on this device, persisted so a remembered folder can be
+/// re-bound on the next start. These are the only folders the webview may ask to mirror or import: a path that
+/// merely comes from page script (XSS, a compromised dependency) is refused.
+pub struct PickedFolders {
+    file: PathBuf,
+    set: Mutex<Vec<PathBuf>>,
+}
+
+impl PickedFolders {
+    pub fn load(file: PathBuf) -> Self {
+        let set = fs::read_to_string(&file)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+        PickedFolders { file, set: Mutex::new(set) }
+    }
+
+    /// Records a folder the user just picked; returns its canonical path.
+    pub fn add(&self, dir: &Path) -> Result<PathBuf, String> {
+        let canon = dir.canonicalize().map_err(|e| format!("cannot open folder: {e}"))?;
+        if !canon.is_dir() {
+            return Err("not a folder".into());
+        }
+        let mut set = self.set.lock().unwrap();
+        if !set.contains(&canon) {
+            set.push(canon.clone());
+            if let Some(parent) = self.file.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let list: Vec<String> = set.iter().map(|p| p.to_string_lossy().to_string()).collect();
+            fs::write(&self.file, serde_json::to_string(&list).unwrap_or_default()).map_err(|e| e.to_string())?;
+        }
+        Ok(canon)
+    }
+
+    /// True only for a folder previously picked in the dialog (compared canonically, exact folder only).
+    pub fn contains(&self, dir: &Path) -> bool {
+        match dir.canonicalize() {
+            Ok(c) => self.set.lock().unwrap().contains(&c),
+            Err(_) => false,
+        }
+    }
+}
+
 #[derive(Serialize, Clone)]
 pub struct Listed {
     pub path: String,
@@ -189,6 +236,25 @@ mod tests {
         assert!(resolve_inside(&c, "/etc/passwd").is_err());
         assert!(resolve_inside(&c, "C:evil").is_err());
         assert!(resolve_inside(&c, "").is_err());
+    }
+
+    #[test]
+    fn only_picked_folders_are_allowed_and_the_list_persists() {
+        let store = tmp("picked-store").join("picked.json");
+        let picked = tmp("picked-a");
+        let other = tmp("picked-b");
+        let p = PickedFolders::load(store.clone());
+        assert!(!p.contains(&picked));
+        p.add(&picked).unwrap();
+        assert!(p.contains(&picked));
+        fs::create_dir_all(picked.join("sub")).unwrap();
+        // the same folder spelled differently is still recognised; others are not, nor are subfolders
+        assert!(p.contains(&picked.join("sub").join("..")));
+        assert!(!p.contains(&other));
+        assert!(!p.contains(&picked.join("sub")));
+        assert!(!p.contains(Path::new("/definitely/not/here")));
+        // survives a restart
+        assert!(PickedFolders::load(store).contains(&picked));
     }
 
     #[test]

@@ -33,7 +33,7 @@ for each control.
 | Content privacy | nothing but encrypted setup traffic reaches the server | `server/test/p2p-e2e.test.ts` › keeps document text … off the control plane |
 | Signaling | in-band ticket auth (never in URLs), 64 KB messages, 60 msgs / 10 s, closed at ticket expiry | `server/test/signal.test.ts` |
 | Input validation | Valibot schemas on every body, 64 KB body limit, path-safety on project paths (no `..`, absolute, backslash, control chars; unsafe paths from peers are neutralised), zip-slip and zip-bomb checks | server tests, `packages/sync/test/model-sync.test.ts`, `apps/web/test/libs.test.ts` |
-| Compilation | shell-escape disabled, `openin_any/openout_any=p`, working-directory confinement, timeout, memory limit (job object / rlimit), process-tree kill | `cargo test` in `apps/desktop/src-tauri` (includes a negative control proving `\write18` runs without the flag) |
+| Compilation | shell-escape disabled; no absolute or `../` file access (`openin_any/openout_any=p` on TeX Live/MacTeX, `MIKTEX_CORE_ALLOWUNSAFEINPUTFILES/OUTPUTFILES=f` on MiKTeX); `latexmk -norc`, and project `latexmkrc`/`.latexmkrc` files (Perl) are never written to the build directory; working-directory confinement, timeout, memory limit (job object / rlimit), process-tree kill | `cargo test` in `apps/desktop/src-tauri`: `\write18` negative control, `project_latexmkrc_is_never_executed`, `files_outside_the_project_are_not_read` (absolute and `../`); runs on Windows/MiKTeX, macOS and Linux in CI |
 | Folder mirror | commands only reach folders the user bound; traversal and symlink escapes refused | Rust `mirror` tests |
 | Secrets | session token and device keys in the OS credential store; GitHub tokens never persisted server-side (sealed hand-off, one-time, 2 min) | desktop tests, `server/test/github.test.ts` |
 | Web hardening | CSP (no inline script, no eval, `frame-ancestors 'none'`), HSTS, `nosniff`, no-referrer, Permissions-Policy; pdf.js without system fonts | `vercel.json`; Tauri CSP test |
@@ -54,8 +54,10 @@ for each control.
 
 ## Residual risks and limitations (documented, not fixed)
 
-* **Compiling untrusted LaTeX on a collaborator's machine.** Shell escape is off and TeX Live's paranoid file access is on, but MiKTeX
-  does not implement `openin_any`, so a hostile document can read files by absolute path. Only collaborate (and let others compile) with people you trust.
+* **Compiling untrusted LaTeX on a collaborator's machine.** Shell escape is off, files outside the project cannot be read on any
+  supported distribution (MiKTeX included, since it is now started with its unsafe-path switches off), and project build-tool
+  configuration is ignored. TeX engines are still large programs processing untrusted input without an OS sandbox: only let
+  people you trust compile on your machine.
 * **Removed members keep their local copy**; they stop receiving updates within about a minute.
 * **A viewer cannot bootstrap a newcomer.** Viewers' state messages are dropped by design, so a new member needs an editor/owner online (or the GitHub backup).
 * **Metadata** is visible to the control plane: accounts, which projects exist and who is a member, device public keys, when devices are online. Content is not.

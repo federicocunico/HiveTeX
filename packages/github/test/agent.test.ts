@@ -184,3 +184,48 @@ describe('backup agent: scheduling and writer election (10.4, 10.5)', () => {
     expect(() => agent.setPolicy({ idleMinutes: 1 })).toThrow(/Only owners/);
   });
 });
+
+describe('backup binding authority (security)', () => {
+  it('never pushes to a binding an editor wrote into the shared metadata', async () => {
+    net = await Net.create();
+    const gh = new FakeGitHub();
+    gh.repo('owner/paper', { empty: true });
+    gh.repo('owner/other-private-repo', { empty: true });
+    const clock = { t: Date.UTC(2026, 0, 1, 10, 0) };
+    const owner = await net.add('olga', 'owner');
+    const editor = await net.add('eve', 'editor');
+    await net.link(owner, editor);
+    const authorized = { value: 'owner/paper@main' as string | null };
+    const agent = new BackupAgent({
+      mesh: owner.mesh,
+      model: owner.model,
+      blobs: new BlobManager(owner.mesh, owner.store),
+      self: { dev: owner.dev, uname: 'olga' },
+      getRole: () => 'owner',
+      getToken: async () => 'owner-token',
+      fetchImpl: gh.fetch,
+      now: () => clock.t,
+      tickMs: 1_000_000,
+      authorizedBinding: () => authorized.value,
+    });
+    agents.push(agent);
+    agent.start();
+    await owner.model.createTextNow('main.tex', 'secret draft');
+
+    // a modified editor client rewrites the shared binding to another repository the owner can write
+    editor.model.meta.set('backupBinding', JSON.stringify({ repo: { owner: 'owner', repo: 'other-private-repo' }, branch: 'main' }));
+    await waitFor(() => agent.binding?.repo.repo === 'other-private-repo');
+    expect(agent.bindingMismatch).toBe(true);
+    clock.t += 60 * 60_000;
+    await agent.tick();
+    await expect(agent.backupNow()).rejects.toThrow(/not set by an owner/);
+    expect(agent.pushes).toBe(0);
+    expect(gh.repo('owner/other-private-repo').refs.size).toBe(0);
+
+    // the owner's own binding (matching the control plane) works
+    agent.setBinding({ repo: { owner: 'owner', repo: 'paper' }, branch: 'main' });
+    expect(agent.bindingMismatch).toBe(false);
+    await agent.backupNow();
+    expect(gh.repo('owner/paper').files('main')['main.tex']).toBe('secret draft');
+  });
+});

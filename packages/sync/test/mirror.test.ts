@@ -92,7 +92,9 @@ describe('local folder mirror (9.3)', () => {
     // external tool changes the middle line; bob appends at the end meanwhile
     await writeFile(join(dir, 'main.tex'), 'AAA\nBBB-edited\nCCC');
     bt.insert(bt.length, '\nDDD');
-    await waitFor(async () => (await read(dir, 'main.tex')) === 'AAA\nBBB-edited\nCCC\nDDD');
+    await waitFor(async () => (await read(dir, 'main.tex')) === 'AAA\nBBB-edited\nCCC\nDDD').catch(async (e) => {
+      throw new Error(`DISK=${JSON.stringify(await read(dir, 'main.tex'))} DOC=${JSON.stringify(bt.toString())} ${e}`);
+    });
     await waitFor(async () => bt.toString() === 'AAA\nBBB-edited\nCCC\nDDD');
   });
 

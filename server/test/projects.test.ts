@@ -86,6 +86,17 @@ describe('joining (4.2)', () => {
     env.advance(16 * 60 * 1000);
     expect((await j.post('/projects/join', { slug: 'rate-limited-1', password: PPW })).status).toBe(200);
   });
+  it('limits failed joins across project IDs (no ID scanning)', async () => {
+    await owner('scan-target-1');
+    const j = await register(env, 'scanner');
+    for (let i = 0; i < 20; i++) {
+      expect((await j.post('/projects/join', { slug: `guess-${i}-xyz`, password: '' })).status).toBe(404);
+    }
+    // even a real project with the right password is refused now, for a slug never tried before
+    expect((await j.post('/projects/join', { slug: 'scan-target-1', password: PPW })).status).toBe(429);
+    env.advance(16 * 60 * 1000);
+    expect((await j.post('/projects/join', { slug: 'scan-target-1', password: PPW })).status).toBe(200);
+  });
   it('refuses banned users even with the correct password', async () => {
     const { o, p } = await owner('ban-test-1');
     const j = await register(env, 'mona');

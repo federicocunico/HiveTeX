@@ -1,4 +1,4 @@
-import { BLOB_CHUNK_SIZE, MsgType } from '@p2platex/protocol';
+import { BLOB_CHUNK_SIZE, MAX_BLOB_BYTES, MsgType } from '@p2platex/protocol';
 import { jsonBytes, parseJson, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
 import { sha256Hex } from './model.js';
@@ -13,7 +13,12 @@ interface Pending {
   /** Which device supplied each chunk (for attribution when the final hash does not match). */
   from: Map<number, string>;
   waiters: Array<() => void>;
+  /** Peers that announced an impossible transfer for this blob (ignored for the rest of this fetch). */
+  bad: Set<string>;
 }
+
+/** Most chunks a legitimate blob can have; larger announced totals are refused before allocating anything. */
+const MAX_CHUNKS = Math.ceil(MAX_BLOB_BYTES / BLOB_CHUNK_SIZE);
 
 function encodeChunk(hash: string, index: number, total: number, bytes: Uint8Array): Uint8Array {
   const h = utf8(hash);
@@ -50,6 +55,8 @@ export class BlobManager {
   private inflight = new Map<string, Promise<Uint8Array>>();
   /** Test hook: corrupt outgoing chunks from this node. */
   corruptOutgoing = false;
+  /** Test hook: announce this chunk count instead of the real one (a lying peer). */
+  lieAboutTotal: number | null = null;
   requestTimeoutMs = 4000;
 
   constructor(
@@ -108,7 +115,7 @@ export class BlobManager {
         chunk = chunk.slice();
         chunk[0] = (chunk[0] as number) ^ 0xff;
       }
-      await this.mesh.sendTo(from.deviceId, MsgType.BLOB_CHUNK, encodeChunk(req.hash, i, total, chunk), true);
+      await this.mesh.sendTo(from.deviceId, MsgType.BLOB_CHUNK, encodeChunk(req.hash, i, this.lieAboutTotal ?? total, chunk), true);
     }
   }
 
@@ -116,6 +123,11 @@ export class BlobManager {
     const c = decodeChunk(payload);
     const w = this.pending.get(c.hash);
     if (!w) return;
+    if (c.total === 0 || c.total > MAX_CHUNKS) {
+      w.bad.add(from.deviceId);
+      for (const f of w.waiters.splice(0)) f();
+      return;
+    }
     if (w.total === 0) w.total = c.total;
     if (c.total !== w.total || c.index >= w.total) return;
     if (!w.chunks.has(c.index)) {
@@ -150,7 +162,7 @@ export class BlobManager {
     if (local) return local;
     const deadline = Date.now() + timeoutMs;
     const banned = new Set<string>();
-    const w: Pending = { hash, total: 0, chunks: new Map(), from: new Map(), waiters: [] };
+    const w: Pending = { hash, total: 0, chunks: new Map(), from: new Map(), waiters: [], bad: new Set() };
     this.pending.set(hash, w);
     const wait = (ms: number) =>
       new Promise<void>((resolve) => {
@@ -166,6 +178,8 @@ export class BlobManager {
     let lastProbe = 0;
 
     while (Date.now() < deadline) {
+      for (const d of w.bad) banned.add(d);
+      if (singleSource && banned.has(singleSource)) singleSource = null;
       const peers = singleSource ? [singleSource] : this.candidates(hash, banned);
       if (peers.length === 0) {
         await wait(100);

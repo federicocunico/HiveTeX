@@ -16,6 +16,7 @@ const ROLES = ['owner', 'editor', 'viewer'] as const;
 type Role = (typeof ROLES)[number];
 const JOIN_FAILS = 5;
 const JOIN_WINDOW = 900;
+const JOIN_FAILS_ANY = 20;
 
 const SlugSchema = v.pipe(v.string(), v.trim(), v.toLowerCase(), v.regex(SLUG_RE, 'ID must be 6-48 chars of a-z 0-9 -'));
 const ProjectPw = v.pipe(v.string(), v.minLength(8, 'Project password must be at least 8 characters'), v.maxLength(256));
@@ -151,15 +152,22 @@ projectRoutes.post('/join', async (c) => {
   const body = await parseBody(c, v.object({ slug: SlugSchema, password: v.optional(v.pipe(v.string(), v.maxLength(256)), '') }));
   const kUser = `joinfail:${body.slug}:u:${u.id}`;
   const kIp = `joinfail:${body.slug}:ip:${c.get('ip')}`;
+  // Across all project IDs too: otherwise an account could scan for unprotected projects one ID at a time.
+  const kAnyUser = `joinfail:any:u:${u.id}`;
+  const kAnyIp = `joinfail:any:ip:${c.get('ip')}`;
   if (
     (await deps.limiter.peek(kUser, JOIN_WINDOW)) >= JOIN_FAILS ||
-    (await deps.limiter.peek(kIp, JOIN_WINDOW)) >= JOIN_FAILS
+    (await deps.limiter.peek(kIp, JOIN_WINDOW)) >= JOIN_FAILS ||
+    (await deps.limiter.peek(kAnyUser, JOIN_WINDOW)) >= JOIN_FAILS_ANY ||
+    (await deps.limiter.peek(kAnyIp, JOIN_WINDOW)) >= JOIN_FAILS_ANY
   ) {
     throw new AppError(429, 'rate_limited', 'Too many failed attempts; try again later', { 'Retry-After': '900' });
   }
   const fail = async () => {
     await deps.limiter.hit(kUser, JOIN_FAILS, JOIN_WINDOW);
     await deps.limiter.hit(kIp, JOIN_FAILS, JOIN_WINDOW);
+    await deps.limiter.hit(kAnyUser, JOIN_FAILS_ANY, JOIN_WINDOW);
+    await deps.limiter.hit(kAnyIp, JOIN_FAILS_ANY, JOIN_WINDOW);
     return new AppError(404, 'join_failed', 'Project not found or wrong password');
   };
 
@@ -343,7 +351,7 @@ projectRoutes.post('/:id/ticket', rateLimit('ticket', 120, 900), async (c) => {
     { v: 1, pid: p.id, uid: u.id, uname: u.username, dev: dev.id, devX: dev.x25519Pub, devE: dev.ed25519Pub, role: m.role as Role, ep: p.epoch },
     nowSec,
   );
-  return c.json({ ticket, expiresAt: (nowSec + 15 * 60) * 1000, epoch: p.epoch });
+  return c.json({ ticket, expiresAt: (nowSec + 15 * 60) * 1000, epoch: p.epoch, githubRepo: p.githubRepo ?? null });
 });
 
 export const keyRoutes = new Hono<Env>();

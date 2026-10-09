@@ -1,4 +1,6 @@
-import { type TicketClaims, type TrustedKey } from '@p2platex/protocol';
+import { randomBytes } from 'node:crypto';
+import { fromB64u, verify } from '@p2platex/crypto';
+import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@p2platex/protocol';
 import { importJWK, jwtVerify } from 'jose';
 import type { Deps } from '../deps.js';
 
@@ -102,8 +104,10 @@ export async function verifyServerTicket(deps: Deps, ticket: string): Promise<Ti
 
 /**
  * Drives one WebSocket. Returns handlers the transport adapter wires to the socket's events.
- * Protocol (JSON): client {t:'auth',ticket} | {t:'sig',to,env} | {t:'ping'};
+ * Protocol (JSON): server first sends {t:'challenge',nonce}; client {t:'auth',ticket,sig} | {t:'sig',to,env} | {t:'ping'};
  * server {t:'ready',tickets} | {t:'join',ticket} | {t:'leave',dev} | {t:'sig',from,fromTicket,env} | {t:'err',code}.
+ * `sig` is the device's Ed25519 signature of signalAuthMessage(pid, dev, nonce): presence tickets are visible to every
+ * member, so the ticket alone must not be enough to appear (or disappear) as that device.
  */
 export function createSignalSession(sock: SocketLike, deps: Deps, backend: SignalBackend) {
   let claims: TicketClaims | null = null;
@@ -115,6 +119,8 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
   const send = (o: unknown) => {
     if (!closed) sock.send(JSON.stringify(o));
   };
+  const nonce = randomBytes(32).toString('base64url');
+  send({ t: 'challenge', nonce });
 
   const cleanup = async () => {
     if (closed) return;
@@ -127,10 +133,12 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     }
   };
 
-  async function onAuth(ticket: string) {
+  async function onAuth(ticket: string, sig: string) {
     let c: TicketClaims;
     try {
       c = await verifyServerTicket(deps, ticket);
+      const proof = await verify(c.devE, new TextEncoder().encode(signalAuthMessage(c.pid, c.dev, nonce)), fromB64u(sig));
+      if (!proof) throw new Error('key possession proof failed');
     } catch {
       send({ t: 'err', code: 'bad_ticket' });
       sock.close(4401, 'bad ticket');
@@ -169,14 +177,14 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
         send({ t: 'err', code: 'rate_limited' });
         return void sock.close(4429, 'rate limited');
       }
-      let m: { t?: string; ticket?: string; to?: string; env?: string };
+      let m: { t?: string; ticket?: string; sig?: string; to?: string; env?: string };
       try {
         m = JSON.parse(data);
       } catch {
         return void sock.close(1003, 'bad json');
       }
       if (!claims) {
-        if (m.t === 'auth' && typeof m.ticket === 'string') await onAuth(m.ticket);
+        if (m.t === 'auth' && typeof m.ticket === 'string' && typeof m.sig === 'string') await onAuth(m.ticket, m.sig);
         else sock.close(4401, 'auth required');
         return;
       }

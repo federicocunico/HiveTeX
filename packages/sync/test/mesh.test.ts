@@ -187,3 +187,53 @@ describe('blob transfer (6.7)', () => {
     await expect(bb.fetch('0'.repeat(64), 600)).rejects.toThrow(/unavailable/);
   });
 });
+
+describe('ticket refresh monotonicity (security)', () => {
+  it('a demoted member cannot regain write access by replaying an older ticket', async () => {
+    net = await Net.create();
+    const clock = { t: Date.now() };
+    net.auth.now = () => new Date(clock.t);
+    const meshOpts = { epochGraceMs: 60_000, policyIntervalMs: 1_000_000 };
+    const owner = await net.add('owen', 'owner', { meshOpts });
+    const dee = await net.add('dee', 'editor', { meshOpts });
+    await net.link(owner, dee);
+    const deeKeys = (dee.mesh as unknown as { o: { keys: never } }).o.keys;
+    const mint = (role: 'editor' | 'viewer', ep: number, iat: number) =>
+      net.auth.mint({ pid: 'proj1', uid: 'u-dee', uname: 'dee', dev: dee.dev, keys: deeKeys, role, ep }, { iat });
+    const oldEditor = await mint('editor', 1, Math.floor(clock.t / 1000));
+
+    // owner demotes dee: epoch 2, dee's honest client fetches its new viewer ticket
+    net.auth.epoch = 2;
+    owner.mesh.broadcast(0x20, new TextEncoder().encode(JSON.stringify({ epoch: 2 })));
+    clock.t += 5_000;
+    dee.mesh.refreshOwnTicket(await mint('viewer', 2, Math.floor(clock.t / 1000)));
+    await waitFor(() => owner.mesh.peers[0]?.claims.role === 'viewer');
+
+    // a modified client replays the older, still unexpired editor ticket
+    dee.mesh.refreshOwnTicket(oldEditor);
+    await new Promise((r) => setTimeout(r, 50));
+    const id = await dee.model.createTextNow('evil.tex', 'written after demotion');
+    void id;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(owner.model.find('evil.tex')).toBeUndefined();
+    expect(owner.mesh.peers.find((p) => p.claims.uname === 'dee')?.claims.role ?? 'gone').not.toBe('editor');
+  });
+});
+
+describe('blob transfer bounds (security)', () => {
+  it('ignores a peer announcing an impossible chunk count and fetches from an honest one', async () => {
+    net = await Net.create();
+    const [liar, honest, me] = [await net.add('lia', 'editor'), await net.add('hon', 'editor'), await net.add('me', 'editor')];
+    await net.fullMesh();
+    const [bl, bh, bm] = [liar, honest, me].map((n) => new BlobManager(n.mesh, n.store));
+    const data = randomBytes(200 * 1024);
+    const hash = await bl!.add(data);
+    await bh!.add(data);
+    bl!.lieAboutTotal = 0xffffffff; // ~68 TB: would hang/allocate if adopted
+    await waitFor(() => (bm as unknown as { peerHas: Map<string, Set<string>> }).peerHas.size === 2);
+    const t0 = Date.now();
+    const got = await bm!.fetch(hash, 20_000);
+    expect(same(got, data)).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+  }, 30_000);
+});

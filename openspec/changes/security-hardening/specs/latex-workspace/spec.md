@@ -1,0 +1,22 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: Local folder mirror (desktop)
+The desktop app SHALL let a member bind a project to a local folder. Project state SHALL be written to the folder as plain files, and changes made to those files by any external program SHALL be merged into the project as normal edits by that member. The folder SHALL be chosen by the user in a native dialog; the app SHALL NOT read or write folders whose path was supplied by page content.
+
+#### Scenario: External AI tool edits a file
+- **WHEN** Claude Code (or any program) modifies `sections/method.tex` in the bound folder
+- **THEN** the change appears in the editor and on co-authors' devices as an edit attributed to the local member
+
+#### Scenario: Remote edit while folder is bound
+- **WHEN** a co-author edits `main.tex` remotely
+- **THEN** the bound folder's `main.tex` is updated on disk within 1 second
+
+#### Scenario: Viewer folder
+- **WHEN** a viewer binds a folder and an external program modifies a file in it
+- **THEN** the change is not propagated, the file is restored to project state, and the user is notified
+
+#### Scenario: Path supplied by script
+- **WHEN** script running in the app asks the native side to mirror or import a folder by path, without the user picking it
+- **THEN** the request is refused and no file outside user-picked folders is read or written

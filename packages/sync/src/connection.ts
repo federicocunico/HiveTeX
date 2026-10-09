@@ -200,6 +200,8 @@ export class PeerConnection {
     if (!cur || c.pid !== cur.pid || c.uid !== cur.uid || c.dev !== cur.dev || c.devE !== cur.devE) {
       throw new AuthError('ticket refresh for a different identity');
     }
+    // Never go back in time: an older (still unexpired) ticket could restore a role the owner has since lowered.
+    if (c.ep < cur.ep || c.iat < cur.iat) throw new AuthError('ticket refresh older than the current ticket');
     this.claims = c;
     this.ticketRaw = ticket;
     this.lastTicketAt = (this.o.now ?? (() => new Date()))().getTime();

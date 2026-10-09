@@ -47,10 +47,13 @@ export async function tauriFs(id: string, dir: string): Promise<FsAdapter & { di
   };
 }
 
+/**
+ * Opens the native folder picker (from Rust). Only folders chosen this way can later be mirrored or imported:
+ * the native side refuses paths that merely come from page script.
+ */
 export async function pickFolder(title = 'Choose a folder to mirror this project'): Promise<string | null> {
-  const { open } = await import('@tauri-apps/plugin-dialog');
-  const r = await open({ directory: true, multiple: false, title });
-  return typeof r === 'string' ? r : null;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string | null>('mirror_pick', { title });
 }
 
 /**

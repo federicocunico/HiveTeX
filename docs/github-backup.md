@@ -23,10 +23,19 @@ account/organization and selects the repositories it may access — the app can 
 
 *Project settings → GitHub backup*:
 
-1. **Connect GitHub** – opens GitHub in your browser. The server exchanges the code (it holds the client secret) but hands the
-   tokens to your device *encrypted to your device key* via a one-time, two-minute hand-off; only your GitHub login is stored.
-   Tokens live in the OS credential store (desktop) or session storage (browser).
-2. **Link a repository** (owners) – create a new private repository or pick an existing one, plus a branch.
+1. **Connect GitHub**: opens GitHub in your browser. After you authorize, GitHub returns to the p2platex web app
+   (`#/github-continue`). The app completes the link **with the account you are signed in with there**; if needed, it asks
+   you to sign in first and then continues. The server exchanges the code only if that account is the one that started the
+   link, and hands the tokens to the starting device *encrypted to its device key* via a one-time, two-minute hand-off.
+   Only your GitHub login is stored. Tokens live in the OS credential store (desktop) or session storage (browser).
+   * **Desktop users**: GitHub opens in your system browser. Be signed in to the same p2platex account there (the page
+     asks if you are not).
+   * **Security**: a forwarded "Connect GitHub" link cannot link someone else's GitHub account to yours. Completion fails
+     with "started by another account" and nothing is exchanged.
+2. **Link a repository** (owners): create a new private repository or pick an existing one, plus a branch. The choice is
+   recorded on the server (owners only). Devices push **only** to that repository: if the copy in the shared project data
+   points elsewhere (for example, written by a modified editor client), backups stop and the panel says the target was not
+   set by an owner.
 3. **When to back up** (owners): after N minutes idle (default 15), after N changes, at most every M minutes (default 5),
    optionally including the compiled PDF. **Back up now** works from any device that has GitHub access.
 

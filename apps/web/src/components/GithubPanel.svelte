@@ -21,6 +21,7 @@
   const binding = $derived(session.githubBinding);
   const policy = $derived((void session.backupTick, session.backup?.policy ?? DEFAULT_POLICY));
   const meta = $derived((void session.backupTick, session.backup?.meta));
+  const mismatch = $derived((void session.backupTick, session.backup?.bindingMismatch ?? false));
   const writerName = $derived.by(() => {
     void session.backupTick;
     const w = session.backup?.writer();
@@ -120,6 +121,7 @@
         · {meta?.changesSince ?? 0} change{meta?.changesSince === 1 ? '' : 's'} since
         {#if writerName}· pushed by {writerName}{:else}· no device with GitHub access is online{/if}
       </p>
+      {#if mismatch}<div class="error" data-testid="github-mismatch">This target was not set by an owner of the project (owner setting: {session.project.githubRepo ?? 'none'}). Nothing is pushed until an owner links the repository again.</div>{/if}
       {#if meta?.lastError}<div class="error" data-testid="github-error">{meta.lastError}</div>{/if}
       <button onclick={now} disabled={busy || !hasToken} data-testid="github-now">Back up now</button>
     </div>

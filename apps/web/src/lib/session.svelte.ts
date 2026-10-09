@@ -164,9 +164,15 @@ export class ProjectSession {
       self: { dev: this.deviceId, uname: this.user.username },
       getRole: () => this.role,
       getToken: () => getGithubToken(),
+      // Only the owner-recorded repository (control plane) is ever pushed to.
+      authorizedBinding: () => this.project.githubRepo ?? null,
       extraFiles: async () => (this.pdf ? new Map([[`${String(this.model.settings.get('main') ?? 'main.tex').replace(/\.tex$/, '')}.pdf`, this.pdf]]) : new Map()),
     });
-    this.backup.statusCbs.add(() => this.backupTick++);
+    this.backup.statusCbs.add(() => {
+      this.backupTick++;
+      // An owner on another device just changed the binding: refresh the authoritative copy (throttled).
+      if (this.backup?.bindingMismatch) void this.refreshAuthorizedBinding();
+    });
     this.backup.start();
     this.dedupeTimer = undefined;
     this.model.onFilesChanged(() => this.scheduleDedupe());
@@ -211,14 +217,30 @@ export class ProjectSession {
     } else {
       await client.repo({ owner, repo }); // verifies access
     }
-    this.backup.setBinding({ repo: { owner, repo }, branch });
+    // Control plane first: it is the authority the backup writer checks before pushing.
     await api('PATCH', `/projects/${this.project.id}`, { githubRepo: `${owner}/${repo}@${branch}` });
+    this.project.githubRepo = `${owner}/${repo}@${branch}`;
+    this.backup.setBinding({ repo: { owner, repo }, branch });
     await this.backup.tokenChanged();
   }
 
+  private bindingCheckedAt = 0;
+  private async refreshAuthorizedBinding() {
+    if (Date.now() - this.bindingCheckedAt < 30_000) return;
+    this.bindingCheckedAt = Date.now();
+    try {
+      const r = await api<{ project: ProjectInfo }>('GET', `/projects/${this.project.id}`);
+      this.project.githubRepo = r.project.githubRepo ?? null;
+      this.backupTick++;
+    } catch {
+      /* offline: keep refusing to push until the owner's binding can be confirmed */
+    }
+  }
+
   async unlinkGithub() {
-    this.backup?.setBinding(null);
     await api('PATCH', `/projects/${this.project.id}`, { githubRepo: null });
+    this.project.githubRepo = null;
+    this.backup?.setBinding(null);
   }
 
   /** Loads the last backup from GitHub (used when no collaborator is online). Returns the number of files. */
@@ -404,7 +426,8 @@ export class ProjectSession {
     if (this.ticketTimer) clearTimeout(this.ticketTimer);
     let next = 15_000;
     try {
-      const r = await api<{ ticket: string; expiresAt: number }>('POST', `/projects/${this.project.id}/ticket`, { deviceId: this.deviceId });
+      const r = await api<{ ticket: string; expiresAt: number; githubRepo?: string | null }>('POST', `/projects/${this.project.id}/ticket`, { deviceId: this.deviceId });
+      if (r.githubRepo !== undefined) this.project.githubRepo = r.githubRepo;
       const first = !this.ticket;
       this.ticket = r.ticket;
       const claims = decodeClaims(r.ticket);

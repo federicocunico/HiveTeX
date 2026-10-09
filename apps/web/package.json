@@ -25,7 +25,6 @@
     "@p2platex/protocol": "workspace:*",
     "@p2platex/sync": "workspace:*",
     "@tauri-apps/api": "^2.12.2",
-    "@tauri-apps/plugin-dialog": "^2.8.1",
     "@tauri-apps/plugin-opener": "^2.7.0",
     "@tauri-apps/plugin-updater": "^2.13.2",
     "fflate": "^0.8.3",

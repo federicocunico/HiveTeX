@@ -109,6 +109,12 @@ pub fn detect() -> Option<EngineInfo> {
     Some(EngineInfo { flavor, supports, has_latexmk: find_exe("latexmk").is_some() })
 }
 
+/// Build tool configuration that must never come from a project (latexmk rc files are executable Perl).
+pub fn is_build_tool_config(rel: &str) -> bool {
+    let name = rel.rsplit('/').next().unwrap_or(rel).to_ascii_lowercase();
+    name == "latexmkrc" || name == ".latexmkrc"
+}
+
 /// Accepts only plain relative paths made of normal components.
 pub fn safe_rel(p: &str) -> Option<PathBuf> {
     if p.is_empty() || p.contains('\0') || p.contains('\\') && cfg!(not(windows)) {
@@ -266,7 +272,11 @@ fn base_command(exe: PathBuf, dir: &Path) -> Command {
         .env("openout_any", "p")
         .env("openin_any", "p")
         .env("shell_escape", "f")
-        .env("TEXMF_OUTPUT_DIRECTORY", ".");
+        .env("TEXMF_OUTPUT_DIRECTORY", ".")
+        // MiKTeX ignores openin_any/openout_any: these per-process switches make it refuse absolute and
+        // parent-directory paths too (without touching the user's global MiKTeX configuration).
+        .env("MIKTEX_CORE_ALLOWUNSAFEINPUTFILES", "f")
+        .env("MIKTEX_CORE_ALLOWUNSAFEOUTPUTFILES", "f");
     c
 }
 
@@ -292,6 +302,10 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
             return resp;
         };
         let key = rel.to_string_lossy().replace('\\', "/");
+        if is_build_tool_config(&key) {
+            // latexmk rc files are Perl: never place a collaborator's copy where latexmk could read it.
+            continue;
+        }
         wanted.insert(key.clone(), f.hash.clone());
         let current = manifest.get(&key) == Some(&f.hash) && dir.join(&rel).is_file();
         if current {
@@ -362,7 +376,8 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
             "lualatex" => "-lualatex",
             _ => "-pdf",
         })
-        .args(["-interaction=nonstopmode", "-synctex=1", "-latexoption=-no-shell-escape"]);
+        // -norc: ignore every latexmkrc (system, user and the project's own); all options come from here.
+        .args(["-norc", "-interaction=nonstopmode", "-synctex=1", "-latexoption=-no-shell-escape"]);
         if let Some(i) = installer {
             cmd.arg(format!("-latexoption={i}"));
         }
@@ -517,6 +532,39 @@ mod tests {
         );
         let _ = compile(&root, req("p4", vec![file("main.tex", &doc)], 60_000));
         assert!(!root.join("builds/p4/pwned.txt").exists(), "shell escape executed!");
+    }
+
+    #[test]
+    fn project_latexmkrc_is_never_executed() {
+        if detect().map(|i| i.has_latexmk) != Some(true) {
+            return;
+        }
+        let root = tmp("rc");
+        // latexmk rc files are Perl: a collaborator could run anything on the compile leader.
+        let marker = root.join("rc-pwned.txt");
+        let perl = format!("open(my $f, '>', '{}'); print $f 'pwned'; close($f);\n", marker.to_string_lossy().replace('\\', "/"));
+        let files = vec![file("main.tex", DOC), file(".latexmkrc", &perl), file("latexmkrc", &perl)];
+        let r = compile(&root, req("p9", files, 120_000));
+        assert!(!marker.exists(), "latexmkrc from the project was executed! log: {}", r.log);
+        assert!(!root.join("builds/p9/.latexmkrc").exists() && !root.join("builds/p9/latexmkrc").exists());
+        assert!(r.ok, "the document itself must still compile: {}", r.log);
+    }
+
+    #[test]
+    fn files_outside_the_project_are_not_read() {
+        if detect().is_none() {
+            return;
+        }
+        let root = tmp("outside");
+        // If TeX ever reads this file the log contains LEAKED.
+        let secret = root.join("secret.tex");
+        fs::write(&secret, "\\errmessage{LEAKED}\n").unwrap();
+        let abs = secret.to_string_lossy().replace('\\', "/");
+        for (n, target) in [("abs", abs.as_str()), ("rel", "../../secret.tex")] {
+            let doc = format!("\\documentclass{{article}}\\begin{{document}}x\\input{{{target}}}\\end{{document}}\n");
+            let r = compile(&root, req(&format!("p10{n}"), vec![file("main.tex", &doc)], 60_000));
+            assert!(!r.log.contains("LEAKED"), "{n}: a file outside the project was read:\n{}", r.log);
+        }
     }
 
     #[test]

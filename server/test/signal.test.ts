@@ -1,4 +1,5 @@
-import { generateDeviceKeys, open, seal } from '@p2platex/crypto';
+import { type StoredDeviceKeys, generateDeviceKeys, open, seal, sign, toB64u } from '@p2platex/crypto';
+import { signalAuthMessage } from '@p2platex/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cloudflareTurn } from '../src/signal/turn.js';
 import { MemorySignalBackend, createSignalSession } from '../src/signal/hub.js';
@@ -20,6 +21,13 @@ class FakeSocket {
   async say(o: unknown) {
     await this.handlers.onMessage(JSON.stringify(o));
   }
+  /** Answers the relay's challenge with a signature from `keys` (the honest client does this automatically). */
+  async auth(who: { ticket: string; keys: StoredDeviceKeys }, pid = PID.value) {
+    const ch = await this.until((m) => m.t === 'challenge');
+    const dev = JSON.parse(Buffer.from(who.ticket.split('.')[1] ?? '', 'base64url').toString()).dev as string;
+    const sig = await sign(who.keys, new TextEncoder().encode(signalAuthMessage(pid, dev, ch.nonce as string)));
+    await this.say({ t: 'auth', ticket: who.ticket, sig: toB64u(sig) });
+  }
   async until(pred: (m: Record<string, unknown>) => boolean, ms = 1000) {
     const end = Date.now() + ms;
     while (Date.now() < end) {
@@ -31,10 +39,13 @@ class FakeSocket {
   }
 }
 
+const PID = { value: '' };
+
 async function setup() {
   const owner = await register(env, 'olga');
   const pr = await owner.post('/projects', { slug: 'signal-proj-1', password: 'project-secret-1' });
   const pid = pr.json.project.id as string;
+  PID.value = pid;
   const joiner = await register(env, 'jim');
   await joiner.post('/projects/join', { slug: 'signal-proj-1', password: 'project-secret-1' });
   const mk = async (c: Client) => {
@@ -58,9 +69,9 @@ describe('signaling relay (5.1)', () => {
     const backend = new MemorySignalBackend(); // shared pub/sub = Upstash across function instances
     const sa = connect(backend);
     const sb = connect(backend); // "different instance"
-    await sa.say({ t: 'auth', ticket: a.ticket });
+    await sa.auth(a);
     await sa.until((m) => m.t === 'ready');
-    await sb.say({ t: 'auth', ticket: b.ticket });
+    await sb.auth(b);
     const ready = await sb.until((m) => m.t === 'ready');
     expect(ready.tickets).toEqual([a.ticket]); // presence
     await sa.until((m) => m.t === 'join');
@@ -80,7 +91,7 @@ describe('signaling relay (5.1)', () => {
   it('rejects bad tickets and unauthenticated messages', async () => {
     const backend = new MemorySignalBackend();
     const s1 = connect(backend);
-    await s1.say({ t: 'auth', ticket: 'not.a.ticket' });
+    await s1.say({ t: 'auth', ticket: 'not.a.ticket', sig: 'AAAA' });
     expect(s1.closed?.code).toBe(4401);
     const s2 = connect(backend);
     await s2.say({ t: 'sig', to: 'x', env: 'y' });
@@ -92,8 +103,8 @@ describe('signaling relay (5.1)', () => {
     const backend = new MemorySignalBackend();
     const sa = connect(backend);
     const sb = connect(backend);
-    await sa.say({ t: 'auth', ticket: a.ticket });
-    await sb.say({ t: 'auth', ticket: b.ticket });
+    await sa.auth(a);
+    await sb.auth(b);
     await sb.until((m) => m.t === 'ready');
     await sa.say({ t: 'sig', to: 'someone-else', env: 'AAAA' });
     await new Promise((r) => setTimeout(r, 20));
@@ -108,7 +119,7 @@ describe('signaling relay (5.1)', () => {
     const real = env.deps.now;
     env.deps.now = () => new Date(real().getTime() + 14.99 * 60_000);
     const s = connect(backend);
-    await s.say({ t: 'auth', ticket: a.ticket });
+    await s.auth(a);
     await s.until((m) => m.t === 'ready');
     await new Promise((r) => setTimeout(r, 700));
     expect(s.closed?.code).toBe(4401);
@@ -118,9 +129,37 @@ describe('signaling relay (5.1)', () => {
   it('rate limits chatty sockets', async () => {
     const { a } = await setup();
     const s = connect(new MemorySignalBackend());
-    await s.say({ t: 'auth', ticket: a.ticket });
+    await s.auth(a);
     for (let i = 0; i < 70; i++) await s.say({ t: 'ping' });
     expect(s.closed?.code).toBe(4429);
+  });
+});
+
+describe('signaling key-possession proof (security)', () => {
+  it('a member with a copied ticket but without the device key cannot appear or make the device disappear', async () => {
+    const { a, b } = await setup();
+    const backend = new MemorySignalBackend();
+    const victim = connect(backend);
+    await victim.auth(a);
+    await victim.until((m) => m.t === 'ready');
+    const watcher = connect(backend);
+    await watcher.auth(b);
+    await watcher.until((m) => m.t === 'ready');
+
+    // b learned a's ticket from presence and tries to connect as a, signing with b's own key
+    const thief = connect(backend);
+    await thief.auth({ ticket: a.ticket, keys: b.keys });
+    expect(thief.closed?.code).toBe(4401);
+    // a ticket without any signature is refused too (old clients)
+    const old = connect(backend);
+    await old.say({ t: 'auth', ticket: a.ticket });
+    expect(old.closed?.code).toBe(4401);
+    await old.handlers.onClose();
+    await thief.handlers.onClose();
+    await new Promise((r) => setTimeout(r, 20));
+    // no fake leave: a is still present for everyone
+    expect(watcher.inbox.some((m) => m.t === 'leave' && m.dev === JSON.parse(Buffer.from(a.ticket.split('.')[1] ?? '', 'base64url').toString()).dev)).toBe(false);
+    expect(Object.keys(await backend.getPresence(PID.value))).toHaveLength(2);
   });
 });
 

@@ -107,3 +107,24 @@ test('a member with repo access loads the project from GitHub when nobody is onl
   await ownerCtx.close();
   await guestCtx.close();
 });
+
+test('a forwarded GitHub authorization link cannot link the victim to the sender (security)', async ({ browser }) => {
+  const attackerCtx = await browser.newContext();
+  const victimCtx = await browser.newContext();
+  const attacker = await newUser(attackerCtx, 'mal');
+  const victim = await newUser(victimCtx, 'vic');
+  // The attacker starts a flow for their own account and device key...
+  const start = await attacker.page.request.post('/api/github/start', {
+    headers: { 'X-Requested-With': 'p2platex', 'Content-Type': 'application/json' },
+    data: { handoff: 'e2e-handoff-0123456789', pub: 'A'.repeat(43) },
+  });
+  const state = new URL((await start.json()).url).searchParams.get('state') as string;
+  // ...and the victim opens the link: GitHub (already authorized) redirects the victim's browser to the callback.
+  await victim.page.goto(`/api/github/callback?code=e2e-code&state=${state}`);
+  await expect(victim.page.getByTestId('github-continue-error')).toContainText('another account');
+  await expect(victim.page).not.toHaveURL(/code=/); // the code does not stay in the address bar
+  const h = await attacker.page.request.get('/api/github/handoff/e2e-handoff-0123456789', { headers: { 'X-Requested-With': 'p2platex' } });
+  expect((await h.json()).ready).toBe(false);
+  await attackerCtx.close();
+  await victimCtx.close();
+});

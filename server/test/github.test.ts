@@ -39,6 +39,16 @@ async function startFlow(c: Client) {
   return { keys, handoff, state, url: r.json.url as string };
 }
 
+/** GitHub redirects to /callback, which hands code+state to the web app; the app completes with its session. */
+async function complete(c: Client, state: string, code = 'goodcode') {
+  const cb = await env.app.request(`/api/github/callback?code=${code}&state=${state}`);
+  expect(cb.status).toBe(302);
+  const loc = cb.headers.get('location') as string;
+  expect(loc).toContain('#/github-continue?');
+  const q = new URLSearchParams(loc.split('?')[1]);
+  return c.post('/github/complete', { code: q.get('code'), state: q.get('state') });
+}
+
 describe('GitHub OAuth hand-off (10.1)', () => {
   it('builds an authorize URL for the GitHub App with a one-time state', async () => {
     const c = await register(env, 'gina');
@@ -52,9 +62,8 @@ describe('GitHub OAuth hand-off (10.1)', () => {
   it('exchanges the code, stores only the login link, and hands tokens to the device encrypted', async () => {
     const c = await register(env, 'hal');
     const f = await startFlow(c);
-    const cb = await env.app.request(`/api/github/callback?code=goodcode&state=${f.state}`);
-    expect(cb.status).toBe(302);
-    expect(cb.headers.get('location')).toContain('github-done?ok=1');
+    const done = await complete(c, f.state);
+    expect(done.json).toMatchObject({ ok: true, login: 'octocat' });
 
     // the client secret was used server-side
     expect(JSON.stringify(calls[0]?.body)).toContain('client-secret-xyz');
@@ -92,7 +101,7 @@ describe('GitHub OAuth hand-off (10.1)', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const c = await register(env, 'ida');
     const f = await startFlow(c);
-    await env.app.request(`/api/github/callback?code=goodcode&state=${f.state}`);
+    await complete(c, f.state);
     await c.get(`/github/handoff/${f.handoff}`);
     const logged = JSON.stringify([...spy.mock.calls, ...err.mock.calls]);
     expect(logged).not.toContain(SECRET_TOKEN);
@@ -103,12 +112,10 @@ describe('GitHub OAuth hand-off (10.1)', () => {
   it('rejects replayed, unknown and failed callbacks', async () => {
     const c = await register(env, 'jon');
     const f = await startFlow(c);
-    const bad = await env.app.request('/api/github/callback?code=goodcode&state=unknown-state');
-    expect(bad.headers.get('location')).toContain('ok=0');
-    const failed = await env.app.request(`/api/github/callback?code=bad&state=${f.state}`);
-    expect(failed.headers.get('location')).toContain('ok=0');
-    const replay = await env.app.request(`/api/github/callback?code=goodcode&state=${f.state}`);
-    expect(replay.headers.get('location')).toContain('ok=0'); // state was consumed
+    expect((await complete(c, 'unknown-state-0123456789')).status).toBe(410);
+    expect((await env.app.request('/api/github/callback?code=x&state=<script>')).headers.get('location')).toContain('github-done?ok=0');
+    expect((await complete(c, f.state, 'bad')).status).toBe(400);
+    expect((await complete(c, f.state)).status).toBe(410); // state was consumed
     expect((await c.get(`/github/handoff/${f.handoff}`)).json.ready).toBe(false);
   });
 
@@ -116,9 +123,26 @@ describe('GitHub OAuth hand-off (10.1)', () => {
     const a = await register(env, 'kim');
     const b = await register(env, 'lee');
     const f = await startFlow(a);
-    await env.app.request(`/api/github/callback?code=goodcode&state=${f.state}`);
+    await complete(a, f.state);
     expect((await b.get(`/github/handoff/${f.handoff}`)).status).toBe(403);
     expect((await a.get(`/github/handoff/${f.handoff}`)).json.ready).toBe(true);
+  });
+
+  it('a forwarded authorization link cannot hand the victim token to the account that started it', async () => {
+    const attacker = await register(env, 'mallory');
+    const victim = await register(env, 'victor');
+    const f = await startFlow(attacker);
+    // the victim opens the attacker's link; GitHub redirects the victim's browser, signed in as the victim
+    const r = await complete(victim, f.state);
+    expect(r.status).toBe(403);
+    expect(calls.some((x) => x.url === 'https://github.com/login/oauth/access_token')).toBe(false); // code never exchanged
+    expect((await attacker.get(`/github/handoff/${f.handoff}`)).json.ready).toBe(false);
+    expect(await env.db.select().from(schema.githubLinks)).toHaveLength(0);
+    // the state is burnt: the attacker cannot replay the victim's code either
+    expect((await complete(attacker, f.state)).status).toBe(410);
+    // and completing requires a session at all
+    const g = await startFlow(attacker);
+    expect((await complete(new Client(env), g.state)).status).toBe(401);
   });
 
   it('proxies refresh without persisting anything, and requires sign-in', async () => {
@@ -132,7 +156,7 @@ describe('GitHub OAuth hand-off (10.1)', () => {
   it('answers 501 when GitHub is not configured and supports unlinking', async () => {
     const c = await register(env, 'ned');
     const f = await startFlow(c);
-    await env.app.request(`/api/github/callback?code=goodcode&state=${f.state}`);
+    await complete(c, f.state);
     await c.del('/github/link');
     expect((await c.get('/github/link')).json.link).toBeNull();
     delete env.deps.github;

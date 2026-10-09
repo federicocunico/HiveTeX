@@ -28,7 +28,15 @@ export interface AgentOptions {
   /** Extra files to include (e.g. the latest PDF when the owner enabled it). */
   extraFiles?: () => Promise<Map<string, Uint8Array>>;
   tickMs?: number;
+  /**
+   * The binding an owner recorded on the control plane (`owner/repo@branch`), the only repository this device will
+   * push to. The copy in the shared project metadata is writable by any editor, so it is never trusted on its own.
+   * Omitted only in tests that do not exercise authority.
+   */
+  authorizedBinding?: () => string | null;
 }
+
+export const bindingKey = (b: Binding) => `${b.repo.owner}/${b.repo.repo}@${b.branch}`;
 
 const META = {
   binding: 'backupBinding',
@@ -171,11 +179,18 @@ export class BackupAgent {
 
   // ---- running backups ----
 
+  /** True when the shared binding is not the one an owner recorded on the control plane (never pushed to). */
+  get bindingMismatch(): boolean {
+    const b = this.binding;
+    if (!b || !this.o.authorizedBinding) return false;
+    return bindingKey(b) !== this.o.authorizedBinding();
+  }
+
   async tick() {
     if (this.running) return;
     if (this.now() - this.tokenCheckedAt > 5 * 60_000) await this.refreshToken();
     const b = this.binding;
-    if (!b || !this.isWriter()) return;
+    if (!b || !this.isWriter() || this.bindingMismatch) return;
     // A takeover can inherit unsaved work the previous writer never counted: treat unknown state as dirty.
     let m = this.meta;
     if (m.changesSince === 0 && m.lastSha === null && this.o.model.list().length > 0) {
@@ -189,6 +204,9 @@ export class BackupAgent {
   async backupNow(): Promise<PushResult | null> {
     const b = this.binding;
     if (!b) throw new Error('This project is not linked to a GitHub repository');
+    if (this.bindingMismatch) {
+      throw new Error(`Backup target ${bindingKey(b)} was not set by an owner of this project; nothing was pushed`);
+    }
     if (this.running) return null;
     this.running = true;
     try {

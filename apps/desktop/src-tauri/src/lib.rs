@@ -4,7 +4,7 @@ pub mod rtc;
 pub mod secrets;
 pub mod tex;
 
-use mirror::{Listed, MirrorState};
+use mirror::{Listed, MirrorState, PickedFolders};
 use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
@@ -21,8 +21,32 @@ async fn tex_compile(app: tauri::AppHandle, req: tex::CompileReq) -> Result<tex:
         .map_err(|e| e.to_string())
 }
 
+/// Opens the native folder dialog and records the choice; the only way a folder becomes usable by the webview.
 #[tauri::command]
-fn mirror_bind(app: tauri::AppHandle, state: State<'_, MirrorState>, id: String, dir: String) -> Result<(), String> {
+async fn mirror_pick(app: tauri::AppHandle, title: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let handle = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || handle.dialog().file().set_title(title).blocking_pick_folder())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    app.state::<PickedFolders>().add(&path)?;
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn mirror_bind(
+    app: tauri::AppHandle,
+    state: State<'_, MirrorState>,
+    picked: State<'_, PickedFolders>,
+    id: String,
+    dir: String,
+) -> Result<(), String> {
+    // Paths coming from page script are never trusted on their own: the user must have picked this folder.
+    if !picked.contains(std::path::Path::new(&dir)) {
+        return Err("This folder was not chosen in the folder picker on this device. Choose it again.".into());
+    }
     let event = format!("mirror://{id}");
     state.bind(&id, std::path::Path::new(&dir), move |rel| {
         let _ = app.emit(&event, rel);
@@ -139,12 +163,18 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let dir = app.path().app_data_dir()?;
+            app.manage(PickedFolders::load(dir.join("picked-folders.json")));
+            Ok(())
+        })
         .manage(MirrorState::default())
         .manage(probe::ProbeState::default())
         .manage(rtc::RtcState::default())
         .invoke_handler(tauri::generate_handler![
             tex_detect,
             tex_compile,
+            mirror_pick,
             mirror_bind,
             mirror_unbind,
             mirror_list,
@@ -192,7 +222,8 @@ mod config_tests {
         for p in &perms {
             assert!(!p.starts_with("shell:") && !p.starts_with("fs:") && !p.starts_with("http:") && !p.starts_with("process:"), "unexpected permission {p}");
         }
-        assert!(perms.contains(&"dialog:allow-open".to_string()));
+        // Folders come only from the native picker opened by Rust (mirror_pick), never from page script.
+        assert!(!perms.iter().any(|p| p.starts_with("dialog:")), "the webview must not open dialogs itself");
         assert_eq!(cap["windows"], serde_json::json!(["main"]));
     }
 
