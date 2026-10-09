@@ -8,5 +8,9 @@
     "build": "tsc --noEmit -p .",
     "lint": "biome lint src",
     "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "vitest": "^5.0.3"
   }
 }

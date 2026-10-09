@@ -9,5 +9,16 @@
     "lint": "biome lint src",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@p2platex/protocol": "workspace:*" }
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@p2platex/protocol": "workspace:*",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

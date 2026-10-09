@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@10.34.6",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "turbo run build",
     "lint": "turbo run lint",
@@ -12,9 +14,16 @@
     "format": "biome format --write ."
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@biomejs/biome": "^2.2.0",
+    "@playwright/test": "^1.64.0",
+    "fflate": "^0.8.3",
     "turbo": "^2.5.0",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@p2platex/server": "workspace:*",
+    "hono": "^4.9.0"
   }
 }

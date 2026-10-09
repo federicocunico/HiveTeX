@@ -1,0 +1,126 @@
+name: Desktop
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "packages/**"
+      - ".github/workflows/desktop.yml"
+
+jobs:
+  # Runs the Rust tests (real LaTeX compilation, shell-escape hardening, timeouts, folder mirror, OS keychain)
+  # on all three operating systems, with a TeX distribution installed so the TeX detection path is exercised.
+  rust-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config \
+            texlive-latex-base texlive-latex-recommended latexmk
+      - name: macOS TeX (BasicTeX)
+        if: runner.os == 'macOS'
+        run: |
+          brew install --cask basictex
+          echo "/Library/TeX/texbin" >> "$GITHUB_PATH"
+      - name: Windows TeX (MiKTeX)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install miktex --no-progress -y
+          echo "C:\Program Files\MiKTeX\miktex\bin\x64" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Prepare frontend dist (required by tauri::generate_context)
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @p2platex/web build
+      - name: Detect TeX
+        shell: bash
+        run: |
+          export PATH="$PATH:/Library/TeX/texbin"
+          which pdflatex || true
+          pdflatex --version | head -1 || true
+      - name: Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --lib
+
+  # Linux: a desktop instance and a browser instance sync a project (checks WebRTC works inside the webview/engine we ship).
+  e2e-sync:
+    runs-on: ubuntu-latest
+    needs: rust-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test e2e/auth-and-collab.spec.ts e2e/offline-and-compile.spec.ts
+        env: { CI: "true" }
+
+  # Tagged releases: signed installers + auto-update manifest (latest.json) on GitHub Releases.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: rust-tests
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target universal-apple-darwin"
+          - os: ubuntu-latest
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: apps/desktop/src-tauri }
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config
+      - run: pnpm install --frozen-lockfile
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing key: `pnpm --filter @p2platex/desktop tauri signer generate`; the public key is in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Optional OS code signing (without these, installers are unsigned and show SmartScreen/Gatekeeper warnings).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VITE_API_BASE: ${{ vars.P2PLATEX_API_BASE }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "p2platex ${{ github.ref_name }}"
+          releaseDraft: true
+          args: ${{ matrix.args }}

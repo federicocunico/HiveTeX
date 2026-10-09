@@ -1,0 +1,133 @@
+# Local stack with production parity: run `make up` (see docs/local-stack.md).
+# Default services: postgres + neon-proxy, redis + upstash (REST), mailpit, api, web.
+# Profiles: `turn` (coturn NAT relay), `texlive` (self-hosted TeX Live file server for the in-browser compiler).
+name: p2platex
+
+x-dev-env: &dev-env
+  env_file: docker/.env.stack
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: main
+    ports: ["${PG_PORT:-5432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d main"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  neon-proxy:
+    image: ghcr.io/timowilhelm/local-neon-http-proxy:main@sha256:cd2ae14edf2feafbc3330492de5c80506f77274c3bd013154cdef697bdeb768a
+    environment:
+      PG_CONNECTION_STRING: postgres://postgres:postgres@postgres:5432/main
+    ports: ["${NEON_PROXY_PORT:-4444}:4444"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  redis:
+    image: redis:7-alpine
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Upstash REST emulator: SRH for commands + a small shim adding Upstash's pub/sub streaming (docker/upstash-shim.mjs)
+  srh:
+    image: hiett/serverless-redis-http:latest@sha256:5b0bb9239fce53abf87b2018a7a0deb9ec7bd900c5360738fe5fbeeb426f9150
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: dev-stack-token
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis: { condition: service_healthy }
+
+  upstash:
+    image: node:22-alpine
+    command: ["node", "/shim/upstash-shim.mjs"]
+    environment:
+      SRH_URL: http://srh:80
+      SRH_TOKEN: dev-stack-token
+      REDIS_HOST: redis
+    volumes: ["./docker/upstash-shim.mjs:/shim/upstash-shim.mjs:ro"]
+    ports: ["${UPSTASH_PORT:-8079}:80"]
+    depends_on:
+      srh: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/__health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:latest@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+
+  api:
+    <<: *dev-env
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    environment:
+      # make test-stack sets this to 1: many sign-ups from one IP would hit the real rate limits
+      E2E_NO_LIMITS: ${E2E_NO_LIMITS:-0}
+    ports: ["${API_PORT:-3001}:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      neon-proxy: { condition: service_started }
+      upstash: { condition: service_healthy }
+      mailpit: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        VITE_TEXLIVE_URL: ${VITE_TEXLIVE_URL:-}
+    environment:
+      API_UPSTREAM: api:3000
+      CSP_CONNECT_EXTRA: ${CSP_CONNECT_EXTRA:-}
+    ports: ["${WEB_PORT:-8080}:80"]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  turn:
+    profiles: [turn]
+    image: coturn/coturn:4.6-alpine
+    command: >-
+      -n --log-file=stdout --listening-port=3478 --fingerprint --lt-cred-mech
+      --user=dev:dev-stack-turn --realm=p2platex.local
+      --min-port=49160 --max-port=49200 --external-ip=127.0.0.1
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+
+  texlive:
+    profiles: [texlive]
+    image: nginx:1.27-alpine
+    volumes:
+      - ${TEXLIVE_DIR:-./docker/texlive}:/usr/share/nginx/html:ro
+      - ./docker/texlive.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: ["${TEXLIVE_PORT:-8081}:80"]
+
+volumes:
+  pgdata:
+  redisdata:

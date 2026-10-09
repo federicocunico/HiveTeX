@@ -1,1 +1,11 @@
-export const name = '@p2platex/sync';
+export * from './blobs.js';
+export * from './connect.js';
+export * from './connection.js';
+export * from './frames.js';
+export * from './mesh.js';
+export * from './model.js';
+export * from './persistence.js';
+export * from './rtc.js';
+export * from './transport.js';
+export * from './mirror.js';
+export * from './tauri-rtc.js';

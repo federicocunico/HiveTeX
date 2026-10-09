@@ -5,3 +5,10 @@ dist
 .env*
 !.env.example
 target
+
+.data
+test-results
+playwright-report
+*.tsbuildinfo
+.env.local
+!docker/.env.stack

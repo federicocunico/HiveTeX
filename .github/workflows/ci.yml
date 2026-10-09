@@ -1,0 +1,47 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Makefile smoke test
+        run: |
+          make help
+          make -n check up test-stack deploy-preview >/dev/null
+          if make deploy-prod 2>/dev/null; then echo "deploy-prod must refuse without CONFIRM=1"; exit 1; fi
+      - name: Docker stack config
+        run: docker compose config -q
+      - name: Lint, type-check and unit tests
+        run: pnpm turbo build lint test
+      - name: Svelte type-check
+        run: pnpm --filter @p2platex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
+      - name: Web bundle budget
+        run: pnpm --filter @p2platex/web build && pnpm --filter @p2platex/web size
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high
+      - name: Install browser for e2e
+        run: pnpm exec playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: pnpm exec playwright test
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

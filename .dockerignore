@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.turbo
+**/target
+**/.data
+.git
+.vercel
+.env*
+!docker/.env.stack
+test-results
+playwright-report
+apps/desktop
+openspec
+e2e

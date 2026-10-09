@@ -181,3 +181,14 @@ Rollback: Vercel instant rollback to previous deployment; schema migrations are 
 - Which public TeX package file server to default to for the WASM engine (SwiftLaTeX's, or a self-hosted mirror on a free static host)? Configurable either way.
 - Final production domain name and sender address for the Gmail recovery account.
 - Exact capability-score constants — to be tuned with real benchmarks; formula shape is fixed.
+
+## Implementation notes (deviations and additions discovered while building)
+
+- **Native engine**: the desktop app drives a *system* TeX distribution (TeX Live / MiKTeX / MacTeX, via `latexmk` or a multi-pass fallback) or a `tectonic` binary on `PATH`; Tectonic is **not embedded** (its C dependencies would have made installers and CI far heavier). Detection, hardening (shell-escape off, path restrictions, timeout, memory limit, process-tree kill) and incremental work directories are as designed (D12).
+- **Browser engine**: SwiftLaTeX is vendored, but the public TeX file server it needs was unreachable during development, so the engine is **disabled (and never elected) unless a TeX file server answers**; end-to-end tests use a deterministic fake engine. Operators can self-host a server and set `VITE_TEXLIVE_URL`.
+- **Viewers and bootstrapping**: because viewers' state messages are dropped (D11), a newcomer cannot be bootstrapped from a viewer; an editor/owner (or the GitHub backup) is required.
+- **Revocation (D11)**: in addition to the epoch grace period, peers refuse reconnections with a stale-epoch ticket once the grace has passed; the owner's client refreshes its ticket immediately after every management action so the new epoch spreads at once; liveness pings (20 s) and "same device replaces its old connection" make failover and re-joins fast.
+- **GitHub (D14)**: the token hand-off is sealed to the device key and parked in the ephemeral KV store for two minutes (one-time read) instead of using a loopback/deep-link redirect, which also works identically on web and desktop. The owner additionally stores `owner/repo@branch` (a name, no content) on the project registry so a joiner can find the backup when no peer is online.
+- **Merging external edits (mirror, D13)**: disk edits are merged three-way against the last version written to disk (replayed on a fork of the CRDT state), so concurrent remote edits are never "undone" by a whole-file diff.
+- **WebRTC fallback (D3)**: the Rust `webrtc-rs` bridge is implemented and tested against the TypeScript transport; it is selected automatically when the webview has no `RTCPeerConnection` (or `localStorage['p2platex.rtc']='rust'`).
+- **Compile leadership**: a newly elected leader waits a settle period before its first build so a device that only briefly believed it was best never compiles; results from a not-yet-recognised leader are kept until the election view agrees.

@@ -1,7 +1,4 @@
-import { Hono } from 'hono';
 import { handle } from 'hono/vercel';
+import { createApp } from '../server/src/index.js';
 
-export const app = new Hono().basePath('/api');
-app.get('/health', (c) => c.json({ ok: true }));
-
-export default handle(app);
+export default handle(createApp());

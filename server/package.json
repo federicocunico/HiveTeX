@@ -1,0 +1,40 @@
+{
+  "name": "@p2platex/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit -p .",
+    "lint": "biome lint src",
+    "test": "vitest run --passWithNoTests",
+    "dev": "tsx src/local.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed-admin": "tsx scripts/seed-admin.ts",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "@neondatabase/serverless": "^1.2.0",
+    "@node-rs/argon2": "^2.2.2",
+    "@p2platex/protocol": "workspace:*",
+    "@upstash/ratelimit": "^2.2.0",
+    "@upstash/redis": "^1.39.0",
+    "@vercel/functions": "^3.9.11",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.9.0",
+    "jose": "^6.2.12",
+    "nodemailer": "^10.0.16",
+    "valibot": "^1.5.0",
+    "ws": "^8.22.0",
+    "@p2platex/crypto": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@p2platex/sync": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/ws": "^8.18.2",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15"
+  }
+}

@@ -1,6 +1,30 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
-  "files": { "includes": ["**", "!**/node_modules", "!**/dist", "!openspec", "!.claude", "!.cursor", "!.agents"] },
-  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
-  "linter": { "enabled": true, "rules": { "recommended": true } }
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!openspec",
+      "!.claude",
+      "!.cursor",
+      "!.agents",
+      "!**/*.svelte",
+      "!**/public/**",
+      "!**/test-results",
+      "!**/target",
+      "!**/drizzle"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  }
 }

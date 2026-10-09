@@ -10,8 +10,35 @@
     "frontendDist": "../../web/dist"
   },
   "app": {
-    "windows": [{ "title": "p2platex", "width": 1280, "height": 800 }],
-    "security": { "csp": null }
+    "windows": [
+      {
+        "label": "main",
+        "title": "p2platex",
+        "width": 1280,
+        "height": 800,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' https: wss: ipc: http://ipc.localhost https://api.github.com; object-src 'none'; base-uri 'none'; form-action 'none'"
+    },
+    "withGlobalTauri": false
   },
-  "bundle": { "active": true, "targets": "all", "icon": ["icons/icon.ico", "icons/icon.png"] }
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5MEJCOUQ1QkIyOTgxMzUKUldRMWdTbTcxYmtMaWZVeWhRWmxzblJ2VUp0L0ZwQkVIQ2JRTmVuY0l0M2NyNDZ6NEtWZ2V5Ly8K",
+      "endpoints": [
+        "https://github.com/p2platex/p2platex/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }
