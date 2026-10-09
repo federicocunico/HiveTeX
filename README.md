@@ -10,14 +10,14 @@ A tiny Vercel "control plane" handles accounts, project lookup, permissions and 
 - `server/` – control plane (Hono, Drizzle, Neon Postgres, Upstash Redis); `api/index.ts` is its Vercel Functions entry
 - `packages/*` – protocol, crypto, sync, compile, github, ui
 
-See `openspec/changes/bootstrap-p2p-latex-platform/` for specs, design and tasks.
+See `openspec/specs/` for the behavior specs and `openspec/changes/archive/` for the original designs and tasks.
 
 ## Documentation
 
 - [Importing Overleaf / arXiv / folders](docs/import.md) · [Deployment (free tier)](docs/deployment.md) · [Accounts & admin](docs/accounts.md) · [Permissions](docs/permissions.md)
 - [Wire protocol](docs/protocol.md) · [Compilation](docs/compilation.md) · [GitHub backup](docs/github-backup.md)
 - [Local AI tools (Claude Code, Codex, Cursor)](docs/local-ai-tools.md) · [Security review](docs/security.md) · [Local stack (Docker)](docs/local-stack.md)
-- Specs, design and tasks: `openspec/changes/`
+- Specs: `openspec/specs/` · history (proposals, designs, tasks): `openspec/changes/archive/`
 
 ## Development
 Requires Node 22, pnpm 10, Rust (desktop only), Docker (local stack only) and GNU Make. On Windows, run `make` from

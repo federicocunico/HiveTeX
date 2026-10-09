@@ -5,7 +5,7 @@
 - [x] 1.1 Initialize git, pnpm workspace, Turborepo, TypeScript strict base config, Biome and Vitest; verify `pnpm install && pnpm turbo build lint test` succeeds on an empty workspace
 - [x] 1.2 Create package skeletons (`packages/protocol`, `crypto`, `sync`, `compile`, `github`, `ui`) and `apps/web` (Vite + Svelte 5), `api/` (Hono), `apps/desktop` (Tauri 2 pointing at `apps/web` build); verify `pnpm turbo build` builds all and `pnpm tauri dev` opens the placeholder window
 - [ ] 1.3 Add `vercel.json` (static output of `apps/web`, `/api/*` functions on Node.js, single region, security headers + CSP from design D15); verify `vercel build` locally produces static + function output and headers appear in `vercel dev` responses
-- [ ] 1.4 Add AGPL-3.0-or-later LICENSE, README (architecture overview, Hobby non-commercial note, source link requirement) and CI workflow (build, lint, test, `pnpm audit`); verify CI passes on a pushed branch
+- [x] 1.4 Add AGPL-3.0-or-later LICENSE, README (architecture overview, Hobby non-commercial note, source link requirement) and CI workflow (build, lint, test, `pnpm audit`); verify CI passes on a pushed branch
 
 ## 2. Control plane foundation (Neon + Upstash)
 
@@ -74,7 +74,7 @@
 - [x] 8.6 Implement native engine in Tauri Rust: embedded Tectonic + system TeX detection via latexmk, persistent incremental workdir, shell-escape disabled, `openout_any=p`/`openin_any=p`, time and memory limits; verify Rust tests: sample compiles, `\write18` payload does not execute, infinite-loop doc aborts at the limit
 - [x] 8.7 Implement SyncTeX forward/reverse navigation using leader-produced data; verify Playwright double-click in PDF jumps to the right line
 - [x] 8.8 Implement engine/main-file selection, "Recompile" for all roles and "Compile locally" override; verify tests that viewer recompile request is honored and unsupported-engine peers are ineligible
-- [ ] 8.9 Document the election and engine setup in `docs/compilation.md`; verify documented TeX detection steps on Windows, macOS and Linux CI runners
+- [x] 8.9 Document the election and engine setup in `docs/compilation.md`; verify documented TeX detection steps on Windows, macOS and Linux CI runners
 
 ## 9. Desktop app and local folder mirror (spec: latex-workspace)
 

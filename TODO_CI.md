@@ -1,7 +1,8 @@
 # CI/CD: what is missing
 
 Status after investigating the failed run [`CI` #37941941428](https://github.com/federicocunico/p2platex/actions/runs/37941941428)
-(commit `411377b`, branch `master`).
+(commit `411377b`). As of run [#37947085763](https://github.com/federicocunico/p2platex/actions/runs/37947085763) **CI and Desktop are green**
+(`full-flow.spec.ts` still needed one retry).
 
 ## Fixed in this commit
 
@@ -53,7 +54,7 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 
 ### Unverified until the workflows run on GitHub
 - [x] `Desktop / rust-tests` on macOS (BasicTeX) and Ubuntu (TeX Live) pass, including real LaTeX compilation.
-- [ ] `Desktop / rust-tests` on Windows (MiKTeX via Chocolatey): MiKTeX setup fixed in this commit; confirm the next run is green.
+- [x] `Desktop / rust-tests` on Windows (MiKTeX via Chocolatey) pass after the MiKTeX setup fix, and `Desktop / e2e-sync` passes.
 - [ ] `Desktop / release` on a `v*` tag: needs the signing secrets above.
 
 ### Known product issues that affect CI stability
@@ -64,3 +65,19 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 - [ ] The public SwiftLaTeX TeX file server (`texlive2.swiftlatex.com`) was answering HTTP 522 on 2026-10-09. CI is
       not affected because e2e uses the fake engine, but in-browser compilation in production depends on it. Consider
       self-hosting (`make up PROFILES=texlive`, see `docs/local-stack.md`).
+
+## Bootstrap tasks left open at archive time
+
+Archived as `openspec/changes/archive/2026-10-09-bootstrap-p2p-latex-platform/` with these tasks still open. They all
+need accounts, secrets or time that CI cannot provide:
+
+- [ ] 1.3: run `vercel build` / `vercel dev` locally to verify the static + function output and the headers (needs `vercel login` + `vercel link`).
+- [ ] 2.1: provision Neon and Upstash via the Vercel Marketplace, then check `vercel env pull`.
+- [ ] 3.4: send a manual smoke email through Gmail SMTP with real credentials (the code and the test double are done).
+- [ ] 8.5: real in-browser compile with SwiftLaTeX in Playwright. The public TeX server returned HTTP 522; e2e uses the fake
+      engine. Persisting downloaded packages in Cache Storage is also still open.
+- [ ] 9.5: signed release builds via tag `v*` (needs the signing secrets above).
+- [ ] 10.7: check the GitHub App setup in `docs/github-backup.md` against a freshly created App.
+- [ ] 11.1: full e2e on a Vercel preview (2 web clients + 1 desktop).
+- [ ] 11.3: measure free-tier usage over a 1-week beta.
+- [ ] 11.4: seed the production admin, promote to production, publish a desktop release, run a production smoke test.

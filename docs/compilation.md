@@ -41,7 +41,12 @@ LuaLaTeX is desktop-only. A device that cannot run the project's engine is never
 
 The desktop app looks for `pdflatex`, `xelatex`, `lualatex` (and `latexmk`) on `PATH`:
 
-* **Windows** – install [MiKTeX](https://miktex.org/download) (it auto-installs missing packages) and make sure its `bin` directory is on `PATH`. MiKTeX's `latexmk` needs Perl (e.g. Strawberry Perl); without it the fallback multi-pass runner is used.
+* **Windows** – install [MiKTeX](https://miktex.org/download) and make sure its `bin` directory is on `PATH`. A fresh install
+  must be allowed to fetch missing packages without prompting. The interactive installer asks about this ("Install missing
+  packages on-the-fly: Yes"). For an unattended install (e.g. `choco install miktex`), run the same commands as CI:
+  `initexmf --admin --set-config-value="[MPM]AutoInstall=1"`, `miktex --admin packages update-package-database`,
+  `miktex --admin packages update`, `initexmf --update-fndb`. Otherwise the engine exits before writing a log.
+  MiKTeX's `latexmk` needs Perl (e.g. Strawberry Perl); without it the fallback multi-pass runner is used.
 * **macOS** – install [MacTeX or BasicTeX](https://www.tug.org/mactex/); `/Library/TeX/texbin` must be on `PATH`.
 * **Linux** – `sudo apt install texlive-latex-extra latexmk` (or your distribution's equivalent).
 
