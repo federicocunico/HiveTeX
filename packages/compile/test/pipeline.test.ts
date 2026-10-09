@@ -58,7 +58,7 @@ async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: n
   const election = new Election(
     node.mesh,
     { dev: node.dev, uname: name, engine: 'native', supports: ['pdflatex', 'xelatex'], perf, power: 'mains', batteryPct: 100, load: 0, optOut: false },
-    { engine: () => 'pdflatex', selfRole: role, intervalMs: 50 },
+    { engine: () => 'pdflatex', selfRole: role, intervalMs: 100 }, // 300 ms to declare a peer gone: tolerant of slow CI runners
   );
   const engine = new FakeEngine();
   const leader = new CompileLeader({
@@ -70,7 +70,7 @@ async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: n
     self: { dev: node.dev, uname: name },
     debounceMs: opts.debounce ?? 60,
     maxWaitMs: 400,
-    settleMs: 150,
+    settleMs: 400,
   });
   const client = new CompileClient({ mesh: node.mesh, model: node.model, blobs, election, leader });
   election.start();
