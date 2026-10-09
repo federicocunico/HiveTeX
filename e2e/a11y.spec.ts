@@ -66,7 +66,8 @@ test('primary actions are reachable by keyboard only (7.6)', async ({ browser })
 
 test('layout works at 1024px and project list at phone width (7.6)', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1024, height: 700 } });
-  const u = await newUser(ctx, 'rsp');
+  // worst case: the longest username the helpers generate (28 chars) must not widen the header
+  const u = await newUser(ctx, 'responsivelayoutwithlongname');
   await createProject(u.page, uniq('rsp-'));
   expect(await u.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await u.page.setViewportSize({ width: 390, height: 800 });

@@ -38,7 +38,7 @@
         {#if auth.user}
           <a href="#/">Projects</a>
           {#if auth.user.isAdmin}<a href="#/admin">Admin</a>{/if}
-          <a href="#/account">{auth.user.username}</a>
+          <a class="user" href="#/account" title={auth.user.username}>{auth.user.username}</a>
           <button class="small" onclick={signOut}>Sign out</button>
         {/if}
       </header>
