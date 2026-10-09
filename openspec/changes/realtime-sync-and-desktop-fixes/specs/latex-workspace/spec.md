@@ -16,3 +16,12 @@ The workspace SHALL be available as a web app served from the public deployment 
 #### Scenario: Other websites
 - **WHEN** a page on another website calls the control plane API from a visitor's browser
 - **THEN** the browser blocks the response because that origin is not allowed
+
+## ADDED Requirements
+
+### Requirement: Mirror imports only complete file writes
+The desktop folder mirror SHALL import a file change from disk only once the file content is stable, so a file caught in the middle of being rewritten (for example truncated before new content is written) is never merged into the project.
+
+#### Scenario: Tool rewrites a file while a co-author types
+- **WHEN** an external program rewrites `main.tex` in the bound folder (truncating it first) while a co-author appends a line remotely
+- **THEN** every device ends with the program's change and the co-author's line in their correct places, with no content lost or reordered

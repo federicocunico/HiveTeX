@@ -2,7 +2,7 @@ import { generateDeviceKeys, verifyTicket } from '@p2platex/crypto';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/client.js';
-import { Client, type TestEnv, makeEnv, register } from './helpers.js';
+import { Client, PW, type TestEnv, makeEnv, register } from './helpers.js';
 
 let env: TestEnv;
 beforeEach(async () => {
@@ -248,5 +248,39 @@ describe('github repo name for bootstrap (10.6)', () => {
     expect((await o.patch(`/projects/${p.id}`, { githubRepo: 'not a repo' })).status).toBe(422);
     expect((await j.patch(`/projects/${p.id}`, { githubRepo: 'evil/repo@main' })).status).toBe(403);
     expect((await o.patch(`/projects/${p.id}`, { githubRepo: null })).json.project.githubRepo).toBeNull();
+  });
+});
+
+describe('cross-origin access for the desktop app', () => {
+  it('answers the preflight for desktop origins and stays closed to other sites', async () => {
+    const pre = (origin: string) =>
+      env.app.request('/api/auth/me', {
+        method: 'OPTIONS',
+        headers: { Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization,x-requested-with' },
+      });
+    for (const origin of ['http://tauri.localhost', 'tauri://localhost']) {
+      const r = await pre(origin);
+      expect(r.status).toBe(204);
+      expect(r.headers.get('access-control-allow-origin')).toBe(origin);
+      expect(r.headers.get('access-control-allow-headers')?.toLowerCase()).toContain('authorization');
+      expect(r.headers.get('access-control-allow-credentials')).toBeNull();
+    }
+    const evil = await pre('https://evil.example');
+    expect(evil.headers.get('access-control-allow-origin')).toBeNull();
+
+    // an actual desktop request with a bearer token works and is readable cross-origin
+    const c = await register(env, 'desk');
+    const login = await env.app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { Origin: 'http://tauri.localhost', 'X-Requested-With': 'p2platex', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'desk', password: PW, kind: 'desktop' }),
+    });
+    expect(login.status).toBe(200);
+    expect(login.headers.get('access-control-allow-origin')).toBe('http://tauri.localhost');
+    const { token } = (await login.json()) as { token: string };
+    const me = await env.app.request('/api/auth/me', { headers: { Origin: 'http://tauri.localhost', Authorization: `Bearer ${token}` } });
+    expect(me.status).toBe(200);
+    expect(me.headers.get('access-control-allow-origin')).toBe('http://tauri.localhost');
+    void c;
   });
 });

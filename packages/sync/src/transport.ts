@@ -219,6 +219,9 @@ export function fakeChannelPair(bytesPerTick?: number): [FakeDataChannel, FakeDa
   return [a, b];
 }
 
+/** Node's setImmediate when available (not in browsers, where this transport is not used for timing). */
+const setImmediateFn = (globalThis as { setImmediate?: (cb: () => void) => unknown }).setImmediate;
+
 class Loopback implements PeerTransport {
   peer!: Loopback;
   closed = false;
@@ -227,6 +230,7 @@ class Loopback implements PeerTransport {
   constructor(
     readonly localFingerprint: string,
     readonly remoteFingerprint: string,
+    private delivery: { immediate?: boolean; latencyMs?: number } = {},
   ) {}
   deliver(c: ChannelName, d: Uint8Array) {
     if (!this.closed) this.msgCb(c, d);
@@ -240,7 +244,11 @@ class Loopback implements PeerTransport {
     if (this.closed) return Promise.reject(new Error('closed'));
     const copy = d.slice();
     const peer = this.peer;
-    setTimeout(() => peer.deliver(c, copy), 0);
+    const { immediate, latencyMs } = this.delivery;
+    if (latencyMs) setTimeout(() => peer.deliver(c, copy), latencyMs);
+    // setImmediate keeps FIFO order without the ~15.6 ms clamp Windows applies to setTimeout(0) (benchmarks).
+    else if (immediate && setImmediateFn) setImmediateFn(() => peer.deliver(c, copy));
+    else setTimeout(() => peer.deliver(c, copy), 0);
     return Promise.resolve();
   }
   onMessage(cb: (c: ChannelName, d: Uint8Array) => void) {
@@ -255,14 +263,18 @@ class Loopback implements PeerTransport {
   }
 }
 
-/** Direct in-memory transport pair. `seenBy*` override what each side believes the other's fingerprint is. */
+/**
+ * Direct in-memory transport pair. `seenBy*` override what each side believes the other's fingerprint is;
+ * `immediate` delivers without timer clamping and `latencyMs` simulates one-way network delay (benchmarks).
+ */
 export function loopbackPair(
-  opts: { fpA?: string; fpB?: string; seenByA?: string; seenByB?: string } = {},
+  opts: { fpA?: string; fpB?: string; seenByA?: string; seenByB?: string; immediate?: boolean; latencyMs?: number } = {},
 ): [PeerTransport, PeerTransport] {
   const fpA = opts.fpA ?? 'AA:AA';
   const fpB = opts.fpB ?? 'BB:BB';
-  const a = new Loopback(fpA, opts.seenByA ?? fpB);
-  const b = new Loopback(fpB, opts.seenByB ?? fpA);
+  const delivery = { ...(opts.immediate ? { immediate: true } : {}), ...(opts.latencyMs ? { latencyMs: opts.latencyMs } : {}) };
+  const a = new Loopback(fpA, opts.seenByA ?? fpB, delivery);
+  const b = new Loopback(fpB, opts.seenByB ?? fpA, delivery);
   a.peer = b;
   b.peer = a;
   return [a, b];

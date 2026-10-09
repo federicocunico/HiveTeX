@@ -22,8 +22,6 @@ export interface MeshOptions {
   now?: () => Date;
   /** Seconds a peer with a stale epoch has to present a refreshed ticket. */
   epochGraceMs?: number;
-  /** Above this many connections, updates are relayed (gossip) instead of only broadcast by the origin. */
-  relayThreshold?: number;
   policyIntervalMs?: number;
   /** A peer that sent nothing (not even pings) for this long is considered gone. Default 20 s. */
   deadAfterMs?: number;
@@ -54,6 +52,10 @@ export class Mesh {
   private requested = new Map<PeerConnection, Set<string>>();
   private awarenessIds = new Map<PeerConnection, Set<number>>();
   private staleSince = new Map<PeerConnection, number>();
+  /** Devices each peer says it is directly connected to (its 'nbrs' announcements). */
+  private nbrs = new Map<PeerConnection, Set<string>>();
+  private nbrsTimer: ReturnType<typeof setTimeout> | null = null;
+  private resyncTimer: ReturnType<typeof setTimeout> | null = null;
   private appHandlers = new Map<string, Set<AppHandler>>();
   private rawHandlers = new Map<number, RawHandler>();
   private joinCbs = new Set<(p: PeerInfo) => void>();
@@ -76,7 +78,12 @@ export class Mesh {
       }
       const changed = added.concat(updated, removed);
       const frame = encodeAwarenessUpdate(this.awareness, changed);
-      for (const c of this.conns.keys()) if (c !== origin) void this.safeSend(c, MsgType.AWARENESS, frame);
+      const from = origin instanceof PeerConnection ? origin : undefined;
+      for (const c of this.conns.keys()) if (this.shouldRelay(from, c)) void this.safeSend(c, MsgType.AWARENESS, frame);
+    });
+    this.onApp('nbrs', (from, body) => {
+      const d = (body as { devices?: unknown })?.devices;
+      if (Array.isArray(d)) this.nbrs.set(from.conn, new Set(d.filter((x): x is string => typeof x === 'string').slice(0, 1000)));
     });
     this.unsub = o.model.onDocUpdate((docId, update, origin) => this.onLocalDocUpdate(docId, update, origin));
     this.policyTimer = setInterval(() => {
@@ -164,6 +171,7 @@ export class Mesh {
     conn.onClose(() => this.dropConn(conn));
     this.noteEpoch(claims.ep);
     for (const cb of this.joinCbs) cb(info);
+    this.announceNeighbours();
     await this.safeSend(conn, MsgType.EPOCH, jsonBytes({ epoch: this.maxEpoch }));
     await this.startSync(conn);
     return info;
@@ -184,10 +192,56 @@ export class Mesh {
     this.interest.delete(conn);
     this.requested.delete(conn);
     this.staleSince.delete(conn);
+    this.nbrs.delete(conn);
     const ids = this.awarenessIds.get(conn);
     if (ids?.size) removeAwarenessStates(this.awareness, [...ids], conn);
     this.awarenessIds.delete(conn);
     if (info) for (const cb of this.leaveCbs) cb(info);
+    if (info) {
+      this.announceNeighbours();
+      this.scheduleResync();
+    }
+  }
+
+  /**
+   * Relay rule: our own updates go to every peer; an update received from peer S is forwarded only to peers S is
+   * not directly connected to (per S's latest 'nbrs' announcement). A full mesh therefore sends each edit exactly
+   * once per connection, while devices that cannot connect directly still receive everything through the others.
+   * If S's neighbours are unknown (old client, or not announced yet) we forward, which is always safe.
+   */
+  private shouldRelay(from: PeerConnection | undefined, to: PeerConnection) {
+    if (!from) return true;
+    if (to === from) return false;
+    const known = this.nbrs.get(from);
+    if (!known) return true;
+    const target = this.conns.get(to)?.deviceId;
+    return !(target && known.has(target));
+  }
+
+  /** Tells peers whom we are directly connected to (debounced: joins/leaves come in bursts). */
+  private announceNeighbours() {
+    if (this.nbrsTimer) return;
+    this.nbrsTimer = setTimeout(() => {
+      this.nbrsTimer = null;
+      this.broadcastApp('nbrs', { devices: this.peers.map((p) => p.deviceId) });
+    }, 50);
+  }
+
+  /**
+   * After a link drops, neighbour lists are briefly stale and a relay might have been skipped: re-exchange state
+   * vectors for the documents we sync, so any gap is filled from the remaining peers.
+   */
+  private scheduleResync() {
+    if (this.resyncTimer) return;
+    this.resyncTimer = setTimeout(async () => {
+      this.resyncTimer = null;
+      for (const [c, req] of this.requested) {
+        for (const docId of req) {
+          const doc = this.o.model.getLoadedDoc(docId);
+          if (doc) await this.safeSend(c, MsgType.STEP1, packDoc(docId, Y.encodeStateVector(doc)));
+        }
+      }
+    }, 300);
   }
 
   private async safeSend(conn: PeerConnection, type: number, payload: Uint8Array, noCompress = false) {
@@ -282,11 +336,9 @@ export class Mesh {
   private onLocalDocUpdate(docId: string, update: Uint8Array, origin: unknown) {
     if (origin instanceof DocPersister) return;
     const fromConn = origin instanceof PeerConnection ? origin : undefined;
-    // In a small full mesh the originator already reaches everyone; relay only in large meshes.
-    if (fromConn && this.conns.size < (this.o.relayThreshold ?? 6)) return;
     // Peers that are not editors never send us document updates, so nothing here needs a role check.
     const frame = packDoc(docId, update);
-    for (const [c, set] of this.interest) if (c !== fromConn && set.has(docId)) void this.safeSend(c, MsgType.UPDATE, frame);
+    for (const [c, set] of this.interest) if (set.has(docId) && this.shouldRelay(fromConn, c)) void this.safeSend(c, MsgType.UPDATE, frame);
   }
 
   broadcast(type: number, payload: Uint8Array, noCompress = false) {
@@ -360,6 +412,8 @@ export class Mesh {
 
   destroy() {
     clearInterval(this.policyTimer);
+    if (this.nbrsTimer) clearTimeout(this.nbrsTimer);
+    if (this.resyncTimer) clearTimeout(this.resyncTimer);
     this.unsub();
     for (const c of [...this.conns.keys()]) c.close();
     this.awareness.destroy();

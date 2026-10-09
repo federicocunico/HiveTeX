@@ -58,6 +58,10 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 - [ ] `Desktop / release` on a `v*` tag: needs the signing secrets above.
 
 ### Known product issues that affect CI stability
+- [ ] `packages/sync` › `mirror.test.ts` › "propagates deletes and renames in both directions": occasionally times out at
+      "rename not mirrored" when the machine is loaded (Windows, parallel turbo tests); passes alone. Investigate the
+      rename-vs-write ordering in `MirrorSync.syncTableToDisk`. (The other mirror flake, a real reordering bug when a tool
+      rewrites a file while a co-author types, was fixed in `realtime-sync-and-desktop-fixes`.)
 - [ ] Same-device reconnect race in signaling: after a page reload, the old session's delayed cleanup can drop the new
       connection. It makes `e2e/full-flow.spec.ts` occasionally fail on line 90, rarely on the dev server and more often
       on the Docker stack. Fix: per-connection session ids in the signaling protocol (see

@@ -30,8 +30,13 @@ The security review also found functional bugs:
   - `make bench`, which prints the numbers; results go in `docs/performance.md`.
 - **Desktop ↔ hosted API**: CORS for the desktop origins only (no credentials, bearer tokens), so the desktop app works
   against the deployed control plane.
-- **Tectonic**: compile with `tectonic -X compile` (untrusted mode, SyncTeX) when it is the only engine available.
+- **Tectonic**: no longer advertised as an engine (its file reads cannot be verified, see design D4): a Tectonic-only
+  machine is never elected (instead of winning and failing every build), and the app asks its user to install a TeX
+  distribution.
 - **Registration**: the verification email is sent in the background; a mail failure no longer fails registration.
+- **Folder mirror race (found while applying)**: a file caught mid-rewrite by an external tool (truncated, then written)
+  was imported as "everything deleted", which reordered a co-author's concurrent edit. The mirror now imports a change only
+  once two consecutive reads agree.
 - **Stack**: nginx passes the real client address instead of appending to a client-supplied `X-Forwarded-For`.
 
 ## Capabilities
@@ -41,8 +46,9 @@ The security review also found functional bugs:
 
 ### Modified Capabilities
 - `peer-sync`: adds a requirement for real-time propagation at group scale (latency and bounded messages per edit).
-- `latex-workspace`: the desktop app must work against the hosted control plane (cross-origin API access).
-- `distributed-compilation`: engine selection covers Tectonic-only devices.
+- `latex-workspace`: the desktop app must work against the hosted control plane (cross-origin API access); the folder
+  mirror imports only complete file writes.
+- `distributed-compilation`: devices only advertise engines that run with the compile isolation guarantees (Tectonic-only devices are not eligible).
 - `user-accounts`: registration succeeds even if the verification email cannot be sent right away.
 
 ## Impact
@@ -50,6 +56,6 @@ The security review also found functional bugs:
 - `packages/sync/src/mesh.ts` (neighbor list, relay rule), new sync tests and a benchmark script.
 - `e2e/realtime.spec.ts` (7 browser contexts); `Makefile` (`bench`); `docs/performance.md`.
 - `server/src/app.ts` (CORS middleware), `server/src/accounts/routes.ts` (background email).
-- `apps/desktop/src-tauri/src/tex.rs` (Tectonic path), Rust tests.
+- `apps/desktop/src-tauri/src/tex.rs` (engine detection), Rust tests.
 - `docker/nginx.conf.template`.
 - Wire protocol: new APP topic for neighbor lists (old clients ignore it and fall back to the old relay rule).

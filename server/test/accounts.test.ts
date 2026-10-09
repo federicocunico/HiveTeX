@@ -214,3 +214,25 @@ describe('platform admin (3.7)', () => {
     expect((await admin.get('/auth/admin/users?q=ro')).status).toBe(403);
   });
 });
+
+describe('registration when the mail server is down', () => {
+  it('still creates the account and signs in; a new link can be requested later (rate-limited)', async () => {
+    const working = env.deps.mailer;
+    env.deps.mailer = {
+      async send() {
+        throw new Error('smtp unreachable');
+      },
+    };
+    const c = new Client(env);
+    const r = await c.post('/auth/register', { username: 'offmail', email: 'offmail@example.com', password: PW });
+    expect(r.status).toBe(201);
+    expect((await c.get('/auth/me')).json.user.emailVerified).toBe(false);
+
+    env.deps.mailer = working;
+    const sent = () => (working as unknown as { sent: Array<{ to: string; subject: string }> }).sent.filter((m) => m.to === 'offmail@example.com' && /Verify/.test(m.subject)).length;
+    for (let i = 0; i < 3; i++) expect((await c.post('/auth/resend-verification', {})).status).toBe(200);
+    expect(sent()).toBe(3);
+    expect((await c.post('/auth/resend-verification', {})).status).toBe(429);
+    expect((await new Client(env).post('/auth/resend-verification', {})).status).toBe(401);
+  });
+});

@@ -14,7 +14,7 @@ See `openspec/specs/` for the behavior specs and `openspec/changes/archive/` for
 
 ## Documentation
 
-- [Importing Overleaf / arXiv / folders](docs/import.md) · [Deployment (free tier)](docs/deployment.md) · [Accounts & admin](docs/accounts.md) · [Permissions](docs/permissions.md)
+- [Real-time performance](docs/performance.md) · [Importing Overleaf / arXiv / folders](docs/import.md) · [Deployment (free tier)](docs/deployment.md) · [Accounts & admin](docs/accounts.md) · [Permissions](docs/permissions.md)
 - [Wire protocol](docs/protocol.md) · [Compilation](docs/compilation.md) · [GitHub backup](docs/github-backup.md)
 - [Local AI tools (Claude Code, Codex, Cursor)](docs/local-ai-tools.md) · [Security review](docs/security.md) · [Local stack (Docker)](docs/local-stack.md)
 - Specs: `openspec/specs/` · history (proposals, designs, tasks): `openspec/changes/archive/`

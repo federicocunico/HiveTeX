@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc --noEmit -p .",
     "lint": "biome lint src",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "bench": "tsx bench/sync-bench.ts"
   },
   "dependencies": {
     "@p2platex/crypto": "workspace:*",
@@ -22,7 +23,8 @@
   "devDependencies": {
     "@types/fast-diff": "^1.2.2",
     "@types/node": "^26.6.4",
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.5",
+    "tsx": "^4.23.15"
   },
   "exports": {
     ".": "./src/index.ts",

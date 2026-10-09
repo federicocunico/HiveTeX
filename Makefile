@@ -20,7 +20,7 @@ HINT_docker := install Docker Desktop (Windows/macOS) or Docker Engine + Compose
 HINT_cargo  := install Rust: https://rustup.rs
 HINT_npx    := install Node 22: https://nodejs.org
 
-.PHONY: help install dev build lint typecheck test size e2e check audit clean \
+.PHONY: help install dev build lint typecheck test size e2e bench check audit clean \
         desktop-dev desktop-test desktop-build \
         up down ps logs reset migrate-local test-stack \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
@@ -59,6 +59,9 @@ size: require-pnpm ## Check the web bundle budget
 e2e: require-pnpm ## End-to-end tests (starts the embedded-DB API and Vite automatically)
 	$(PNPM) exec playwright install chromium
 	$(PNPM) exec playwright test
+
+bench: require-pnpm ## Sync benchmark: keystroke latency, messages per edit, convergence for 2-16 peers (LATENCY_MS=20)
+	$(PNPM) --filter @p2platex/sync bench
 
 check: build lint typecheck test size e2e ## Everything CI runs except the dependency audit; fails on the first error
 

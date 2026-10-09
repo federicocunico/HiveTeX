@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { cors } from 'hono/cors';
 import { AppError } from './errors.js';
 import type { Deps, Env } from './deps.js';
 import { csrfGuard, requestContext } from './middleware.js';
@@ -17,6 +18,19 @@ export function buildApp(deps: Deps) {
     await next();
   });
   app.use('*', requestContext);
+  // The desktop app (tauri://localhost, http(s)://tauri.localhost) and configured extra origins call the API
+  // cross-origin with bearer tokens. No credentials: cookies stay same-origin for the web app. Other origins get no
+  // CORS headers at all, so browsers keep blocking them.
+  app.use(
+    '*',
+    cors({
+      origin: (origin) => (deps.config.extraOrigins.includes(origin) ? origin : null),
+      allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+      allowMethods: ['GET', 'POST', 'PATCH', 'DELETE'],
+      credentials: false,
+      maxAge: 600,
+    }),
+  );
   app.use(
     '*',
     bodyLimit({

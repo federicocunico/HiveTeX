@@ -110,15 +110,15 @@ export class Net {
     return node;
   }
 
-  async link(a: Node, b: Node) {
-    const [ta, tb] = loopbackPair();
+  async link(a: Node, b: Node, transport: { immediate?: boolean; latencyMs?: number } = {}) {
+    const [ta, tb] = loopbackPair(transport);
     const [pa, pb] = await Promise.all([a.mesh.addTransport(ta), b.mesh.addTransport(tb)]);
     return [pa, pb] as const;
   }
 
-  async fullMesh() {
+  async fullMesh(transport: { immediate?: boolean; latencyMs?: number } = {}) {
     for (let i = 0; i < this.nodes.length; i++)
-      for (let j = i + 1; j < this.nodes.length; j++) await this.link(this.nodes[i] as Node, this.nodes[j] as Node);
+      for (let j = i + 1; j < this.nodes.length; j++) await this.link(this.nodes[i] as Node, this.nodes[j] as Node, transport);
   }
 
   /** Disconnects every connection of a node. */

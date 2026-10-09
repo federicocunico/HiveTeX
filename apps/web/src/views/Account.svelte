@@ -11,6 +11,16 @@
   let serverUrl = $state(apiBase());
   let texUrl = $state(texliveEndpoint());
 
+  async function resendVerification() {
+    error = info = '';
+    try {
+      const r = await api<{ alreadyVerified?: boolean }>('POST', '/auth/resend-verification', {});
+      info = r.alreadyVerified ? 'Your email is already verified.' : `A new verification link was sent to ${auth.user?.email}.`;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed';
+    }
+  }
+
   async function change(e: Event) {
     e.preventDefault();
     error = info = '';
@@ -68,7 +78,7 @@
 <div class="page">
   <h1>Account</h1>
   {#if auth.user}
-    <p><strong>{auth.user.username}</strong> · {auth.user.email} {#if !auth.user.emailVerified}<span class="pill warn">email not verified — recovery needs a verified email</span>{/if}</p>
+    <p><strong>{auth.user.username}</strong> · {auth.user.email} {#if !auth.user.emailVerified}<span class="pill warn">email not verified — recovery needs a verified email</span> <button class="small" onclick={resendVerification} data-testid="resend-verification">Send a new verification link</button>{/if}</p>
   {/if}
   {#if error}<div class="error" role="alert">{error}</div>{/if}
   {#if info}<div class="notice" role="status">{info}</div>{/if}

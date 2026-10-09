@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { exportJWK, generateKeyPair } from 'jose';
 import { buildApp } from '../src/app.js';
-import type { Config } from '../src/config.js';
+import { type Config, DESKTOP_ORIGINS } from '../src/config.js';
 import { type Db, schema } from '../src/db/client.js';
 import type { Deps } from '../src/deps.js';
 import { MemoryMailer } from '../src/mail.js';
@@ -15,7 +15,7 @@ export async function makeConfig(): Promise<Config> {
   const pub = { ...(await exportJWK(publicKey)), alg: 'EdDSA', use: 'sig', kid: 'k1' };
   return {
     appOrigin: 'http://localhost:1420',
-    extraOrigins: ['tauri://localhost'],
+    extraOrigins: [...DESKTOP_ORIGINS],
     cookieSecure: false,
     ticketPrivateJwk: JSON.stringify(await exportJWK(privateKey)),
     ticketKid: 'k1',

@@ -71,11 +71,14 @@ tokens; web is same-origin and unaffected); allowed headers `Content-Type, Autho
 `GET, POST, PATCH, DELETE`; `maxAge` 600. Other origins get no CORS headers. The CSRF guard is unchanged (it already
 accepts these origins). The WebSocket relay is not subject to CORS.
 
-### D4. Tectonic
-When `flavor == "tectonic"`, run `tectonic -X compile --untrusted --synctex --keep-logs --outdir <dir> <main>` in the
-build directory (`--untrusted` disables shell escape and other insecure features), with the same timeout and memory
-limits. `detect()` keeps advertising `xelatex` only. Tested by a Rust test that runs when a `tectonic` binary is on
-`PATH`; the Desktop workflow installs Tectonic on Linux to run it.
+### D4. Tectonic is not advertised (revised during apply)
+The original plan was to run `tectonic -X compile --untrusted`. While applying, `security-hardening` replaced
+engine-level read restrictions with a post-run check of the recorder file (`.fls`). Tectonic writes no recorder file,
+and its I/O layer reads absolute paths straight from the filesystem, so its reads cannot be verified. Running it would
+reopen the file-disclosure hole. So `detect()` no longer reports Tectonic: a Tectonic-only device advertises no engine,
+is never elected, and the app shows the existing "install TeX Live, MiKTeX or MacTeX" note. That still removes the bug
+(a device that wins the election and then fails every build). Supporting Tectonic again needs a way to observe its
+file access (for example an OS sandbox): left for a future change.
 
 ### D5. Registration email in the background
 `sendVerifyEmail` runs via `deps.background` (Vercel `waitUntil`), with errors logged. New

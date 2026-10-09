@@ -203,7 +203,7 @@ export class MirrorSync {
       // If the file changed on disk since our last write (an external tool is mid-edit), merge that change
       // into the project first so writing the remote state does not clobber it.
       if (this.o.getRole() !== 'viewer' && this.onDisk.has(f.path)) {
-        const cur = await this.o.fs.read(f.path);
+        const cur = await this.readStable(f.path);
         if (cur) {
           const curHash = await sha256Hex(cur);
           if (curHash !== this.lastWritten.get(f.path) && !this.isRecentWrite(f.path, curHash)) {
@@ -262,7 +262,7 @@ export class MirrorSync {
   }
 
   private async handleDiskChange(path: string) {
-    const bytes = await this.o.fs.read(path);
+    const bytes = await this.readStable(path);
     const entry = this.o.model.find(path);
 
     if (this.o.getRole() === 'viewer') {
@@ -319,6 +319,26 @@ export class MirrorSync {
     Y.applyUpdate(ytext.doc as Y.Doc, delta, 'mirror-import');
     this.base.set(path, { text: next, state: Y.encodeStateAsUpdate(fork) });
     fork.destroy();
+  }
+
+  /**
+   * Reads a file until two consecutive reads agree. Editors and tools often rewrite a file in place (truncate, then
+   * write): importing the truncated state would look like "all content deleted" and, merged with a co-author's
+   * concurrent edit, reorder or lose text. A file that suddenly reads empty gets a longer grace period.
+   */
+  private async readStable(path: string): Promise<Uint8Array | null> {
+    const pause = Math.max(20, Math.min(this.o.debounceMs ?? 100, 200));
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const same = (a: Uint8Array | null, b: Uint8Array | null) =>
+      a === b || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
+    let prev = await this.o.fs.read(path);
+    for (let i = 0; i < 25; i++) {
+      await sleep(prev && prev.length === 0 && this.onDisk.has(path) ? pause * 3 : pause);
+      const cur = await this.o.fs.read(path);
+      if (same(prev, cur)) return cur;
+      prev = cur;
+    }
+    return prev;
   }
 
   private noteWrite(path: string, hash: string) {

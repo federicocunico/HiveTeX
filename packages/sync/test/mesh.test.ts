@@ -18,7 +18,7 @@ describe('large mesh (6.5)', () => {
   it('10 peers converge when editing concurrently (gossip relay for sparse links)', async () => {
     net = await Net.create();
     const nodes = [];
-    for (let i = 0; i < 10; i++) nodes.push(await net.add(`user${i}`, 'editor', { meshOpts: { relayThreshold: 2 } }));
+    for (let i = 0; i < 10; i++) nodes.push(await net.add(`user${i}`, 'editor'));
     // ring + a few chords: not fully connected, so updates must be relayed
     for (let i = 0; i < nodes.length; i++) await net.link(nodes[i]!, nodes[(i + 1) % nodes.length]!);
     await net.link(nodes[0]!, nodes[5]!);

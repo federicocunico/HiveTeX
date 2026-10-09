@@ -86,7 +86,13 @@ accountRoutes.post('/register', rateLimit('register', 10, 3600), async (c) => {
     // Lost a race against the unique constraints.
     throw new AppError(409, 'username_unavailable', 'Username or email unavailable');
   }
-  await sendVerifyEmail(deps, { id, email: body.email, username: body.username });
+  // After responding (like /forgot): a mail outage must not fail a registration whose account already exists.
+  // The user can ask for a new link later (/resend-verification).
+  const mail = sendVerifyEmail(deps, { id, email: body.email, username: body.username }).catch(() => {
+    console.error('verification email could not be sent', c.get('requestId'));
+  });
+  if (deps.background) deps.background(mail);
+  else await mail;
   const token = await createSession(deps, id, body.kind);
   const bearer = attachSession(c, token, body.kind);
   return c.json(
@@ -156,6 +162,20 @@ accountRoutes.post('/verify-email', rateLimit('verify', 20, 3600), async (c) => 
   const userId = await consumeEmailToken(deps, token, 'verify');
   if (!userId) throw new AppError(410, 'invalid_token', 'Link is invalid or expired');
   await deps.db.update(schema.users).set({ emailVerifiedAt: deps.now() }).where(eq(schema.users.id, userId));
+  return c.json({ ok: true });
+});
+
+accountRoutes.post('/resend-verification', rateLimit('resend-verify', 10, 3600), async (c) => {
+  const deps = c.get('deps');
+  const { u } = await requireAuth(c);
+  if (u.emailVerifiedAt) return c.json({ ok: true, alreadyVerified: true });
+  const per = await deps.limiter.hit(`resend-verify:${u.id}`, 3, 3600);
+  if (!per.ok) throw new AppError(429, 'rate_limited', 'Too many verification emails; try again later', { 'Retry-After': '3600' });
+  const mail = sendVerifyEmail(deps, { id: u.id, email: u.email, username: u.username }).catch(() => {
+    console.error('verification email could not be sent', c.get('requestId'));
+  });
+  if (deps.background) deps.background(mail);
+  else await mail;
   return c.json({ ok: true });
 });
 
