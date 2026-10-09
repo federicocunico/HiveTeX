@@ -377,7 +377,7 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
             _ => "-pdf",
         })
         // -norc: ignore every latexmkrc (system, user and the project's own); all options come from here.
-        .args(["-norc", "-interaction=nonstopmode", "-synctex=1", "-latexoption=-no-shell-escape"]);
+        .args(["-norc", "-recorder", "-interaction=nonstopmode", "-synctex=1", "-latexoption=-no-shell-escape"]);
         if let Some(i) = installer {
             cmd.arg(format!("-latexoption={i}"));
         }
@@ -390,7 +390,7 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
         // Fallback without latexmk: engine, bibtex when needed, then two more passes.
         let run_engine = |dir: &Path| {
             let mut c = base_command(engine_exe.clone(), dir);
-            c.args(["-interaction=nonstopmode", "-synctex=1", "-no-shell-escape"]);
+            c.args(["-recorder", "-interaction=nonstopmode", "-synctex=1", "-no-shell-escape"]);
             if let Some(i) = installer {
                 c.arg(i);
             }
@@ -420,6 +420,17 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
         }
     }
 
+    // Distributions do not reliably stop a document from *reading* outside the project (TeX Live 2026 ignores
+    // openin_any=p for reads; MiKTeX's switches do not cover \includegraphics). So check what was actually read,
+    // and if anything came from outside the project or the TeX installation, nothing produced by this run leaves
+    // the device: not the PDF, not SyncTeX, not even the log (it would show the content or the paths).
+    if let Err(n) = verify_reads(&dir, &out_dir, &stem) {
+        resp.log = format!(
+            "! The document tried to read {n} file(s) outside the project (for example \\input, \\includegraphics or a bibliography with an absolute or ../ path).\n! For your safety the result of this compile was discarded on the compiling device.\n"
+        );
+        resp.timed_out = timed_out;
+        return resp;
+    }
     let mut log = fs::read_to_string(&log_path).unwrap_or_default();
     if timed_out {
         log.push_str(&format!("\n! Compile timed out after {} s\n", timeout.as_secs()));
@@ -438,6 +449,92 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
     }
     resp.ok = success && !timed_out && resp.pdf_b64.is_some();
     resp
+}
+
+// ---------------------------------------------------------------------------------------------
+// What did the engine read?
+// ---------------------------------------------------------------------------------------------
+
+/// Directories of the TeX installation (kpathsea variables), resolved once. Reading from these is expected.
+fn tex_roots() -> &'static Vec<PathBuf> {
+    static ROOTS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| {
+        let mut out = Vec::new();
+        let Some(kpse) = find_exe("kpsewhich") else { return out };
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        for var in [
+            "TEXMFROOT", "TEXMFDIST", "TEXMFMAIN", "TEXMFLOCAL", "TEXMFSYSVAR", "TEXMFSYSCONFIG", "TEXMFVAR",
+            "TEXMFCONFIG", "TEXMFHOME", "TEXMFCACHE", "SELFAUTOPARENT",
+        ] {
+            let Ok(o) = Command::new(&kpse).arg(format!("-var-value={var}")).stdin(Stdio::null()).stderr(Stdio::null()).output() else { continue };
+            for v in String::from_utf8_lossy(&o.stdout).trim().split(sep) {
+                let v = v.trim().trim_start_matches("!!");
+                // unexpanded brace/variable lists are not usable roots
+                if v.is_empty() || v.contains('{') || v.contains('$') {
+                    continue;
+                }
+                if let Ok(c) = Path::new(v).canonicalize() {
+                    // never treat a filesystem root or a home directory as "the TeX installation"
+                    if c.components().count() > 2 && !out.contains(&c) {
+                        out.push(c);
+                    }
+                }
+            }
+        }
+        out
+    })
+}
+
+const FONT_EXT: &[&str] = &["ttf", "otf", "ttc", "pfb", "pfa", "afm", "tfm", "vf", "dfont"];
+
+fn read_allowed(path: &Path, build: &Path, roots: &[PathBuf]) -> bool {
+    // System fonts (XeTeX/LuaTeX) live outside the TeX tree; font files carry no user secrets.
+    if path.extension().and_then(|e| e.to_str()).map(|e| FONT_EXT.contains(&e.to_ascii_lowercase().as_str())).unwrap_or(false) {
+        return true;
+    }
+    let canon = path.canonicalize().or_else(|_| path.parent().map(|p| p.canonicalize().map(|c| c.join(path.file_name().unwrap_or_default()))).unwrap_or(Err(std::io::Error::other("no parent"))));
+    let Ok(c) = canon else { return false };
+    c.starts_with(build) || roots.iter().any(|r| c.starts_with(r)) || c == Path::new("/dev/null")
+}
+
+/// Checks the recorder file (`.fls`: every file the engine opened) and the bibliography log (`.blg`: data sources of
+/// bibtex/biber). Returns the number of files read from outside the project and the TeX installation.
+pub fn verify_reads(build: &Path, out_dir: &Path, stem: &str) -> Result<(), usize> {
+    let build = build.canonicalize().unwrap_or_else(|_| build.to_path_buf());
+    let roots = tex_roots();
+    let mut bad = 0usize;
+    let mut check = |p: &Path, base: &Path| {
+        let full = if p.is_absolute() { p.to_path_buf() } else { base.join(p) };
+        if !read_allowed(&full, &build, roots) {
+            bad += 1;
+        }
+    };
+    if let Ok(fls) = fs::read_to_string(out_dir.join(format!("{stem}.fls"))) {
+        let mut pwd = out_dir.to_path_buf();
+        for line in fls.lines() {
+            if let Some(p) = line.strip_prefix("PWD ") {
+                pwd = PathBuf::from(p.trim());
+            } else if let Some(p) = line.strip_prefix("INPUT ") {
+                check(Path::new(p.trim()), &pwd);
+            }
+        }
+    }
+    if let Ok(blg) = fs::read_to_string(out_dir.join(format!("{stem}.blg"))) {
+        for line in blg.lines() {
+            // bibtex: "Database file #1: refs.bib"; biber: "Found BibTeX data source 'refs.bib'"
+            let src = if let Some((_, rest)) = line.split_once("Database file #") {
+                rest.split_once(": ").map(|(_, p)| p.trim().to_string())
+            } else if let Some((_, rest)) = line.split_once("data source '") {
+                rest.split_once('\'').map(|(p, _)| p.to_string())
+            } else {
+                None
+            };
+            if let Some(p) = src {
+                check(Path::new(&p), out_dir);
+            }
+        }
+    }
+    if bad == 0 { Ok(()) } else { Err(bad) }
 }
 
 #[cfg(test)]
@@ -556,14 +653,33 @@ mod tests {
             return;
         }
         let root = tmp("outside");
-        // If TeX ever reads this file the log contains LEAKED.
+        // If TeX ever reads this file and shares the result, the log contains LEAKED.
         let secret = root.join("secret.tex");
         fs::write(&secret, "\\errmessage{LEAKED}\n").unwrap();
-        let abs = secret.to_string_lossy().replace('\\', "/");
-        for (n, target) in [("abs", abs.as_str()), ("rel", "../../secret.tex")] {
-            let doc = format!("\\documentclass{{article}}\\begin{{document}}x\\input{{{target}}}\\end{{document}}\n");
-            let r = compile(&root, req(&format!("p10{n}"), vec![file("main.tex", &doc)], 60_000));
-            assert!(!r.log.contains("LEAKED"), "{n}: a file outside the project was read:\n{}", r.log);
+        // A 1x1 PNG standing in for a private image, and a private bibliography.
+        let png = B64.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==").unwrap();
+        fs::write(root.join("private.png"), png).unwrap();
+        fs::write(root.join("private.bib"), "@misc{leak, title={LEAKEDBIB}}\n").unwrap();
+        let abs = |f: &str| root.join(f).to_string_lossy().replace('\\', "/");
+        let cases = [
+            ("abs", format!("\\input{{{}}}", abs("secret.tex"))),
+            ("rel", "\\input{../../secret.tex}".to_string()),
+            ("img", format!("\\includegraphics{{{}}}", abs("private.png"))),
+            ("bib", format!("\\cite{{leak}}\\bibliographystyle{{plain}}\\bibliography{{{}}}", abs("private"))),
+        ];
+        for (n, body) in cases {
+            let doc = format!("\\documentclass{{article}}\\usepackage{{graphicx}}\\begin{{document}}x{body}\\end{{document}}\n");
+            let r = compile(&root, req(&format!("p10{n}"), vec![file("main.tex", &doc)], 120_000));
+            assert!(!r.log.contains("LEAKED"), "{n}: content of a file outside the project was shared:\n{}", r.log);
+            // Either the engine refused the file (MiKTeX with its unsafe-path switches off), or it read it and the
+            // whole result was withheld (TeX Live, which does not restrict reads).
+            let refused = r.log.contains("not found") || r.log.contains("couldn't open") || r.log.contains("I couldn't");
+            let withheld = r.pdf_b64.is_none() && r.synctex_b64.is_none() && r.log.contains("outside the project");
+            assert!(refused || withheld || r.pdf_b64.is_none(), "{n}: a PDF was shared after reading outside the project:\n{}", r.log);
+            if n == "bib" && r.pdf_b64.is_some() {
+                let pdf = B64.decode(r.pdf_b64.as_ref().unwrap()).unwrap();
+                assert!(!String::from_utf8_lossy(&pdf).contains("LEAKEDBIB"), "bib: private bibliography in the PDF");
+            }
         }
     }
 

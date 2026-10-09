@@ -39,12 +39,19 @@ skip any file whose basename is `latexmkrc` or `.latexmkrc` when materializing t
 for latexmk builds that might ignore `-norc` in the future, and for the fallback path). Rejected: allow-listing rc
 content (Perl, not parseable safely).
 
-### D2. MiKTeX path restrictions
-`base_command` sets `MIKTEX_CORE_ALLOWUNSAFEINPUTFILES=f` and `MIKTEX_CORE_ALLOWUNSAFEOUTPUTFILES=f` for every TeX
-process (ignored by TeX Live/MacTeX, which keep `openin_any/openout_any=p`). Per-process environment keeps the user's
-global MiKTeX configuration untouched. Rust tests compile a document that `\input`s an absolute path and a `../`
-path to a file whose content is `\errmessage{LEAKED}` and assert the log never contains `LEAKED`; they run on every
-OS in the Desktop workflow (MiKTeX on Windows).
+### D2. No reads outside the project (all distributions)
+Two layers:
+1. **Engine switches**: `base_command` sets `MIKTEX_CORE_ALLOWUNSAFEINPUTFILES=f` / `…OUTPUTFILES=f` (MiKTeX then refuses
+   absolute and `../` paths, images included) next to `openin_any/openout_any=p`. Per-process environment keeps the
+   user's global configuration untouched.
+2. **Read verification (added during apply)**: the Desktop workflow showed that TeX Live 2026 (macOS BasicTeX)
+   *reads* absolute paths despite `openin_any=p`, and the same was reproduced in a `texlive/texlive` container. Writes
+   are still refused. So every compile runs with `-recorder`, and afterwards `verify_reads` checks the `.fls` (every
+   file the engine opened) and the `.blg` (bibtex/biber data sources). Reads are allowed only from the build
+   directory, the TeX installation (`kpsewhich -var-value` of the TEXMF* variables), or font files. If anything else
+   was read, the PDF, SyncTeX and log are all withheld and replaced by a generic message without paths.
+Rust tests cover absolute `\input`, `../` `\input`, absolute `\includegraphics` and an absolute bibliography, and run
+in the Desktop workflow on Windows (MiKTeX), macOS (TeX Live 2026) and Linux (TeX Live).
 
 ### D3. GitHub OAuth completion bound to the signed-in user
 `/callback` no longer exchanges the code. It redirects to the SPA at `#/github-continue?code=…&state=…` (fragment: never

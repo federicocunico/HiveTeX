@@ -32,7 +32,7 @@ Owners/editors can switch **"Let this device compile for the others"** off in *P
 
 | Where | Engine | Notes |
 |---|---|---|
-| Desktop | System **TeX Live / MiKTeX / MacTeX** (`latexmk` when available, else a built-in multi-pass fallback) or a `tectonic` binary on `PATH` | persistent per-project work directory, only changed files are written, shell-escape disabled, no file access outside the project (`openin_any/openout_any=p`; on MiKTeX `MIKTEX_CORE_ALLOWUNSAFE*FILES=f`), `latexmk -norc` (project `latexmkrc` files are never used), wall-clock timeout (default 120 s), memory limit, whole process tree killed on timeout |
+| Desktop | System **TeX Live / MiKTeX / MacTeX** (`latexmk` when available, else a built-in multi-pass fallback) or a `tectonic` binary on `PATH` | persistent per-project work directory, only changed files are written, shell-escape disabled, no writes outside the project, reads outside the project refused (MiKTeX) or detected via the recorder with the result withheld (all distributions), `latexmk -norc` (project `latexmkrc` files are never used), wall-clock timeout (default 120 s), memory limit, whole process tree killed on timeout |
 | Browser | **SwiftLaTeX** pdfTeX/XeTeX (WebAssembly, in a worker) | needs a reachable **TeX file server** for packages (only package *file names* are requested; sources never leave the device). Configure it under *Settings*; without it the browser engine is disabled and never elected |
 
 LuaLaTeX is desktop-only. A device that cannot run the project's engine is never elected.
