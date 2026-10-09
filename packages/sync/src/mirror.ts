@@ -230,6 +230,9 @@ export class MirrorSync {
       }
       const hash = await sha256Hex(bytes);
       if (this.lastWritten.get(f.path) === hash && this.onDisk.has(f.path)) return;
+      // The awaits above take time: if the file was renamed, moved or deleted meanwhile, writing would resurrect it
+      // under its old name next to the new one.
+      if (this.o.model.byId(f.id)?.path !== f.path || !this.running) return;
       this.lastWritten.set(f.path, hash); // set before writing so the watcher event is recognised as ours
       this.noteWrite(f.path, hash);
       this.onDisk.add(f.path);
