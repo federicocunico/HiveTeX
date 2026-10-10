@@ -1,0 +1,10 @@
+# Secret scanning (CI job "secrets"). Extends the default rules.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets"
+paths = [
+  # Deny-list of common passwords the server rejects at registration (not credentials).
+  '''server/src/data/common-passwords\.ts''',
+]

@@ -8,6 +8,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The repository is public: fail if any commit adds a credential (rules: .gitleaks.toml).
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - name: Scan the full history for secrets
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.0 git /repo --no-banner --redact --config /repo/.gitleaks.toml
+
   test:
     runs-on: ubuntu-latest
     steps:
