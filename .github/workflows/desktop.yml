@@ -242,8 +242,21 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: p2platex-${{ matrix.os }}
+          # installers only (not the unpacked AppDir / .app folders)
           path: |
-            apps/desktop/src-tauri/target/release/bundle/
-            apps/desktop/src-tauri/target/*/release/bundle/
+            apps/desktop/src-tauri/target/release/bundle/*/*.exe
+            apps/desktop/src-tauri/target/release/bundle/*/*.msi
+            apps/desktop/src-tauri/target/release/bundle/*/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/*/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/*/*.deb
+            apps/desktop/src-tauri/target/release/bundle/*/*.sig
+            apps/desktop/src-tauri/target/release/bundle/*/*.app.tar.gz
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.exe
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.msi
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.dmg
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.AppImage
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.deb
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.sig
+            apps/desktop/src-tauri/target/*/release/bundle/*/*.app.tar.gz
           if-no-files-found: error
           retention-days: 14

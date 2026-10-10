@@ -18,7 +18,7 @@
   on manual runs; verify `actionlint` (or a YAML parse) passes.
 - [x] 2.2 `make release VERSION=x.y.z CONFIRM=1`: clean tree, versions match, then tag and push; verify a dry run
   without `CONFIRM` refuses and prints the commands.
-- [ ] 2.3 Manual run of the Desktop workflow; verify all three platforms build and upload installers (Windows exe/msi,
+- [x] 2.3 Manual run of the Desktop workflow; verify all three platforms build and upload installers (Windows exe/msi,
   macOS dmg, Linux AppImage/deb).
 
 ## 3. Server choice before sign-in
