@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copyText } from '../lib/clipboard.js';
   import { onMount } from 'svelte';
   import { apiBase, isDesktop } from '../lib/api.js';
   import { ProjectAdmin, invitationText } from '../lib/project-admin.svelte.js';
@@ -24,7 +25,7 @@
   async function copy() {
     const text = invitationText(session.project.slug, appUrl, session.project.passwordProtected);
     try {
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       toast('Invitation copied. Send the password separately.');
     } catch {
       toast(`Project ID: ${session.project.slug}`, 'info');

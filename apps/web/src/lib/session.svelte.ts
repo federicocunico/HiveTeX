@@ -34,6 +34,7 @@ import {
 } from '@hivetex/sync';
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
+import { copyText } from './clipboard.js';
 import { type FolderAction, type FolderDeps, runFolderAction } from './project-folder.js';
 import { HelperEngine, type PairResult, helperToken, pairWithDesktop, probeHelper } from './helper-engine.js';
 import { applyImport, planFor } from './import/apply.js';
@@ -946,7 +947,7 @@ export class ProjectSession {
         boundPath: () => (this.mirrorDir && this.location.kind === 'folder' ? (this.location.desktopPath ?? null) : null),
         bind: (path) => this.bindFolder({ desktopPath: path }),
         invoke: invoke as FolderDeps['invoke'],
-        copy: (text) => navigator.clipboard.writeText(text),
+        copy: (text) => copyText(text),
         ...(onCreating ? { onCreating } : {}),
       },
       action,
