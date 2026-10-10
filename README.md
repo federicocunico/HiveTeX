@@ -145,8 +145,9 @@ Run the commands from the repository root (Git Bash on Windows).
    make release VERSION=0.1.2 CONFIRM=1   # pushes tag v0.1.2
    ```
 
-   After about 30 minutes, a **draft** release has the Windows, macOS and Linux installers, already pointing at your
-   server. Check it, then press *Publish*.
+   After about 30 minutes the release is **published** on the Releases page with the Windows, macOS and Linux
+   installers, already pointing at your server, and installed apps are offered the update. If a build fails, the
+   release stays a draft until you re-run the failed job (see [Deployment](docs/deployment.md#5-desktop)).
 
 6. **Invite people:** send them your web link, or the release page for the desktop app.
 

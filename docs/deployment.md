@@ -68,9 +68,15 @@ dashboards during the first weeks.
 
 ## 5. Desktop
 
-- **Releases are built on GitHub.** Pushing tag `vX.Y.Z` (`make release VERSION=X.Y.Z CONFIRM=1`) runs the *Desktop*
-  workflow's `build` job. It makes a draft release with Windows (exe, msi), macOS (universal dmg, ad-hoc signed) and
-  Linux (AppImage, deb) installers, plus the signed `latest.json` used by *Account → Check for updates*.
+- **Releases are built and published on GitHub.** Pushing tag `vX.Y.Z` (`make release VERSION=X.Y.Z CONFIRM=1`) runs
+  the *Desktop* workflow's `build` job. It fills a draft release with Windows (exe, msi), macOS (universal dmg, ad-hoc
+  signed) and Linux (AppImage, deb, rpm) installers, plus the signed `latest.json` used by *Account → Check for
+  updates*. When the three builds succeed, the *Release* workflow checks that every file is there, adds download links
+  and first-launch notes, and publishes it (about 30 minutes after the push). A tag like `v0.3.0-beta.1` is published
+  as a pre-release, which installed apps don't update to.
+- **If a build fails,** the release stays a draft and the *Release* run says what's missing. Re-run the failed
+  *Desktop* jobs and it publishes on its own. *Actions → Release → Run workflow* (with the tag) publishes a draft by
+  hand.
 - **Secret and variable.** The job needs the `TAURI_SIGNING_PRIVATE_KEY` repository secret, and refuses a tag whose
   version differs from `tauri.conf.json` (fix it with `make version VERSION=X.Y.Z`). The variable
   `HIVETEX_API_BASE` overrides the default server baked into the installers (`https://hivetex.vercel.app`, built into the app);

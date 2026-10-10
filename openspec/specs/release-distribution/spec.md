@@ -9,16 +9,31 @@ so that other people can install HiveTeX, point it at that deployment and collab
 ### Requirement: Installers built in CI for every desktop platform
 Pushing a version tag (`v<major>.<minor>.<patch>`) SHALL build the desktop app on GitHub-hosted runners for Windows
 (NSIS installer and MSI), macOS (one universal disk image for Apple Silicon and Intel) and Linux (AppImage and Debian
-package), and SHALL attach them to a draft GitHub Release named after the tag. Runner images SHALL be pinned to explicit
+package), and SHALL attach them to a GitHub Release named after the tag. Runner images SHALL be pinned to explicit
 versions, so a change of a runner's default image cannot silently break a release.
 
 #### Scenario: Tagging a release
 - **WHEN** the maintainer pushes tag `v0.1.0` and the version in the sources is `0.1.0`
-- **THEN** a draft release "HiveTeX v0.1.0" appears with Windows, macOS and Linux installers attached
+- **THEN** a release "HiveTeX v0.1.0" is created with Windows, macOS and Linux installers attached
 
 #### Scenario: Tag and source version disagree
 - **WHEN** a tag `v0.2.0` is pushed while the sources still say `0.1.0`
 - **THEN** the release job fails before building, with a message naming both versions
+
+### Requirement: Releases published automatically
+A tagged release SHALL stay a draft while it is being built, and SHALL be published without a manual step, with
+download links and first-launch notes, once all three platform builds have succeeded and every installer and the
+update manifest are attached. Otherwise it SHALL stay a draft and the run SHALL say what is missing. A tag with a
+pre-release suffix (`v0.3.0-beta.1`) SHALL be published as a pre-release, which installed apps are not offered.
+
+#### Scenario: All platforms built
+- **WHEN** the three builds for tag `v0.2.0` succeed
+- **THEN** the release "HiveTeX v0.2.0" becomes public with a download table, and installed apps are offered v0.2.0
+
+#### Scenario: A platform fails to build
+- **WHEN** the macOS build of a tagged release fails
+- **THEN** the release stays a draft, the release run reports that the tag was not built on every platform, and
+  re-running the failed build publishes it
 
 ### Requirement: Dry-run builds without a release
 The maintainer SHALL be able to start the desktop build manually on all three platforms without creating a release. The
@@ -93,7 +108,7 @@ the manual steps as a fallback, tagging a release, and installing and testing on
 
 #### Scenario: Following the guide
 - **WHEN** a maintainer with the listed accounts follows the README (`make setup`, then `make release`)
-- **THEN** they end with a deployed web app, a draft release with installers, and testers who can register and open a
+- **THEN** they end with a deployed web app, a published release with installers, and testers who can register and open a
   shared project
 
 #### Scenario: First setup

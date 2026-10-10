@@ -159,7 +159,7 @@ version: require-node ## Set the version everywhere: make version VERSION=0.1.0
 	@test -n "$(VERSION)" || { echo "Usage: make version VERSION=x.y.z"; exit 1; }
 	node scripts/set-version.mjs $(VERSION)
 
-release: require-git require-node ## Tag and push vVERSION, which builds a draft GitHub Release (needs CONFIRM=1)
+release: require-git require-node ## Tag and push vVERSION: CI builds the installers and publishes the GitHub Release (needs CONFIRM=1)
 	@test -n "$(VERSION)" || { echo "Usage: make release VERSION=x.y.z CONFIRM=1"; exit 1; }
 	@v=$$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version"); \
 	if [ "$$v" != "$(VERSION)" ]; then echo "Sources are at $$v, not $(VERSION): run 'make version VERSION=$(VERSION)' and commit first."; exit 1; fi

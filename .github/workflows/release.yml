@@ -1,0 +1,77 @@
+name: Release
+
+# Every pushed version tag (v*) becomes a public GitHub Release with the installers people download.
+# 1. The Desktop workflow builds the Windows, macOS and Linux installers into a draft release (one job per system).
+# 2. When that run finishes, this workflow checks that all three builds succeeded and that every installer is attached,
+#    writes the download notes and publishes the release. Until then nothing half-finished is visible to users.
+# Publishing also serves latest.json at releases/latest, which is where installed apps look for updates.
+# A tag with a suffix (v0.3.0-beta.1) is published as a pre-release: installed apps are not offered it.
+# By hand (publish an older draft, or again after fixing a failed build): Actions -> Release -> Run workflow.
+on:
+  workflow_run:
+    workflows: [Desktop]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag whose draft release to publish, for example v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Desktop also runs for branches and pull requests: only a pushed tag makes a release.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/release-notes.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Installers built on all three systems
+        if: github.event_name == 'workflow_run'
+        run: |
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '.jobs[] | select(.name | startswith("build")) | "\(.conclusion) \(.name)"' | tee builds.txt
+          if [ "$(grep -c '^success ' builds.txt)" -ne 3 ]; then
+            echo "::error::$TAG was not built on Windows, macOS and Linux, so its release stays a draft. Fix the Desktop run and re-run its failed jobs: this workflow then publishes it."
+            exit 1
+          fi
+
+      - name: Every installer is attached
+        run: |
+          gh release view "$TAG" --json assets --jq '.assets[].name' | tee assets.txt
+          missing=""
+          for p in '\.exe$' '\.msi$' '\.dmg$' '\.AppImage$' '\.deb$' '^latest\.json$'; do
+            grep -Eq "$p" assets.txt || missing="$missing $(printf '%s' "$p" | tr -d '\\^$')"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The $TAG release is missing:$missing. Re-run the failed Desktop jobs, then run this workflow again."
+            exit 1
+          fi
+
+      - name: Release notes
+        run: bash scripts/release-notes.sh "$TAG" assets.txt > notes.md && cat notes.md
+
+      - name: Publish
+        run: |
+          pre=false; latest=true
+          case "$TAG" in *-*) pre=true; latest=false ;; esac
+          gh release edit "$TAG" --draft=false --prerelease="$pre" --latest="$latest" --title "HiveTeX $TAG" --notes-file notes.md
+          url=$(gh release view "$TAG" --json url --jq .url)
+          echo "Published $TAG: $url" | tee -a "$GITHUB_STEP_SUMMARY"
