@@ -622,7 +622,8 @@ mod config_tests {
         assert!(csp.contains("object-src 'none'"));
         assert!(!csp.contains("'unsafe-eval'"));
         assert!(!csp.contains("script-src *"));
-        assert!(!csp.replace("http://ipc.localhost", "").contains("http:"), "plain http connections are not allowed");
+        // http://ipc.localhost and http://texcache.localhost are the app's own protocols on Windows, not the network
+        assert!(!csp.replace("http://ipc.localhost", "").replace("http://texcache.localhost", "").contains("http:"), "plain http connections are not allowed");
         assert!(conf["build"]["devUrl"].as_str().unwrap().starts_with("http://localhost"));
         assert_eq!(conf["app"]["withGlobalTauri"], serde_json::json!(false));
     }
