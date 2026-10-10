@@ -6,16 +6,16 @@
   results recorded in design.md (Chromium yes; Firefox no for worker XHR)
 - [x] 1.2 Desktop `texcache` protocol for the in-browser engine: disk cache, safe paths, atomic writes, negative entries,
   upstream setting, stats/clear commands; verify Rust tests (hit/miss/negative/traversal refused)
-- [ ] 1.3 Managed downloads (D2): pinned table (Tectonic 0.17.0, TinyTeX v2026.10) with SHA-256, streaming download with
+- [x] 1.3 Managed downloads (D2): pinned table (Tectonic 0.17.0, TinyTeX v2026.10) with SHA-256, streaming download with
   progress, checksum check, safe extraction (zip, tar.gz, tar.xz, TinyTeX SFX), atomic install, remove, status; verify
   Rust tests (checksum mismatch refused, zip-slip refused, atomic swap) with local fixtures
 
 ## 2. Quick compiler (Tectonic)
 
-- [ ] 2.1 Tectonic backend (D3): untrusted compile into the existing pipeline, cache dir, engine mapping note,
+- [x] 2.1 Tectonic backend (D3): untrusted compile into the existing pipeline, cache dir, engine mapping note,
   package-download events, detection of the managed install; verify Rust tests with a fake tectonic and a real
   `\usepackage{siunitx}` build on Windows
-- [ ] 2.2 Automatic set-up on first compile without TeX, *Download compiler now*, opt-out; desktop engine order (D1);
+- [x] 2.2 Automatic set-up on first compile without TeX, *Download compiler now*, opt-out; desktop engine order (D1);
   verify a desktop e2e that compiles with no system TeX (test hook hiding PATH TeX) through the managed Tectonic
 
 ## 3. Full LaTeX (TinyTeX)

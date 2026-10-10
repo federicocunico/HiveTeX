@@ -520,7 +520,12 @@
       {/if}
       {#if s.compiledBy}<span data-testid="compiled-by-status" class="muted">· PDF by {s.compiledBy}</span>{/if}
       <span>·</span>
-      <span>{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}</span>
+      <span data-testid="compiler-state">
+        {#if s.compilerPhase === 'setting-up'}Setting up the {s.compilerName}{s.compilerDetail ? ` (${s.compilerDetail})` : ''}…
+        {:else if s.compilerPhase === 'packages'}{s.compilerName}: {s.compilerDetail}…
+        {:else if s.compilerName}{s.compilerName}{s.localOnlyCompiler ? ' (builds stay on this device)' : ''}
+        {:else}{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}{/if}
+      </span>
       {#if s.compileMode === 'peers' && !s.leaderName}
         <span class="pill warn" role="status" data-testid="no-peer-compiler" title="Switch to Automatic (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">no peer can compile right now</span>
       {/if}

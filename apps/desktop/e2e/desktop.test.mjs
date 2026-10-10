@@ -80,7 +80,7 @@ async function home() {
 before(async () => {
   b = await Session.create(`http://127.0.0.1:${process.env.HIVETEX_DRIVER_PORT ?? 4446}`, {
     browserName: 'wry',
-    'tauri:options': { application: process.env.HIVETEX_APP, args: ['--test-pick-dir', pickBase] },
+    'tauri:options': { application: process.env.HIVETEX_APP, args: ['--test-pick-dir', pickBase, '--ignore-system-tex'] },
   });
   await until(async () => (await b.execute(() => document.readyState)) === 'complete', 'app loaded');
   await b.execute(() => {
@@ -172,4 +172,26 @@ test('link a folder to a project, then open that folder again from the projects 
   await (await byTestId('open-folder')).click();
   await until(async () => (await textOf('project-slug')) === slug, 'project opened from marker');
   await until(async () => (await textOf('location-btn')).includes(dir), 'folder bound again');
+});
+
+test('without any TeX installed, the first compile sets up the quick compiler and builds on this device', { timeout: 600_000 }, async () => {
+  await home();
+  const slug = uniq('quick-');
+  await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
+  await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
+  await (await b.$("//button[normalize-space()='Create project']")).click();
+  await byTestId('workspace');
+  // the compiler is set up (download with progress) without any installation step
+  await until(async () => /quick compiler/.test(await textOf('compiler-state')), 'quick compiler ready', 300_000);
+  await (await b.$('button[aria-label="New file"]')).click();
+  await (await byTestId('new-name')).setValue('main.tex');
+  await (await byTestId('new-name')).type(Keys.Enter);
+  await until(() => treeHas('main.tex'), 'main.tex created');
+  await (await treeHas('main.tex')).click();
+  const editor = await b.$('.cm-content');
+  await editor.click();
+  await editor.type(String.raw`\documentclass{article}` + '\n' + String.raw`\begin{document}` + '\nQuick compiler works.\n' + String.raw`\end{document}` + '\n');
+  // builds stay local: the PDF is this device's own
+  await until(async () => (await textOf('compiled-by')).includes('(this device)'), 'local PDF from the quick compiler', 300_000);
+  assert.match(await textOf('compiler-state'), /builds stay on this device/);
 });

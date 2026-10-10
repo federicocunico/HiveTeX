@@ -1,3 +1,4 @@
+pub mod managed;
 pub mod mirror;
 pub mod probe;
 pub mod rtc;
@@ -13,13 +14,81 @@ fn tex_detect() -> Option<tex::EngineInfo> {
     tex::detect()
 }
 
-/// Compiles on a blocking thread so the UI stays responsive.
+/// Compiles on a blocking thread so the UI stays responsive. Packages the compiler downloads on the way are reported as
+/// `compile://package` events.
 #[tauri::command]
 async fn tex_compile(app: tauri::AppHandle, req: tex::CompileReq) -> Result<tex::CompileResp, String> {
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || tex::compile(&root, req))
+    let emitter = app.clone();
+    let on_download: tex::OnDownload = std::sync::Arc::new(move |file: &str| {
+        let _ = emitter.emit("compile://package", file.to_string());
+    });
+    tauri::async_runtime::spawn_blocking(move || tex::compile_with(&root, req, Some(on_download)))
         .await
         .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ManagedProgress {
+    component: String,
+    received: u64,
+    total: u64,
+}
+
+/// Installs a compiler HiveTeX manages (`tectonic` = quick compiler, `tinytex` = full LaTeX) into the app's folder.
+#[tauri::command]
+async fn managed_install(app: tauri::AppHandle, component: String) -> Result<managed::Installed, String> {
+    let asset = managed::asset(&component).ok_or_else(|| format!("{component} is not available for this system"))?;
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().build().map_err(|e| e.to_string())?;
+    let emitter = app.clone();
+    let name = component.clone();
+    let last = std::sync::Mutex::new(0u64);
+    let progress = move |received: u64, total: u64| {
+        // at most ~1 event per 256 KB
+        let mut l = last.lock().unwrap();
+        if received >= *l + 262_144 || received == total {
+            *l = received;
+            let _ = emitter.emit("managed://progress", ManagedProgress { component: name.clone(), received, total });
+        }
+    };
+    managed::install(&client, &root, asset, &progress).await
+}
+
+#[derive(serde::Serialize)]
+struct ManagedStatus {
+    tectonic: Option<managed::Installed>,
+    tinytex: Option<managed::Installed>,
+    tectonic_cache_bytes: u64,
+    /// Sizes of the downloads, to show before installing.
+    tectonic_download: Option<u64>,
+    tinytex_download: Option<u64>,
+}
+
+#[tauri::command]
+fn managed_status(app: tauri::AppHandle) -> Result<ManagedStatus, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let cache = texcache::TexCache::new(root.join("tectonic-cache")).stats().bytes;
+    Ok(ManagedStatus {
+        tectonic: managed::status(&root, "tectonic"),
+        tinytex: managed::status(&root, "tinytex"),
+        tectonic_cache_bytes: cache,
+        tectonic_download: managed::asset("tectonic").map(|a| a.size),
+        tinytex_download: managed::asset("tinytex").map(|a| a.size),
+    })
+}
+
+#[tauri::command]
+fn managed_remove(app: tauri::AppHandle, component: String) -> Result<(), String> {
+    if component != "tectonic" && component != "tinytex" {
+        return Err("unknown component".into());
+    }
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    managed::remove(&root, &component)?;
+    if component == "tectonic" {
+        let _ = std::fs::remove_dir_all(root.join("tectonic-cache"));
+    }
+    Ok(())
 }
 
 /// Opens the native folder dialog and records the choice; the only way a folder becomes usable by the webview.
@@ -226,6 +295,10 @@ fn texcache_response(app: &tauri::AppHandle, path: &str) -> impl std::future::Fu
 }
 
 pub fn run() {
+    // `--ignore-system-tex`: behave as on a computer without TeX (UI tests of the quick compiler; only removes options).
+    if std::env::args().any(|a| a == "--ignore-system-tex") {
+        std::env::set_var("HIVETEX_IGNORE_SYSTEM_TEX", "1");
+    }
     // TLS for the package-server downloads (ring, already used by the WebRTC stack).
     let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default();
@@ -240,6 +313,7 @@ pub fn run() {
         })
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
+            tex::set_managed_root(dir.clone());
             app.manage(texcache::TexCache::new(dir.join("texcache")));
             let picked = dir.join("picked-folders.json");
             adopt_legacy_file(&picked, LEGACY_IDENTIFIER);
@@ -253,6 +327,9 @@ pub fn run() {
             tex_detect,
             tex_compile,
             texcache_set_upstream,
+            managed_install,
+            managed_status,
+            managed_remove,
             texcache_stats,
             texcache_clear,
             mirror_pick,

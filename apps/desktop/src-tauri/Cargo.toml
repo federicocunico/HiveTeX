@@ -28,6 +28,10 @@ tauri-plugin-opener = "2"
 sha2 = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+lzma-rs = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

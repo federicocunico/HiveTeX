@@ -37,7 +37,7 @@ import { detectEngine, detectMain } from './import/detect.js';
 import type { ApplyChoices, ApplyResult, ImportPlan } from './import/plan.js';
 import type { ImportBundle } from './import/sources.js';
 import { getGithubToken } from './github.js';
-import { COMPILE_MODE_KEY, type CompileMode, policyFor, readCompileMode } from './compile-mode.js';
+import { COMPILE_MODE_KEY, type CompileMode, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
 import { folderPermission, webFs } from './fs-access.js';
 import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
 import { ensureRegistered } from './keys.js';
@@ -277,7 +277,52 @@ export class ProjectSession {
   /** This device's compiler preference (Settings → Compiler); applies to every project. */
   compileMode = $state<CompileMode>(readCompileMode());
   private policy() {
-    return policyFor(this.compileMode, localStorage.getItem('hivetex.compileForOthers') !== '0');
+    // A compiler whose reads cannot be verified (the quick compiler) builds for this device only (design D3b).
+    const mode = this.compileMode === 'peers' ? 'peers' : this.localOnlyCompiler ? 'local' : this.compileMode;
+    return policyFor(mode, localStorage.getItem('hivetex.compileForOthers') !== '0');
+  }
+
+  /** The quick compiler's builds stay on this device (never shared, never leader). */
+  localOnlyCompiler = $state(false);
+  /** Which compiler this device uses, for the status bar ("TeX Live", "quick compiler", "in-browser compiler"...). */
+  compilerName = $state('');
+  compilerPhase = $state<'ready' | 'setting-up' | 'packages' | 'unavailable'>('ready');
+  compilerDetail = $state('');
+
+  /** Downloads the quick compiler (Tectonic) with progress, then re-detects. Returns whether a compiler is available. */
+  async installQuickCompiler(native?: NativeEngine): Promise<boolean> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { listen } = await import('@tauri-apps/api/event');
+    this.compilerPhase = 'setting-up';
+    this.compilerName = 'quick compiler';
+    this.compilerDetail = 'downloading';
+    const un = await listen<{ received: number; total: number }>('managed://progress', (e) => {
+      const mb = (n: number) => (n / 1048576).toFixed(0);
+      this.compilerDetail = e.payload.total ? `${mb(e.payload.received)} / ${mb(e.payload.total)} MB` : `${mb(e.payload.received)} MB`;
+    });
+    try {
+      await invoke('managed_install', { component: 'tectonic' });
+      const engine = native ?? new NativeEngine(invoke as TauriInvoke, this.project.id);
+      const ok = await engine.init();
+      if (ok && !native && this.engine === null) {
+        // Installed from the Compiler panel while this project was open: start using it.
+        this.engine = engine;
+        this.engineKind = 'native';
+        this.localOnlyCompiler = !engine.verifiedReads;
+        this.election?.update({ engine: 'native', supports: engine.supports, optOut: this.policy().optOut });
+      }
+      this.compilerPhase = ok ? 'ready' : 'unavailable';
+      this.compilerDetail = '';
+      if (ok) this.engineNote = '';
+      return ok;
+    } catch (e) {
+      this.compilerPhase = 'unavailable';
+      this.compilerDetail = '';
+      this.engineNote = `The quick compiler could not be set up: ${e instanceof Error ? e.message : String(e)}. Retry in Account > Compiler.`;
+      return false;
+    } finally {
+      un();
+    }
   }
 
   /** Detects the compiler available on this device (native TeX on desktop, the in-browser engine on the web). */
@@ -289,13 +334,33 @@ export class ProjectSession {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const native = new NativeEngine(invoke as TauriInvoke, this.project.id);
-        if (await native.init()) {
+        let found = await native.init();
+        // No TeX on this computer: set up the quick compiler (downloaded once, packages fetched as documents need them).
+        if (!found && localStorage.getItem('hivetex.autoCompiler') !== '0') found = await this.installQuickCompiler(native);
+        if (found) {
           this.engine = native;
           kind = 'native';
           supports = native.supports;
-        } else this.engineNote = 'No LaTeX installed here: peers will compile for you. To compile on this device, install TeX Live, MiKTeX or MacTeX.';
+          this.localOnlyCompiler = !native.verifiedReads;
+          this.compilerName = compilerLabel(native.flavor);
+          this.compilerPhase = 'ready';
+        } else if (!this.engineNote) {
+          this.engineNote = 'No LaTeX on this computer yet. Download the quick compiler in Account > Compiler, or let peers compile for you.';
+        }
       } catch (e) {
         this.engineNote = `Native compiler unavailable: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      if (!this.engine) {
+        // Last resort: the in-browser engine (its files are kept on disk by the app).
+        const { loadWasmEngine } = await import('./wasm-engine.js');
+        const wasm = await loadWasmEngine(this.project.id);
+        if (wasm) {
+          this.engine = wasm;
+          kind = 'wasm';
+          supports = wasm.supports;
+          this.compilerName = 'in-browser compiler';
+          this.compilerPhase = 'ready';
+        }
       }
     } else {
       const { loadWasmEngine } = await import('./wasm-engine.js');
@@ -316,6 +381,14 @@ export class ProjectSession {
     const policy = this.policy();
     if (policy.loadEngine) ({ kind, supports } = await this.loadEngine());
     else this.engineNote = 'Using peers: this device does not compile.';
+    if (isDesktop) {
+      // Packages the compiler downloads during a build (quick compiler), for the status bar.
+      const { listen } = await import('@tauri-apps/api/event');
+      this.unlistenPackages = await listen<string>('compile://package', (e) => {
+        this.compilerPhase = 'packages';
+        this.compilerDetail = `downloading ${e.payload}`;
+      });
+    }
 
     const power: 'mains' | 'battery' = 'mains';
     const batteryPct = 100;
@@ -331,7 +404,7 @@ export class ProjectSession {
         power,
         batteryPct,
         load: 0,
-        optOut: policy.optOut,
+        optOut: this.policy().optOut, // after loadEngine: a local-only compiler never leads
       },
       { engine: () => (String(this.model.settings.get('engine') ?? 'pdflatex') as 'pdflatex'), selfRole: () => this.role },
     );
@@ -339,9 +412,17 @@ export class ProjectSession {
     const engineProxy: CompileEngine = {
       kind,
       supports,
-      compile: (input, opts) => {
+      compile: async (input, opts) => {
         this.compileStatus = 'compiling';
-        return (this.engine as CompileEngine).compile(input, opts);
+        try {
+          return await (this.engine as CompileEngine).compile(input, opts);
+        } finally {
+          // packages fetched during this build are done
+          if (this.compilerPhase === 'packages') {
+            this.compilerPhase = 'ready';
+            this.compilerDetail = '';
+          }
+        }
       },
     };
     this.leader = new CompileLeader({
@@ -465,6 +546,7 @@ export class ProjectSession {
   }
 
   private localTimer: ReturnType<typeof setTimeout> | undefined;
+  private unlistenPackages: (() => void) | null = null;
   /** "This device only": compile here once edits settle. */
   private scheduleLocalCompile(delay = 1500) {
     if (!this.policy().autoLocal || !this.engine) return;
@@ -763,6 +845,7 @@ export class ProjectSession {
     this.backup?.stop();
     clearTimeout(this.dedupeTimer);
     clearTimeout(this.localTimer);
+    this.unlistenPackages?.();
     this.monitor?.stop();
     this.election?.stop();
     this.mesh?.destroy();

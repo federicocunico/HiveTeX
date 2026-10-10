@@ -20,6 +20,56 @@ pub struct EngineInfo {
     pub flavor: String,
     pub supports: Vec<String>,
     pub has_latexmk: bool,
+    /// Whether what a document read can be verified (recorder): only such builds may be shared with co-authors.
+    pub verified_reads: bool,
+    /// Executables of an installation HiveTeX manages (TinyTeX, Tectonic); `None` = found on PATH.
+    #[serde(skip)]
+    pub bin_dir: Option<PathBuf>,
+}
+
+/// The app's data folder, where managed compilers live (`tinytex/`, `tectonic/`, `tectonic-cache/`). Set once at start.
+static MANAGED_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+pub fn set_managed_root(p: PathBuf) {
+    let _ = MANAGED_ROOT.set(p);
+}
+fn managed_root() -> Option<&'static PathBuf> {
+    MANAGED_ROOT.get()
+}
+
+/// The managed TinyTeX's `bin/<platform>` folder, if installed.
+fn tinytex_bin(root: &Path) -> Option<PathBuf> {
+    let bin = root.join("tinytex").join("bin");
+    let rd = fs::read_dir(&bin).ok()?;
+    rd.flatten().map(|e| e.path()).find(|p| p.is_dir() && find_exe_in("pdflatex", p.as_os_str()).is_some())
+}
+
+fn tectonic_exe(root: &Path) -> Option<PathBuf> {
+    let p = root.join("tectonic").join(if cfg!(windows) { "tectonic.exe" } else { "tectonic" });
+    p.is_file().then_some(p)
+}
+
+/// Compilers in order of preference: system TeX (PATH), managed TinyTeX, managed Tectonic (local-only builds).
+pub fn detect_with(path: Option<&std::ffi::OsStr>, managed: Option<&Path>) -> Option<EngineInfo> {
+    if let Some(info) = path.and_then(detect_in) {
+        return Some(info);
+    }
+    let root = managed?;
+    if let Some(bin) = tinytex_bin(root) {
+        if let Some(mut info) = detect_in(bin.as_os_str()) {
+            info.flavor = "tinytex (managed)".into();
+            info.bin_dir = Some(bin);
+            return Some(info);
+        }
+    }
+    let exe = tectonic_exe(root)?;
+    Some(EngineInfo {
+        flavor: "tectonic (managed)".into(),
+        // Tectonic always runs XeTeX; pdfLaTeX projects are built by it too (with a note in the log).
+        supports: vec!["pdflatex".into(), "xelatex".into()],
+        has_latexmk: false,
+        verified_reads: false,
+        bin_dir: exe.parent().map(Path::to_path_buf),
+    })
 }
 
 #[derive(Deserialize, Debug)]
@@ -48,6 +98,8 @@ pub struct CompileResp {
     pub synctex_b64: Option<String>,
     pub log: String,
     pub timed_out: bool,
+    /// Built by a compiler whose file reads cannot be verified (Tectonic): never to be shared with co-authors.
+    pub local_only: bool,
 }
 
 pub fn find_exe(name: &str) -> Option<PathBuf> {
@@ -86,7 +138,9 @@ fn version_text(exe: &Path) -> String {
 }
 
 pub fn detect() -> Option<EngineInfo> {
-    detect_in(&std::env::var_os("PATH")?)
+    // HIVETEX_IGNORE_SYSTEM_TEX=1: behave as on a machine without TeX (tests of the managed compilers).
+    let path = if std::env::var_os("HIVETEX_IGNORE_SYSTEM_TEX").is_some() { None } else { std::env::var_os("PATH") };
+    detect_with(path.as_deref(), managed_root().map(PathBuf::as_path))
 }
 
 /// `detect` over an explicit search path (tests).
@@ -109,13 +163,13 @@ pub fn detect_in(path: &std::ffi::OsStr) -> Option<EngineInfo> {
             }
         }
     }
-    // Tectonic alone is deliberately not offered: it writes no recorder file, so what a document read cannot be
-    // verified (see verify_reads), and its I/O reads absolute paths directly. A device without a regular TeX
-    // distribution therefore advertises no engine and is never elected.
+    // A Tectonic found on PATH is not offered: it writes no recorder file, so what a document read cannot be verified
+    // (see verify_reads), and its I/O reads absolute paths directly. Only the managed Tectonic is used (detect_with),
+    // and only for builds that stay on this device.
     if supports.is_empty() {
         return None;
     }
-    Some(EngineInfo { flavor, supports, has_latexmk: find_exe_in("latexmk", path).is_some() })
+    Some(EngineInfo { flavor, supports, has_latexmk: find_exe_in("latexmk", path).is_some(), verified_reads: true, bin_dir: None })
 }
 
 /// Build tool configuration that must never come from a project (latexmk rc files are executable Perl).
@@ -185,8 +239,17 @@ fn tail(s: &str, max: usize) -> String {
 }
 
 /// Runs a command with limits; returns (exit_success, timed_out).
-fn run_limited(mut cmd: Command, timeout: Duration, memory_mb: u64) -> std::io::Result<(bool, bool)> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+fn run_limited(cmd: Command, timeout: Duration, memory_mb: u64) -> std::io::Result<(bool, bool)> {
+    run_limited_io(cmd, timeout, memory_mb, None)
+}
+
+/// `run_limited`, with stderr written to `stderr` when given (Tectonic reports its downloads there).
+fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: Option<fs::File>) -> std::io::Result<(bool, bool)> {
+    // Both streams go to the file when given (Tectonic prints its `note:` lines on stdout).
+    let stdout = stderr.as_ref().and_then(|f| f.try_clone().ok());
+    cmd.stdin(Stdio::null())
+        .stdout(stdout.map(Stdio::from).unwrap_or_else(Stdio::null))
+        .stderr(stderr.map(Stdio::from).unwrap_or_else(Stdio::null));
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -290,6 +353,13 @@ fn base_command(exe: PathBuf, dir: &Path) -> Command {
 }
 
 pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
+    compile_with(root, req, None)
+}
+
+/// Callback for files a compiler downloads during a build (Tectonic's lazy packages).
+pub type OnDownload = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
+pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload>) -> CompileResp {
     let mut resp = CompileResp::default();
     let dir = root.join("builds").join(sanitize_project(&req.project));
     if fs::create_dir_all(&dir).is_err() {
@@ -367,6 +437,9 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
         resp.log = "! No TeX installation found (install TeX Live, MiKTeX or MacTeX)".into();
         return resp;
     };
+    if info.flavor.starts_with("tectonic") {
+        return compile_tectonic(&info, &dir, &out_dir, &main_rel, &stem, &req, on_download, resp);
+    }
     if !info.supports.iter().any(|e| e == &req.engine) {
         resp.log = format!("! This device cannot run {}", req.engine);
         return resp;
@@ -374,12 +447,20 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
     let timeout = Duration::from_millis(req.timeout_ms.max(1000));
     let mem = req.memory_mb;
     let main_name = main_rel.to_string_lossy().to_string();
-    let engine_exe = find_exe(&req.engine).unwrap_or_else(|| PathBuf::from(&req.engine));
+    let exe = |name: &str| match &info.bin_dir {
+        Some(b) => find_exe_in(name, b.as_os_str()),
+        None => find_exe(name),
+    };
+    let engine_exe = exe(&req.engine).unwrap_or_else(|| PathBuf::from(&req.engine));
     let installer = if info.flavor == "miktex" { Some("--enable-installer") } else { None };
 
     let (mut success, mut timed_out) = (false, false);
     if info.has_latexmk {
-        let mut cmd = base_command(find_exe("latexmk").unwrap(), &dir);
+        let Some(latexmk) = exe("latexmk") else {
+            resp.log = "! latexmk not found".into();
+            return resp;
+        };
+        let mut cmd = base_command(latexmk, &dir);
         cmd.arg(match req.engine.as_str() {
             "xelatex" => "-xelatex",
             "lualatex" => "-lualatex",
@@ -410,7 +491,7 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
         if let Ok((_, false)) = last {
             let aux = fs::read_to_string(out_dir.join(format!("{stem}.aux"))).unwrap_or_default();
             if aux.contains("\\bibdata") {
-                if let Some(b) = find_exe("bibtex") {
+                if let Some(b) = exe("bibtex") {
                     let mut c = base_command(b, &dir);
                     c.arg(sub.join(&stem));
                     let _ = run_limited(c, timeout, mem);
@@ -455,6 +536,105 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
     let sync_path = out_dir.join(format!("{stem}.synctex.gz"));
     if let Ok(bytes) = fs::read(&sync_path) {
         resp.synctex_b64 = Some(B64.encode(&bytes));
+    }
+    resp.ok = success && !timed_out && resp.pdf_b64.is_some();
+    resp
+}
+
+/// Tectonic: one XeTeX run per pass, packages downloaded on demand into its cache. Its reads cannot be verified (no
+/// recorder, absolute paths readable even with --untrusted), so the result is marked local-only: the app never shares
+/// it with co-authors (see design D3b).
+#[allow(clippy::too_many_arguments)]
+fn compile_tectonic(
+    info: &EngineInfo,
+    dir: &Path,
+    out_dir: &Path,
+    main_rel: &Path,
+    stem: &str,
+    req: &CompileReq,
+    on_download: Option<OnDownload>,
+    mut resp: CompileResp,
+) -> CompileResp {
+    resp.local_only = true;
+    let Some(exe) = info.bin_dir.as_ref().map(|b| b.join(if cfg!(windows) { "tectonic.exe" } else { "tectonic" })) else {
+        resp.log = "! the quick compiler is not installed".into();
+        return resp;
+    };
+    let cache = managed_root().map(|r| r.join("tectonic-cache")).unwrap_or_else(|| dir.join(".tectonic-cache"));
+    let _ = fs::create_dir_all(&cache);
+    let _ = fs::create_dir_all(out_dir);
+    let mut cmd = base_command(exe, dir);
+    cmd.env("TECTONIC_CACHE_DIR", &cache)
+        .args(["-X", "compile", "--untrusted", "--synctex", "--keep-logs", "--outdir"])
+        .arg(out_dir)
+        .arg(main_rel);
+    let err_path = out_dir.join(format!("{stem}.tectonic-stderr.txt"));
+    let Ok(err_file) = fs::File::create(&err_path) else {
+        resp.log = "! cannot create the build log".into();
+        return resp;
+    };
+    // Report packages as Tectonic downloads them (`note: downloading <file>` on stderr).
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = on_download.map(|cb| {
+        let (path, done) = (err_path.clone(), done.clone());
+        std::thread::spawn(move || {
+            let mut seen = 0usize;
+            loop {
+                let finished = done.load(std::sync::atomic::Ordering::SeqCst);
+                if let Ok(text) = fs::read_to_string(&path) {
+                    for line in text.lines().skip(seen) {
+                        if let Some(f) = line.strip_prefix("note: downloading ") {
+                            cb(f.trim());
+                        }
+                        seen += 1;
+                    }
+                }
+                if finished {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        })
+    });
+    let timeout = Duration::from_millis(req.timeout_ms.max(1000));
+    let run = run_limited_io(cmd, timeout, req.memory_mb, Some(err_file));
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(w) = watcher {
+        let _ = w.join();
+    }
+    let (success, timed_out) = match run {
+        Ok(r) => r,
+        Err(e) => {
+            resp.log = format!("! cannot start the quick compiler: {e}");
+            return resp;
+        }
+    };
+    let mut log = String::new();
+    if req.engine == "pdflatex" {
+        log.push_str("Note: built with the quick compiler (Tectonic, XeTeX engine). If this document needs pdfLaTeX, install full LaTeX in Account > Compiler.
+");
+    }
+    log.push_str(&fs::read_to_string(out_dir.join(format!("{stem}.log"))).unwrap_or_default());
+    let stderr = fs::read_to_string(&err_path).unwrap_or_default();
+    let _ = fs::remove_file(&err_path);
+    if !success {
+        log.push_str("
+--- compiler messages ---
+");
+        log.push_str(&stderr);
+    }
+    if timed_out {
+        log.push_str(&format!("
+! Compile timed out after {} s
+", timeout.as_secs()));
+    }
+    resp.log = tail(&log, 200_000);
+    resp.timed_out = timed_out;
+    if let Ok(b) = fs::read(out_dir.join(format!("{stem}.pdf"))) {
+        resp.pdf_b64 = Some(B64.encode(&b));
+    }
+    if let Ok(b) = fs::read(out_dir.join(format!("{stem}.synctex.gz"))) {
+        resp.synctex_b64 = Some(B64.encode(&b));
     }
     resp.ok = success && !timed_out && resp.pdf_b64.is_some();
     resp
@@ -510,7 +690,12 @@ fn read_allowed(path: &Path, build: &Path, roots: &[PathBuf]) -> bool {
 /// bibtex/biber). Returns the number of files read from outside the project and the TeX installation.
 pub fn verify_reads(build: &Path, out_dir: &Path, stem: &str) -> Result<(), usize> {
     let build = build.canonicalize().unwrap_or_else(|_| build.to_path_buf());
-    let roots = tex_roots();
+    let mut roots = tex_roots().clone();
+    // The TeX tree HiveTeX installed itself (not on PATH, so kpsewhich above does not see it).
+    if let Some(r) = managed_root() {
+        roots.push(r.join("tinytex"));
+    }
+    let roots = &roots;
     let mut bad = 0usize;
     let mut check = |p: &Path, base: &Path| {
         let full = if p.is_absolute() { p.to_path_buf() } else { base.join(p) };
@@ -575,6 +760,70 @@ mod tests {
         assert!(safe_rel("C:\\x.tex").is_none());
         assert!(safe_rel("a/../../b").is_none());
         assert!(safe_rel("").is_none());
+    }
+
+    fn fake_exe(dir: &Path, name: &str) {
+        fs::create_dir_all(dir).unwrap();
+        let file = dir.join(if cfg!(windows) { format!("{name}.exe") } else { name.to_string() });
+        fs::write(&file, b"").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    #[test]
+    fn managed_compilers_come_after_system_tex_tinytex_before_tectonic() {
+        let root = tmp("managed-order");
+        let empty = tmp("empty-path");
+        assert!(detect_with(Some(empty.as_os_str()), Some(&root)).is_none(), "nothing installed: no engine");
+        fake_exe(&root.join("tectonic"), "tectonic");
+        let t = detect_with(Some(empty.as_os_str()), Some(&root)).unwrap();
+        assert_eq!(t.flavor, "tectonic (managed)");
+        assert!(!t.verified_reads, "Tectonic builds must stay local");
+        let bin = root.join("tinytex").join("bin").join("x86_64-test");
+        fake_exe(&bin, "pdflatex");
+        let tt = detect_with(Some(empty.as_os_str()), Some(&root)).unwrap();
+        assert!(tt.flavor.starts_with("tinytex"), "{}", tt.flavor);
+        assert!(tt.verified_reads);
+        assert_eq!(tt.bin_dir.as_deref(), Some(bin.as_path()));
+        let sys = tmp("system-path");
+        fake_exe(&sys, "pdflatex");
+        let s = detect_with(Some(sys.as_os_str()), Some(&root)).unwrap();
+        assert!(s.bin_dir.is_none(), "system TeX wins over managed installs");
+    }
+
+    /// Real build with the managed Tectonic (downloads packages on first use). Run with
+    /// HIVETEX_TECTONIC_ROOT=<folder containing tectonic/tectonic(.exe)> cargo test --lib real_tectonic -- --ignored
+    #[test]
+    #[ignore]
+    fn real_tectonic_builds_with_lazy_packages_and_is_local_only() {
+        let Some(root) = std::env::var_os("HIVETEX_TECTONIC_ROOT").map(PathBuf::from) else { return };
+        set_managed_root(root.clone());
+        let work = tmp("real-tectonic");
+        let doc = r"\documentclass{article}
+\usepackage{siunitx}
+\begin{document}
+Speed: \qty{3}{\metre\per\second}
+\end{document}
+";
+        let req = CompileReq {
+            project: "p1".into(),
+            files: vec![FileIn { path: "main.tex".into(), hash: "h".into(), content_b64: Some(B64.encode(doc)) }],
+            main: "main.tex".into(),
+            engine: "pdflatex".into(),
+            timeout_ms: 600_000,
+            memory_mb: 0,
+        };
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let s2 = seen.clone();
+        let cb: OnDownload = std::sync::Arc::new(move |f: &str| s2.lock().unwrap().push(f.to_string()));
+        let r = compile_with(&work, req, Some(cb));
+        assert!(r.ok, "{}", r.log);
+        assert!(r.local_only);
+        assert!(r.log.contains("quick compiler"));
+        eprintln!("downloaded during the build: {:?}", seen.lock().unwrap());
     }
 
     #[test]

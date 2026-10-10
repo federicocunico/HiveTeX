@@ -94,6 +94,22 @@ The capability `engine` is `native` for system TeX, TinyTeX, Tectonic and the he
   progress, then compiles. Account → Compiler has *Download compiler now* for offline preparation. Opt-out:
   `hivetex.autoCompiler = '0'` shows a button instead of downloading by itself.
 
+### D3b. Tectonic builds are local-only (security)
+Verified on 2026-10-10 with Tectonic 0.17.0:
+- `-X compile --untrusted` opens and typesets `input{C:/…/secret.txt}`;
+- no recorder file is written.
+
+What a document read cannot be verified, so a Tectonic device would let a co-author exfiltrate local files through
+shared PDFs. Therefore:
+- **Native side:** the flavor `tectonic (managed)` is reported with `verified_reads: false`.
+- **Capability record:** `engine: 'native'` plus `optOut: true`, so the device is never the leader.
+- **Session:** behaves as compile mode `local` for that device. It compiles its own copy after edits, and its results
+  are never sent.
+- **Helper:** `/status` reports `verifiedReads`; the web side advertises the helper to the election only when it is
+  true.
+- **Trusted TeX roots:** the managed TinyTeX root joins `tex_roots()`, so `verify_reads` accepts reads from it and
+  TinyTeX devices can lead.
+
 ### D4. Managed TinyTeX and on-demand packages (`src/tinytex.rs`)
 - Install and remove through D2.
 - **Detection:** `<app_data>/tinytex/bin/<platform>` before Tectonic; flavor `tinytex (managed)`.

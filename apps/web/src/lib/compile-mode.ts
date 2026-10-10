@@ -47,3 +47,12 @@ function safeLocalStorage() {
     return undefined;
   }
 }
+
+/** Human name of a native compiler flavor reported by the desktop app. */
+export function compilerLabel(flavor: string): string {
+  if (flavor.startsWith('tectonic')) return 'quick compiler';
+  if (flavor.startsWith('tinytex')) return 'full LaTeX';
+  if (flavor === 'miktex') return 'MiKTeX';
+  if (flavor === 'texlive') return 'TeX Live';
+  return flavor || 'LaTeX';
+}

@@ -27,6 +27,21 @@ offline builds. The engine SHALL run with shell escape disabled.
 - **THEN** it is deleted, nothing is installed, and the compile reports that the compiler download failed and can be
   retried
 
+### Requirement: Quick-compiler builds stay on the device
+Because the quick compiler cannot prove which files a document read, builds made with it SHALL stay on the device that
+made them: the device SHALL compile its own copy of the project automatically, SHALL NOT be eligible as the project's
+compile leader, and SHALL NOT send its results to others. Shared builds SHALL come only from compilers whose file reads
+are verified (a system TeX installation or the app-managed full LaTeX).
+
+#### Scenario: Collaborator tries to read a local file
+- **WHEN** a co-author's source contains `input{C:/Users/alice/secret.txt}` and Alice's device compiles with the quick
+  compiler
+- **THEN** the resulting PDF stays on Alice's device and is never sent to the co-author
+
+#### Scenario: Shared builds still work
+- **WHEN** one member has full TeX and another only the quick compiler
+- **THEN** the member with full TeX leads and shares PDFs, and the other member sees its own local builds
+
 ### Requirement: Full LaTeX installed on request (desktop)
 The desktop app SHALL offer to install a compact full LaTeX distribution into the app's data folder, without
 administrator rights and without changing any system-wide TeX installation, verified against its published checksum,
@@ -59,7 +74,8 @@ While the desktop app runs, it SHALL offer a compile service on the local machin
 compile with the desktop's compiler. The service SHALL listen only on the loopback interface. It SHALL accept requests
 only from the configured HiveTeX web origin and only with a token obtained by pairing, which the user confirms in the
 desktop app. The user SHALL be able to turn the service off and revoke pairings. When paired and reachable, the web app
-SHALL compile through it, and SHALL advertise a native compiler to co-authors.
+SHALL compile through it. The web app SHALL advertise a compiler to co-authors only when the desktop's compiler verifies
+file reads; otherwise the helper's builds stay in that user's browser.
 
 #### Scenario: Pairing
 - **WHEN** a signed-in web user with the desktop app running chooses *Compile with my desktop app*

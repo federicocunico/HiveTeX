@@ -8,6 +8,8 @@ interface EngineInfo {
   flavor: string;
   supports: TexEngine[];
   has_latexmk: boolean;
+  /** Whether the compiler's file reads are verified; if not (quick compiler), builds must stay on this device. */
+  verified_reads?: boolean;
 }
 
 interface CompileResp {
@@ -34,6 +36,10 @@ const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 export class NativeEngine implements CompileEngine {
   readonly kind: EngineKind = 'native';
   supports: TexEngine[] = [];
+  /** e.g. "texlive", "miktex", "tinytex (managed)", "tectonic (managed)". */
+  flavor = '';
+  /** False for the quick compiler (Tectonic): its builds are never shared with co-authors. */
+  verifiedReads = true;
   private sent = new Map<string, string>();
 
   constructor(
@@ -46,6 +52,8 @@ export class NativeEngine implements CompileEngine {
   async init(): Promise<boolean> {
     const info = await this.invoke<EngineInfo | null>('tex_detect');
     this.supports = info?.supports ?? [];
+    this.flavor = info?.flavor ?? '';
+    this.verifiedReads = info?.verified_reads !== false;
     return !!info;
   }
 
