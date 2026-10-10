@@ -159,6 +159,10 @@ toolbar's "Link folder…" becomes a **Location** menu:
     retries them when the stale link leaves.
   - A test bug: when the editor won the election, `full-flow.spec.ts` closed its tab and then expected it to be linked;
     the test now reopens the closed leader tab on the same device in both branches.
+  - Signals relayed through the mesh (peers without a relay socket) went to an arbitrary peer, which dropped them
+    unless it happened to be linked to the target: at seven devices the mesh stayed partial ("3 of 6 peers"), the cause
+    of the `realtime.spec.ts` flake. Signals now go through a peer that announced a link to the target (`nbrs`), and
+    a peer that is not linked forwards one more hop (at most 2) to one that is.
 
 ### D10. Desktop UI tests (`apps/desktop/e2e`, `tauri-driver`)
 - **Build:** a debug build with cargo feature `test-picker`. `mirror_pick` then returns the path in

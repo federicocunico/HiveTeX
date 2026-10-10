@@ -56,6 +56,7 @@
     }
     if (!f) return;
     const marker = await readFolderMarker(f).catch(() => null);
+    await loaded; // the account's projects decide between "open" and "join"
     const known = marker?.project ? projects.find((p) => p.id === marker.project?.id) : undefined;
     if (known) {
       await rememberFolder(known.id, f);
@@ -110,6 +111,7 @@
     return rtf.format(-1, 'minute');
   }
 
+  let loaded: Promise<void> = Promise.resolve();
   const cacheKey = 'p2platex.projects';
 
   async function load() {
@@ -131,7 +133,7 @@
     }
   }
   onMount(() => {
-    void load();
+    loaded = load();
     void allLocations()
       .then((l) => (locations = l))
       .catch(() => {});

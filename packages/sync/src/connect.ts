@@ -300,11 +300,12 @@ export class ConnectionManager {
       this.ws?.send(JSON.stringify({ t: 'sig', to, env: b64(env) }));
       return;
     }
-    // No socket: relay through any connected peer (they forward to the target if they are linked to it).
-    const via = this.o.mesh.peers.find((p) => p.deviceId !== to) ?? this.o.mesh.peers[0];
+    // No socket: relay through a peer. Prefer one that announced a direct link to the target; any other peer
+    // passes it one more hop (see onRtcViaMesh). An arbitrary peer that is not linked to the target would drop it.
+    const via = this.o.mesh.peersLinkedTo(to)[0] ?? this.o.mesh.peers.find((p) => p.deviceId !== to)?.deviceId;
     if (!via) return;
     this.stats.signalsViaMesh++;
-    await this.o.mesh.sendApp(via.deviceId, 'rtc', { to, from: this.selfDev, fromTicket: this.o.getTicket(), env: b64(env) } satisfies RtcEnvelope);
+    await this.o.mesh.sendApp(via, 'rtc', { to, from: this.selfDev, fromTicket: this.o.getTicket(), env: b64(env), hops: RTC_HOPS } satisfies RtcEnvelope);
   }
 
   private async onEnvelope(fromTicket: string, env: Uint8Array) {
@@ -328,6 +329,11 @@ export class ConnectionManager {
       await this.onEnvelope(body.fromTicket, unb64(body.env));
     } else if (this.connected(body.to)) {
       await this.o.mesh.sendApp(body.to, 'rtc', body);
+    } else {
+      // Not linked to the target: pass it to a peer that is (bounded, so a stale neighbour list cannot loop it).
+      const hops = Math.min(RTC_HOPS, Number(body.hops ?? 0)) - 1;
+      const next = this.o.mesh.peersLinkedTo(body.to).find((d) => d !== _from.deviceId && d !== body.from);
+      if (hops > 0 && next) await this.o.mesh.sendApp(next, 'rtc', { ...body, hops });
     }
   }
 
@@ -355,5 +361,10 @@ interface RtcEnvelope {
   from: string;
   fromTicket: string;
   env: string;
+  /** Remaining forwards (older clients omit it: then only a directly linked peer delivers). */
+  hops?: number;
 }
+
+/** A signal may cross at most this many intermediate peers. */
+const RTC_HOPS = 2;
 

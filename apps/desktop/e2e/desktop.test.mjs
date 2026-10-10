@@ -51,7 +51,8 @@ async function until(fn, msg, ms = 15_000) {
 async function treeHas(name) {
   for (const it of await b.findAll('[role="treeitem"]')) {
     // text of an item: icon, name and a ★ on the main file; folders also contain their children
-    const lines = (await it.getText()).split(/\r?\n/).map((l) => l.replace('★', '').trim());
+    // (WebView2 puts icon and name on separate lines, WebKitGTK on one: strip icons and markers)
+    const lines = (await it.getText()).split(/\r?\n/).map((l) => l.replace(/[★📄📁▾▸]/gu, '').trim());
     if (lines.includes(name)) return it;
   }
   return null;

@@ -218,6 +218,13 @@ export class Mesh {
     return !(target && known.has(target));
   }
 
+  /** Our peers that announced a direct link to `deviceId` (to route a message there through one hop). */
+  peersLinkedTo(deviceId: string): string[] {
+    const out: string[] = [];
+    for (const [c, info] of this.conns) if (info.deviceId !== deviceId && this.nbrs.get(c)?.has(deviceId)) out.push(info.deviceId);
+    return out;
+  }
+
   /** Tells peers whom we are directly connected to (debounced: joins/leaves come in bursts). */
   private announceNeighbours() {
     if (this.nbrsTimer) return;
