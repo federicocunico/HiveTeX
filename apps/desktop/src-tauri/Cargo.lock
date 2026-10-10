@@ -1877,6 +1877,8 @@ dependencies = [
  "keyring",
  "libc",
  "notify",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",

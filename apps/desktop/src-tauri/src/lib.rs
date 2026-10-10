@@ -3,6 +3,7 @@ pub mod probe;
 pub mod rtc;
 pub mod secrets;
 pub mod tex;
+pub mod texcache;
 
 use mirror::{Listed, MirrorState, PickedFolders};
 use tauri::{Emitter, Manager, State};
@@ -169,15 +170,77 @@ fn secret_delete(key: String) -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The built-in compiler's TeX files on disk (see texcache.rs).
+#[tauri::command]
+fn texcache_set_upstream(cache: State<'_, texcache::TexCache>, url: String) -> Result<(), String> {
+    cache.set_upstream(&url)
+}
+
+#[tauri::command]
+fn texcache_stats(cache: State<'_, texcache::TexCache>) -> texcache::Stats {
+    cache.stats()
+}
+
+#[tauri::command]
+fn texcache_clear(cache: State<'_, texcache::TexCache>) -> Result<(), String> {
+    cache.clear()
+}
+
+#[derive(serde::Serialize, Clone)]
+struct TexFetch {
+    file: String,
+    state: &'static str,
+}
+
+/// `texcache://localhost/<path>`: TeX files for the built-in compiler, from the disk cache or downloaded once.
+fn texcache_response(app: &tauri::AppHandle, path: &str) -> impl std::future::Future<Output = tauri::http::Response<Vec<u8>>> {
+    let app = app.clone();
+    let path = path.to_string();
+    async move {
+        let reply = |status: u16, body: Vec<u8>| {
+            tauri::http::Response::builder()
+                .status(status)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Content-Type", "application/octet-stream")
+                .body(body)
+                .unwrap()
+        };
+        let Some(rel) = texcache::safe_rel(&path) else { return reply(400, Vec::new()) };
+        let cache = app.state::<texcache::TexCache>();
+        let file = rel.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        let cached = cache.inner().stats_contains(&rel);
+        if !cached {
+            let _ = app.emit("texcache://fetch", TexFetch { file: file.clone(), state: "start" });
+        }
+        let out = match cache.get(&rel).await {
+            Ok(texcache::Lookup::Hit(b)) => reply(200, b),
+            Ok(texcache::Lookup::Missing) => reply(404, Vec::new()),
+            Err(_) => reply(502, Vec::new()),
+        };
+        if !cached {
+            let state = if out.status() == 200 { "done" } else { "failed" };
+            let _ = app.emit("texcache://fetch", TexFetch { file, state });
+        }
+        out
+    }
+}
+
 pub fn run() {
+    // TLS for the package-server downloads (ring, already used by the WebRTC stack).
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .register_asynchronous_uri_scheme_protocol("texcache", |ctx, request, responder| {
+            let fut = texcache_response(ctx.app_handle(), request.uri().path());
+            tauri::async_runtime::spawn(async move { responder.respond(fut.await) });
+        })
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
+            app.manage(texcache::TexCache::new(dir.join("texcache")));
             let picked = dir.join("picked-folders.json");
             adopt_legacy_file(&picked, LEGACY_IDENTIFIER);
             app.manage(PickedFolders::load(picked));
@@ -189,6 +252,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             tex_detect,
             tex_compile,
+            texcache_set_upstream,
+            texcache_stats,
+            texcache_clear,
             mirror_pick,
             mirror_bind,
             mirror_unbind,

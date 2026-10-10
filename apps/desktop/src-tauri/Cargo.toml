@@ -26,6 +26,8 @@ starship-battery = "0.10"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 sha2 = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
