@@ -2,7 +2,7 @@
 
 ## Purpose
 Lets a maintainer publish installable releases of the desktop app and stand up a free deployment of the control plane,
-so that other people can install p2platex, point it at that deployment and collaborate.
+so that other people can install HiveTeX, point it at that deployment and collaborate.
 
 ## ADDED Requirements
 
@@ -14,7 +14,7 @@ versions, so a change of a runner's default image cannot silently break a releas
 
 #### Scenario: Tagging a release
 - **WHEN** the maintainer pushes tag `v0.1.0` and the version in the sources is `0.1.0`
-- **THEN** a draft release "p2platex v0.1.0" appears with Windows, macOS and Linux installers attached
+- **THEN** a draft release "HiveTeX v0.1.0" appears with Windows, macOS and Linux installers attached
 
 #### Scenario: Tag and source version disagree
 - **WHEN** a tag `v0.2.0` is pushed while the sources still say `0.1.0`

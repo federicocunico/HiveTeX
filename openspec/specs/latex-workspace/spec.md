@@ -81,8 +81,8 @@ The desktop app, and the web app on browsers supporting the File System Access A
 
 ### Requirement: Mirror ignores build artifacts
 The local folder mirror SHALL ignore build artifacts and tool metadata (e.g. `.aux`, `.log`, `.synctex.gz`, `.git/`,
-`.claude/`, `.cursor/`, `node_modules/`), the project marker (`.hivetex.json`, and `.p2platex.json` from before the
-rename), and any patterns in a project-level ignore file (`.hivetexignore`, or `.p2platexignore` from before the rename).
+`.claude/`, `.cursor/`, `node_modules/`), the project marker (`.hivetex.json`), and any patterns in a project-level
+ignore file (`.hivetexignore`).
 
 #### Scenario: Aux files
 - **WHEN** a local tool writes `main.aux` into the bound folder

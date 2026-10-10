@@ -50,12 +50,12 @@ Folders and repositories created before the rename SHALL keep working:
 - backup commits carrying the previous backup trailer SHALL count as the app's own commits.
 
 #### Scenario: Old marker in a folder
-- **WHEN** a user opens a folder that contains `.p2platex.json` naming one of their projects
+- **WHEN** a user opens a folder that contains the legacy marker file naming one of their projects
 - **THEN** the project opens with the folder bound, and the folder then contains `.hivetex.json` instead of
-  `.p2platex.json`
+  the legacy marker file
 
 #### Scenario: Old ignore file
-- **WHEN** a bound folder has a `.p2platexignore` file and no `.hivetexignore`
+- **WHEN** a bound folder has the legacy ignore file and no `.hivetexignore`
 - **THEN** its patterns are applied
 
 #### Scenario: Earlier backups are not a divergence

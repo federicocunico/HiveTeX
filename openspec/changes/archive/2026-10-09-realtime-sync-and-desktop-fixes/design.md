@@ -56,7 +56,7 @@ cases for no gain at this size).
   and compression) in place of the loopback. Asserts for N ∈ {2, 6, 8, 12}: frames per keystroke == N-1 (full mesh),
   p95 propagation < 50 ms, concurrent typing by all converges with every insertion, partial mesh (one missing pair and
   a chain) delivers everything, and a late joiner catches up.
-- **Benchmark (`pnpm --filter @p2platex/sync bench`, `make bench`)**: same harness, prints a table (p50/p95/max,
+- **Benchmark (`pnpm --filter @hivetex/sync bench`, `make bench`)**: same harness, prints a table (p50/p95/max,
   frames/edit, convergence) for N = 2…16; used to fill `docs/performance.md`. Not part of CI timing assertions.
 - **Browser level (`e2e/realtime.spec.ts`)**: 7 browser contexts (owner + 6 joined as editors) over real WebRTC on
   localhost. One page types 30 characters with 100 ms pauses; every page records when each marker appears

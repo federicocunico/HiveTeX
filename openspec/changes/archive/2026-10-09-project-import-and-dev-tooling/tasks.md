@@ -3,7 +3,7 @@
 ## 1. Import core (pure, unit-tested)
 
 - [x] 1.1 Create `apps/web/src/lib/import/` with `classify.ts` (text/binary rules moved from `session.addFile`, extended extension list, UTF-8 fatal decode → Windows-1252 fallback with `converted` flag, BOM strip); verify Vitest cases for mixed content, Latin-1 "perché", BOM and NUL-in-`.tex` pass
-- [x] 1.2 Add `filter.ts` reusing `DEFAULT_IGNORES` from `@p2platex/sync` plus import-only junk (`__MACOSX/`, `Thumbs.db`, `.svn/`) and shared path-safety checks (absolute, drive letter, `..`, backslash normalization); verify tests for traversal, build artifacts (`.aux`/`.log`/`.synctex.gz` skipped with reason) and junk
+- [x] 1.2 Add `filter.ts` reusing `DEFAULT_IGNORES` from `@hivetex/sync` plus import-only junk (`__MACOSX/`, `Thumbs.db`, `.svn/`) and shared path-safety checks (absolute, drive letter, `..`, backslash normalization); verify tests for traversal, build artifacts (`.aux`/`.log`/`.synctex.gz` skipped with reason) and junk
 - [x] 1.3 Move zip reading to `import/zip.ts` with entry-count cap (5 000) and corrupt-archive rethrow, plus common-top-level-folder stripping; verify existing behaviors still pass and new tests for count cap, truncated zip and `paper-main/` stripping
 - [x] 1.4 Implement `import/tar.ts` (ustar + PAX long names, streaming `fflate.Gunzip` with running size cap, only regular files/dirs allowed); verify tests with a generated `.tar.gz` (arXiv-like), symlink entry rejected, hardlink rejected, truncated block, gzip bomb aborting early
 - [x] 1.5 Implement `import/detect.ts` (main-file order: `% !TEX root`, `main.tex`, top-level `\documentclass`+`\begin{document}`, any such file; engine from `% !TEX program` or `fontspec`/`unicode-math`/`polyglossia`; comment-aware); verify tests for `paper.tex` vs `sections/intro.tex`, magic comments, commented-out `\usepackage{fontspec}` ignored, ambiguity flag with two root documents
@@ -12,7 +12,7 @@
 
 ## 2. Coherent apply in sync model
 
-- [x] 2.1 Export `DEFAULT_IGNORES` from `@p2platex/sync` index if not already public; verify web package compiles importing it
+- [x] 2.1 Export `DEFAULT_IGNORES` from `@hivetex/sync` index if not already public; verify web package compiles importing it
 - [x] 2.2 Add `ProjectModel.applyBatch(ops)` in `packages/sync/src/model.ts` (create text with initial content, create binary, delete, set settings in one root transaction; text overwrite via `applyTextDiff`); verify `packages/sync` tests: a second peer receives one index update containing all files, existing text file keeps its id after overwrite, deletes applied
 - [x] 2.3 Implement `import/apply.ts` (blobs first, then `applyBatch`, progress callback) and make `session.addFile` delegate to `classify`; verify unit test with an in-memory session/model that a failing blob read before apply leaves the model unchanged
 
@@ -29,7 +29,7 @@
 
 - [x] 4.1 Make `createNeonDb` honor `NEON_HTTP_ENDPOINT` (sets `neonConfig.fetchEndpoint`/ws options only when set); verify unit test that config is untouched when unset
 - [x] 4.2 Add `SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE` override to the mailer, Gmail path unchanged when unset; verify unit test selecting the transport for both cases
-- [x] 4.3 Refactor `production.ts` into `productionDepsWith({ upgradeWebSocket, background })` keeping the Vercel entry behavior identical, and add `server/src/docker.ts` (node server + ws upgrade like `local.ts`, ephemeral ticket key only when `P2PLATEX_DEV_STACK=1`, migrations on start); verify `pnpm --filter @p2platex/server build test` passes and `api/index.ts` still type-checks
+- [x] 4.3 Refactor `production.ts` into `productionDepsWith({ upgradeWebSocket, background })` keeping the Vercel entry behavior identical, and add `server/src/docker.ts` (node server + ws upgrade like `local.ts`, ephemeral ticket key only when `HIVETEX_DEV_STACK=1`, migrations on start); verify `pnpm --filter @hivetex/server build test` passes and `api/index.ts` still type-checks
 
 ## 5. Docker Compose stack
 

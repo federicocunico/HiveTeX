@@ -48,8 +48,8 @@ Steps run in order, each idempotent, each printing `[n/9] title … ok|skipped|d
    command output.
 6. **Health.** `GET <url>/api/health` must return 200 within 60 s, with retries.
 7. **Updater key.** Skipped if `gh secret list` has `TAURI_SIGNING_PRIVATE_KEY`. Otherwise it is set from
-   `~/.tauri/p2platex.key`; if that file is missing, the step explains how to generate a key and continues.
-8. **Server URL variable.** `gh variable set P2PLATEX_API_BASE --body <url>`.
+   `~/.tauri/hivetex.key`; if that file is missing, the step explains how to generate a key and continues.
+8. **Server URL variable.** `gh variable set HIVETEX_API_BASE --body <url>`.
 9. **Summary.** The URL, "register `<BOOTSTRAP_ADMIN>` to become admin", and the next step `make release VERSION=…
    CONFIRM=1`.
 
@@ -66,7 +66,7 @@ script; `gen-secrets.mjs` stays as the key generator.
 `vercel.json` `buildCommand`:
 
 ```
-npx pnpm@10 --filter @p2platex/server migrate && npx pnpm@10 --filter @p2platex/web build
+npx pnpm@10 --filter @hivetex/server migrate && npx pnpm@10 --filter @hivetex/web build
 ```
 
 The build has the real sensitive values. Preview deployments share the database with production in this setup, so

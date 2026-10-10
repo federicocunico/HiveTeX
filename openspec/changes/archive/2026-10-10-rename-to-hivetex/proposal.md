@@ -3,13 +3,13 @@
 ## Why
 
 The product is now called **HiveTeX**. The repository is `federicocunico/HiveTeX` and the deployment is
-`hivetex.vercel.app`, but 321 places in 143 files still say p2platex, including:
+`hivetex.vercel.app`, but 321 places in 143 files still use the previous name, including:
 
 - the app and window title;
-- installer names (`p2platex_0.1.1_x64-setup.exe`);
+- installer names;
 - emails;
-- folder files (`.p2platex.json`, `.p2platexignore`);
-- the npm scope (`@p2platex/*`);
+- folder files (the project marker and the ignore file);
+- the npm scope;
 - environment variables;
 - the desktop bundle identifier;
 - storage and protocol identifiers.
@@ -25,11 +25,11 @@ layers forever.
   - UI text, README and docs, CLI and Make output.
   - The footer source link.
 - **Code identifiers.**
-  - npm scope `@p2platex/*` → `@hivetex/*`.
+  - npm scope `@hivetex/*`.
   - Root package `hivetex`.
   - Rust crate `hivetex-desktop` / lib `hivetex_desktop_lib`.
   - Environment variables:
-    - `P2PLATEX_API_BASE` → `HIVETEX_API_BASE` (GitHub variable too);
+    - `HIVETEX_API_BASE` (GitHub variable too);
     - test and e2e variables (`HIVETEX_TEST_PICK_DIR`, `HIVETEX_APP`, `HIVETEX_DRIVER_PORT`);
     - `HIVETEX_DEV_STACK`.
 - **Desktop identity.**
@@ -37,17 +37,17 @@ layers forever.
   - Keychain service `app.hivetex.desktop`, migrating entries from the old service on first use.
   - Updater endpoint unchanged (already HiveTeX).
 - **On-device data, migrated once on first start** so nothing is lost:
-  - IndexedDB `p2platex-device`, `p2platex-locations` and `p2platex-project-<id>` → `hivetex-…`;
-  - localStorage `p2platex.*` → `hivetex.*`.
-- **Folder and repository files.** `.hivetex.json` / `.hivetexignore` are written. The old `.p2platex.json` /
-  `.p2platexignore` are still read, and replaced on the next write.
+  - IndexedDB databases → `hivetex-device`, `hivetex-locations` and `hivetex-project-<id>`;
+  - localStorage keys → `hivetex.*`.
+- **Folder and repository files.** `.hivetex.json` / `.hivetexignore` are written. The legacy marker and ignore
+  files are still read, and replaced on the next write.
 - **GitHub backup.**
   - Branch `hivetex/backup`.
   - Commit trailer `X-HiveTeX-Backup: 1`. Commits with the old trailer still count as backups, so existing
     repositories don't look diverged.
   - The manifest is read from either marker name.
 - **Protocol domains** (handshake, signaling auth, envelope, ticket type) become `hivetex/…`.
-  - **BREAKING** for peer compatibility: a p2platex-era client cannot connect to a HiveTeX-era peer or server.
+  - **BREAKING** for peer compatibility: a client from before the rename cannot connect to a HiveTeX-era peer or server.
   - Acceptable now, because no released client exists. The server and web app are redeployed together, and the
     draft releases v0.1.0 and v0.1.1 are replaced by a new release.
 

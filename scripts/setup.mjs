@@ -262,12 +262,6 @@ function serverVariable(url) {
   if (!url) return change('set HIVETEX_API_BASE to the production URL');
   change(`set HIVETEX_API_BASE = ${url}`);
   if (!dryRun) gh(['variable', 'set', 'HIVETEX_API_BASE', '--body', url], { capture: true });
-  // The variable's name before the product was renamed: no longer read by the release workflow.
-  const vars = gh(['variable', 'list'], { capture: true }).stdout ?? '';
-  if (/^P2PLATEX_API_BASE\s/m.test(vars)) {
-    change('remove the old P2PLATEX_API_BASE variable');
-    if (!dryRun) gh(['variable', 'delete', 'P2PLATEX_API_BASE'], { capture: true, allowFail: true });
-  }
 }
 
 // ---------- main ----------

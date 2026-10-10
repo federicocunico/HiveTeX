@@ -46,11 +46,11 @@ Each backup commit SHALL contain the project source files (not build artifacts) 
 - **THEN** the commit message names both and the time range of the edits
 
 ### Requirement: Remote divergence handling
-If the bound branch contains commits not made by p2platex, the backup SHALL NOT force-push; it SHALL push to a separate `p2platex/backup` branch and notify the owner.
+If the bound branch contains commits not made by HiveTeX, the backup SHALL NOT force-push; it SHALL push to a separate `hivetex/backup` branch and notify the owner.
 
 #### Scenario: Manual commit on GitHub
 - **WHEN** someone pushed a manual commit to the bound branch
-- **THEN** the next backup goes to `p2platex/backup` and owners see a divergence notice
+- **THEN** the next backup goes to `hivetex/backup` and owners see a divergence notice
 
 ### Requirement: Bootstrap from GitHub
 A member with access to the bound repository SHALL be able to load the project from its latest backup when no peer is online, and SHALL merge with peers once they appear.

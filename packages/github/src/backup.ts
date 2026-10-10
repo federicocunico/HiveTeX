@@ -2,11 +2,8 @@ import { GitHubClient, GitHubError, type RepoRef, type TreeEntry, gitBlobSha } f
 
 export const BACKUP_TRAILER = 'X-HiveTeX-Backup: 1';
 export const MANIFEST_PATH = '.hivetex.json';
-/** Names used before the product was renamed (p2platex): recognised, never written. */
-export const LEGACY_BACKUP_TRAILER = 'X-P2platex-Backup: 1';
-export const LEGACY_MANIFEST_PATH = '.p2platex.json';
-/** A commit made by the backup (under the current or the previous product name). */
-export const isBackupCommit = (message: string) => message.includes(BACKUP_TRAILER) || message.includes(LEGACY_BACKUP_TRAILER);
+/** A commit made by the backup. */
+export const isBackupCommit = (message: string) => message.includes(BACKUP_TRAILER);
 export const BACKUP_BRANCH = 'hivetex/backup';
 const MAX_BLOB = 50 * 1024 * 1024;
 
@@ -87,7 +84,7 @@ export async function pushBackup(
 
   // Paths we managed in earlier backups (so deletions in the project are mirrored, but foreign files stay).
   let previous: string[] = [];
-  const manifestSha = remote.get(MANIFEST_PATH) ?? remote.get(LEGACY_MANIFEST_PATH);
+  const manifestSha = remote.get(MANIFEST_PATH);
   if (manifestSha) {
     try {
       previous = (JSON.parse(new TextDecoder().decode(await client.getBlob(repo, manifestSha))) as { paths: string[] }).paths ?? [];
@@ -117,8 +114,6 @@ export async function pushBackup(
   if (remote.get(MANIFEST_PATH) !== (await gitBlobSha(manifest))) {
     entries.push({ path: MANIFEST_PATH, mode: '100644', type: 'blob', sha: await client.createBlob(repo, manifest) });
   }
-  // The manifest from before the rename is replaced by the one above.
-  if (remote.has(LEGACY_MANIFEST_PATH)) entries.push({ path: LEGACY_MANIFEST_PATH, mode: '100644', type: 'blob', sha: null });
   const contentChanged = uploaded > 0 || deleted > 0;
   if (!contentChanged) return { noop: true, commit: null, branch: target, diverged, uploaded: 0, deleted: 0 };
 
@@ -151,7 +146,7 @@ export async function importRepo(
   if (!head) throw new GitHubError(404, `Branch ${branch} not found`);
   const commit = await client.getCommit(repo, head);
   const tree = await client.getTree(repo, commit.tree.sha);
-  const wanted = tree.tree.filter((e) => e.type === 'blob' && ![MANIFEST_PATH, LEGACY_MANIFEST_PATH, '.hivetex', '.p2platex'].includes(e.path) && !e.path.startsWith('.git/'));
+  const wanted = tree.tree.filter((e) => e.type === 'blob' && ![MANIFEST_PATH, '.hivetex'].includes(e.path) && !e.path.startsWith('.git/'));
   if (wanted.length > (opts.maxFiles ?? 5000)) throw new GitHubError(413, 'Repository has too many files to import');
   const out = new Map<string, Uint8Array>();
   let i = 0;

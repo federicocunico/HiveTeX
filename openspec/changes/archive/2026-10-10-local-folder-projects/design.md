@@ -4,9 +4,9 @@
 
 Motivation: `proposal.md`. Requirements: the delta specs of this change. What exists today (observed in code):
 
-- `ProjectSession` stores the CRDT in IndexedDB (`p2platex-project-<id>`) on both web and desktop (the desktop UI is the
+- `ProjectSession` stores the CRDT in IndexedDB (`hivetex-project-<id>`) on both web and desktop (the desktop UI is the
   same web app inside Tauri). A folder can be attached on desktop only (`bindFolder` → `tauriFs` → `MirrorSync`). The
-  folder path is remembered in `localStorage['p2platex.mirror.<id>']` and re-bound on open. Since `security-hardening`
+  folder path is remembered in `localStorage['hivetex.mirror.<id>']` and re-bound on open. Since `security-hardening`
   the path must also be in the Rust allowlist filled by `mirror_pick`.
 - `MirrorSync` (`packages/sync/src/mirror.ts`) is written against an `FsAdapter` (`list/read/write/remove/watch`). It:
   - merges disk edits with a 3-way merge whose base is kept **in memory**;
@@ -17,7 +17,7 @@ Motivation: `proposal.md`. Requirements: the delta specs of this change. What ex
 - History today is whole-project snapshots (`captureSnapshot`, every 10 min, plus restore). Nothing attributes or
   shows individual changes.
 - The control plane has no "last opened". `GET /projects` returns memberships unordered.
-- The GitHub backup writes `.p2platex.json` = `{version: 1, paths}` into the repository.
+- The GitHub backup writes `.hivetex.json` = `{version: 1, paths}` into the repository.
 - Signaling (`server/src/signal/hub.ts`): presence is a hash keyed by device id. Cleanup of a session does
   `removePresence(dev)` and publishes `{t:'leave', dev}` unconditionally, so a stale session of the same device erases
   the new one (`TODO_CI.md`).
@@ -42,8 +42,8 @@ Motivation: `proposal.md`. Requirements: the delta specs of this change. What ex
 
 ### D1. Locations registry (per device)
 `lib/locations.ts` keeps `{ [projectId]: { kind: 'app' } | { kind: 'folder', label, desktopPath? , handleKey? } }` in
-IndexedDB (`p2platex-locations`). Directory handles are structured-cloneable there, which `localStorage` cannot hold.
-The old `p2platex.mirror.<id>` keys are migrated on first run. The projects page reads it to show "📁 folder-name".
+IndexedDB (`hivetex-locations`). Directory handles are structured-cloneable there, which `localStorage` cannot hold.
+The old `hivetex.mirror.<id>` keys are migrated on first run. The projects page reads it to show "📁 folder-name".
 Nothing from it is sent to the server.
 
 ### D2. Web `FsAdapter` on the File System Access API (`lib/fs-access.ts`)
@@ -75,14 +75,14 @@ this folder), as today.
 Rejected alternative: storing Yjs state per path as the base. It's precise, but large and tied to one CRDT state.
 Text is enough for patches.
 
-### D4. Folder marker `.p2platex.json`
+### D4. Folder marker `.hivetex.json`
 Format: `{ "version": 2, "project": { "id", "slug" }, "paths"?: [...] }`.
 - **On disk:** `MirrorSync` writes it on bind (only the `project` part; it keeps `paths` if present) and ignores it as a
   project file. It is added to `DEFAULT_IGNORES`; mirror and import treat it as metadata.
 - **In the backup:** the GitHub backup writes `version: 2` with `project` and `paths`, so clones carry the identity.
-  `importRepo` already skips `.p2platex.json`.
+  `importRepo` already skips `.hivetex.json`.
 - **Reading it:**
-  - Desktop: bind a temporary id on the picked folder, `mirror_read('.p2platex.json')`, then unbind. No new Rust
+  - Desktop: bind a temporary id on the picked folder, `mirror_read('.hivetex.json')`, then unbind. No new Rust
     command: the existing confined commands suffice.
   - Web: read through the directory handle.
 
@@ -166,7 +166,7 @@ toolbar's "Link folder…" becomes a **Location** menu:
 
 ### D10. Desktop UI tests (`apps/desktop/e2e`, `tauri-driver`)
 - **Build:** a debug build with cargo feature `test-picker`. `mirror_pick` then returns the path in
-  `P2PLATEX_TEST_PICK_DIR` (still recorded in the allowlist, so `mirror_bind` stays enforced). Release builds never
+  `HIVETEX_TEST_PICK_DIR` (still recorded in the allowlist, so `mirror_bind` stays enforced). Release builds never
   enable the feature, and a Rust config test asserts the release profile/features don't include it.
 - **Client:** a ~60-line W3C WebDriver client over `fetch` (`e2e/webdriver.mjs`) with `node:test`, instead of
   WebdriverIO: that library pulls a browser downloader with unpatched advisories (`extract-zip`, `basic-ftp`) that would
@@ -202,7 +202,7 @@ toolbar's "Link folder…" becomes a **Location** menu:
 
 - Database migration `0002` (nullable column) runs before deploying the new API (`make migrate-prod`).
 - Signaling changes are backward-compatible for presence parsing: values without `sid|` are treated as legacy.
-- Local storage: `p2platex.mirror.*` keys migrate to the locations registry on first run.
+- Local storage: `hivetex.mirror.*` keys migrate to the locations registry on first run.
 - Rollback: the old client ignores `lastOpenedAt` and `sid`.
 
 ## Open Questions

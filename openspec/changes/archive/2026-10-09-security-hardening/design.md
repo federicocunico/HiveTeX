@@ -93,12 +93,12 @@ leader re-broadcasts the last result instead of compiling.
 
 ### D9. Signaling key-possession proof
 On WebSocket open the relay sends `{t:'challenge', nonce}` (32 random bytes). The client answers
-`{t:'auth', ticket, sig}` with `sig = Ed25519(devKey, "p2platex/signal/v1\0" + pid + "\0" + dev + "\0" + nonce)`. The relay
+`{t:'auth', ticket, sig}` with `sig = Ed25519(devKey, "hivetex/signal/v1\0" + pid + "\0" + dev + "\0" + nonce)`. The relay
 verifies `sig` against `claims.devE` before subscribing or announcing presence. Clients that send `auth` before a
 challenge are refused (protocol version bump).
 
 ### D10. Blob size bound
-`MAX_BLOB_BYTES = 50 MiB` in `@p2platex/protocol` (same as the import limit). `onChunk` ignores chunks whose `total`
+`MAX_BLOB_BYTES = 50 MiB` in `@hivetex/protocol` (same as the import limit). `onChunk` ignores chunks whose `total`
 exceeds `ceil(MAX_BLOB_BYTES / BLOB_CHUNK_SIZE)` and bans that peer for that hash in the current fetch.
 
 ## Risks / Trade-offs

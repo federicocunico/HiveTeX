@@ -62,9 +62,6 @@ This is how **Open folder…** recognizes a project folder. The GitHub backup wr
 files it manages), so cloning the backup repository and opening the clone takes you to the project. The marker is
 bookkeeping: it is never a project file and never synced as one. You can commit it.
 
-Folders and repositories from before HiveTeX was renamed (from p2platex) keep working: `.p2platex.json` and
-`.p2platexignore` are still read. The marker is replaced by `.hivetex.json` the next time the folder is bound or backed up.
-
 ## Edits made while the app was closed
 
 When the app binds the folder again, it compares three versions of every file: the last version it synced (kept on

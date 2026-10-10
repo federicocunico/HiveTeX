@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Gives every person using p2platex a durable identity (username + password) with secure sessions, self-service email recovery and platform-admin recovery tools, so project permissions can be bound to real accounts.
+Gives every person using HiveTeX a durable identity (username + password) with secure sessions, self-service email recovery and platform-admin recovery tools, so project permissions can be bound to real accounts.
 
 ## ADDED Requirements
 

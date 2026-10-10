@@ -9,7 +9,7 @@ readiness review for a first v0.1 found that:
 - it would fail at the updater-signing step, because the signing key is not a GitHub secret;
 - the Linux AppImage would fail on Ubuntu 24.04 runners (known linuxdeploy `strip` and FUSE problems);
 - macOS builds would be reported as "damaged" on Apple Silicon (unsigned);
-- the updater and source links point to a repository that does not exist (`p2platex/p2platex`);
+- the updater and source links point to a repository that does not exist (`hivetex/hivetex`);
 - a desktop install with no built-in server URL cannot be pointed at a server before signing in;
 - nothing documents, in a few simple steps, how to deploy the free control plane and publish installers.
 

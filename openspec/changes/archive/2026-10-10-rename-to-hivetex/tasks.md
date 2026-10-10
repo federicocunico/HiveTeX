@@ -4,7 +4,7 @@
 
 - [x] 1.1 Rename with a one-off script (design D1): npm scope, package names, crate/lib names, env vars, marker/ignore
   file names, prose; regenerate the lockfile; verify `pnpm install --frozen-lockfile`, `turbo build lint test`,
-  `cargo check`, and that `git grep -i p2platex` lists only the compatibility code and archived changes
+  `cargo check`, and that a case-insensitive `git grep` for the old name lists only the compatibility code and archived changes
 - [x] 1.2 Desktop identity: `productName` HiveTeX, identifier `app.hivetex.desktop`, window title; verify `tauri build`
   produces `HiveTeX_<version>_x64-setup.exe`
 

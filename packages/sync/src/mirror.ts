@@ -48,17 +48,12 @@ export const DEFAULT_IGNORES = [
   '*.xdv',
   '*.p2p-tmp',
   '.p2p-manifest.json',
-  // Folder marker (project identity, see MARKER_FILE): metadata, never a project file. The second is its name
-  // before the product was renamed.
+  // Folder marker (project identity, see MARKER_FILE): metadata, never a project file.
   '.hivetex.json',
-  '.p2platex.json',
   '_minted*/',
 ];
 
 export const IGNORE_FILE = '.hivetexignore';
-/** Names used before the product was renamed (p2platex): still read, never written. */
-export const LEGACY_IGNORE_FILE = '.p2platexignore';
-export const LEGACY_MARKER_FILE = '.p2platex.json';
 
 /** Marker written into a bound folder (and into GitHub backups) so the folder or a clone knows its project. */
 export const MARKER_FILE = '.hivetex.json';
@@ -90,7 +85,7 @@ const BASE_META = 'mirrorBase';
 
 /** Extensions stored as collaborative text (everything else is a binary asset). */
 export const TEXT_EXT =
-  /(\.(tex|bib|sty|cls|bst|txt|md|cfg|def|bbx|cbx|lbx|ltx|dtx|ins|csv|dat|tsv|tikz|pgf|asy|json|yml|yaml|xml|latexmkrc|ist|clo|fd|bbl|rnw|lua|py|r|sh|gitignore|hivetexignore|p2platexignore)|(^|\/)(latexmkrc|\.latexmkrc|Makefile|README|LICENSE))$/i;
+  /(\.(tex|bib|sty|cls|bst|txt|md|cfg|def|bbx|cbx|lbx|ltx|dtx|ins|csv|dat|tsv|tikz|pgf|asy|json|yml|yaml|xml|latexmkrc|ist|clo|fd|bbl|rnw|lua|py|r|sh|gitignore|hivetexignore)|(^|\/)(latexmkrc|\.latexmkrc|Makefile|README|LICENSE))$/i;
 
 export function isTextPath(path: string, bytes: Uint8Array): boolean {
   if (bytes.includes(0)) return false;
@@ -147,10 +142,10 @@ export class MirrorSync {
   }
 
   private async loadIgnoreFile() {
-    const bytes = (await this.o.fs.read(IGNORE_FILE)) ?? (await this.o.fs.read(LEGACY_IGNORE_FILE).catch(() => null));
+    const bytes = await this.o.fs.read(IGNORE_FILE);
     this.ig = ignore().add(DEFAULT_IGNORES);
     if (bytes) this.ig.add(new TextDecoder().decode(bytes));
-    const f = this.o.model.find(IGNORE_FILE) ?? this.o.model.find(LEGACY_IGNORE_FILE);
+    const f = this.o.model.find(IGNORE_FILE);
     if (f?.kind === 'text') this.ig.add((await this.o.model.openText(f.id)).toString());
   }
 
@@ -178,14 +173,11 @@ export class MirrorSync {
   private async writeMarker() {
     if (!this.o.marker || this.o.getRole() === 'viewer') return;
     const current = parseMarker(await this.o.fs.read(MARKER_FILE).catch(() => null));
-    // A folder from before the rename carries the old marker: adopt its fields, then replace it.
-    const legacy = current ? null : parseMarker(await this.o.fs.read(LEGACY_MARKER_FILE).catch(() => null));
-    const cur = current ?? legacy ?? { version: 2 };
+    const cur = current ?? { version: 2 };
     if (current && cur.project?.id === this.o.marker.id && cur.project.slug === this.o.marker.slug && cur.version >= 2) return;
     const next: FolderMarker = { ...cur, version: 2, project: { id: this.o.marker.id, slug: this.o.marker.slug } };
     await this.o.fs.write(MARKER_FILE, new TextEncoder().encode(`${JSON.stringify(next, null, 2)}
 `)).catch(() => {});
-    if (legacy) await this.o.fs.remove(LEGACY_MARKER_FILE).catch(() => {});
   }
 
   private rememberBase(path: string, text: string) {
@@ -342,7 +334,7 @@ export class MirrorSync {
 
   private onDiskEvent(path: string) {
     if (!this.running) return;
-    if (path === IGNORE_FILE || path === LEGACY_IGNORE_FILE) void this.loadIgnoreFile();
+    if (path === IGNORE_FILE) void this.loadIgnoreFile();
     if (this.isIgnored(path)) return;
     const prev = this.pendingDisk.get(path);
     if (prev) clearTimeout(prev);

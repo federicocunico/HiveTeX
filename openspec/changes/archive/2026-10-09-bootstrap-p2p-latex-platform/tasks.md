@@ -80,7 +80,7 @@
 
 - [x] 9.1 Lock down Tauri capabilities (no shell, fs scope = app data + bound folders), CSP, keychain storage of session token and device private keys; verify capability config test and that tokens are absent from app data files
 - [x] 9.2 Implement Rust `webrtc-rs` `PeerTransport` fallback over IPC and auto-selection when `RTCPeerConnection` is unavailable; verify a Linux CI e2e syncs desktop ↔ web
-- [x] 9.3 Implement folder binding, `notify` watcher with debounce, ignore defaults + `.p2platexignore`, disk→CRDT minimal-diff apply, CRDT→disk atomic writes, echo suppression, viewer revert; verify tests: external edit appears remotely, remote edit lands on disk < 1 s, `main.aux` ignored, viewer change reverted
+- [x] 9.3 Implement folder binding, `notify` watcher with debounce, ignore defaults + `.hivetexignore`, disk→CRDT minimal-diff apply, CRDT→disk atomic writes, echo suppression, viewer revert; verify tests: external edit appears remotely, remote edit lands on disk < 1 s, `main.aux` ignored, viewer change reverted
 - [x] 9.4 Implement hardware/power probing feeding capability records; verify unit tests with mocked battery states
 - [ ] 9.5 Set up signed builds and Tauri updater via GitHub Releases for Windows/macOS/Linux; verify CI produces installers for all three
 - [x] 9.6 Document using Claude Code/Codex/Cursor with the mirrored folder in `docs/local-ai-tools.md`; verify the walkthrough by editing a file with an external tool and observing sync
@@ -88,7 +88,7 @@
 ## 10. GitHub backup (spec: github-backup)
 
 - [x] 10.1 Register GitHub App (contents RW, metadata R) and implement `/api/github/callback` token exchange returning tokens to the client (web one-time code, desktop loopback) storing only `github_login`; verify test that no token is persisted server-side or logged
-- [x] 10.2 Implement `packages/github` client: local git blob SHA-1, changed-blob upload, tree with `base_tree`, commit, non-force ref update, divergence → `p2platex/backup`; verify tests against a mocked GitHub API including non-fast-forward case
+- [x] 10.2 Implement `packages/github` client: local git blob SHA-1, changed-blob upload, tree with `base_tree`, commit, non-force ref update, divergence → `hivetex/backup`; verify tests against a mocked GitHub API including non-fast-forward case
 - [x] 10.3 Implement repo binding UI (new private repo / existing repo + branch, owners only) and backup status panel (last backup, commit link, errors); verify Playwright with mocked API
 - [x] 10.4 Implement backup policies (idle T, every N, min interval, manual), counters in root doc meta, optional PDF inclusion, contributor commit message; verify simulation tests for idle and change-count triggers
 - [x] 10.5 Implement single backup-writer election among token-holding devices (owners preferred) with takeover on token expiry; verify test that two owners never both push

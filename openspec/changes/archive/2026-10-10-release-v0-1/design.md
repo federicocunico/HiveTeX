@@ -5,7 +5,7 @@
 - **Desktop workflow.** `.github/workflows/desktop.yml` has a `release` job (tag `v*` only) using `tauri-action@v0` on
   `windows-latest` / `macos-latest` (universal) / `ubuntu-latest`. It has never run.
 - **Updater.** `tauri.conf.json` sets `createUpdaterArtifacts: true` and an updater public key. The matching private key
-  is at `~/.tauri/p2platex.key` on the maintainer's machine, with an empty password. A local Windows `tauri build` with
+  is at `~/.tauri/hivetex.key` on the maintainer's machine, with an empty password. A local Windows `tauri build` with
   it produced signed MSI and NSIS installers. On GitHub, the secret is missing, so the bundler would stop with "A public
   key has been found, but no private key".
 - **Known runner problems.**
@@ -17,7 +17,7 @@
 - **Server URL.** The desktop app reads it from local storage (`serverUrl`) or the build-time `VITE_API_BASE`. It can
   only be changed on the Account page, after sign-in.
 - **Repository links.** The repository is `federicocunico/HiveTeX`. The updater endpoint and the web footer link point
-  to `p2platex/p2platex`, which does not exist.
+  to `hivetex/hivetex`, which does not exist.
 
 ## Goals / Non-Goals
 
@@ -68,7 +68,7 @@ exist, `tauri-action` imports them and the environment identity takes precedence
 - `scripts/set-version.mjs <x.y.z>` writes the version to:
   - `tauri.conf.json`;
   - `src-tauri/Cargo.toml` (`[package]`);
-  - the `p2platex-desktop` entry of `Cargo.lock`;
+  - the `hivetex-desktop` entry of `Cargo.lock`;
   - the `package.json` of the root, `apps/web` and `apps/desktop`.
 - `make version VERSION=x.y.z` calls the script.
 - `make release VERSION=x.y.z CONFIRM=1` checks that the tree is clean and the versions match, then creates and pushes
@@ -88,7 +88,7 @@ exist, `tauri-action` imports them and the environment identity takes precedence
 - generates an Ed25519 key pair;
 - prints `TICKET_SIGNING_JWK`, `TICKET_PUBLIC_JWKS` and `TICKET_KID=k1`;
 - prints ready-to-paste `vercel env add …` commands (production and preview) and the
-  `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/p2platex.key` command.
+  `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/hivetex.key` command.
 
 It writes nothing to disk. `make secrets` runs it.
 

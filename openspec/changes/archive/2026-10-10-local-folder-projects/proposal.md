@@ -12,7 +12,7 @@ be attached afterwards, on desktop, as a "mirror". Users want to work the way th
 - let AI tools (Claude Code, Codex, Cursor…) edit the files directly, then **see in the app what changed** and have
   it reach every co-author.
 
-The files must stay plain files in the user's folder: no lock-in, nothing that only p2platex can read.
+The files must stay plain files in the user's folder: no lock-in, nothing that only HiveTeX can read.
 
 Three points were left open by the previous changes and are closed here too:
 - a fast reconnect of the same device can drop its new connection (flaky `full-flow` test);
@@ -24,12 +24,12 @@ Three points were left open by the previous changes and are closed here too:
 - **Project locations (desktop, and the web app on Chromium):**
   - When creating a project, choose to keep it in the app or **in a folder** (an empty one, or one with sources).
   - **Open folder…** on the projects page:
-    - If the folder already belongs to a project (it has a `.p2platex.json` marker, for example a clone of the
+    - If the folder already belongs to a project (it has a `.hivetex.json` marker, for example a clone of the
       project's GitHub backup), that project opens: joined if needed, with the folder bound.
     - Otherwise the app offers **Create a project from this folder**: the tree is imported as is and the folder stays
       bound.
   - **Change location / Stop using folder** per project, plus a per-device list of where each project lives.
-- **Folder marker:** the bound folder gets `.p2platex.json` with the project id and slug (no secrets, no content). It is
+- **Folder marker:** the bound folder gets `.hivetex.json` with the project id and slug (no secrets, no content). It is
   the same file the GitHub backup already writes, extended with the project identity, so clones are recognised. The
   marker is never synced as a project file.
 - **Web folder support (Chromium):** a File System Access implementation of the mirror's file-system interface.
@@ -81,7 +81,7 @@ Three points were left open by the previous changes and are closed here too:
   existing confined mirror commands.
 - **Server:** migration `0002` adds `memberships.last_opened_at`; `POST /projects/:id/opened`; `GET /projects` returns
   `lastOpenedAt` sorted; signaling session ids.
-- **GitHub package:** the backup writes the project identity into `.p2platex.json`.
+- **GitHub package:** the backup writes the project identity into `.hivetex.json`.
 - **CI:** `.github/workflows/*` (Node 24 actions, `desktop-e2e` job, `stack-nightly.yml`).
 - **Privacy:** the control plane additionally learns *when* a member opens a project, which the user accepted. Folder
   paths never leave the device.

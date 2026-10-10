@@ -2,7 +2,7 @@
 
 ## Why
 
-Overleaf-style collaborative LaTeX editing today requires trusting (and often paying) a central cloud that stores unpublished research and burns server CPU on every compile. p2platex delivers the same real-time, offline-capable co-authoring experience for free by keeping sources only on the co-authors' devices, syncing them peer-to-peer, and letting the strongest connected machine compile the PDF for everyone. A tiny, free-tier Vercel "control plane" handles only accounts, project lookup, permissions and connection bootstrap — never document content.
+Overleaf-style collaborative LaTeX editing today requires trusting (and often paying) a central cloud that stores unpublished research and burns server CPU on every compile. HiveTeX delivers the same real-time, offline-capable co-authoring experience for free by keeping sources only on the co-authors' devices, syncing them peer-to-peer, and letting the strongest connected machine compile the PDF for everyone. A tiny, free-tier Vercel "control plane" handles only accounts, project lookup, permissions and connection bootstrap — never document content.
 
 ## What Changes
 
@@ -34,5 +34,5 @@ Overleaf-style collaborative LaTeX editing today requires trusting (and often pa
 - **New code**: `apps/web` (Vite SPA), `apps/desktop` (Tauri 2 shell + Rust compile/mirror services), `apps/api` (Vercel Functions), `packages/*` (shared protocol, sync engine, crypto, UI).
 - **External services (all free tiers)**: Vercel Hobby (static hosting + Functions), Neon Postgres (durable accounts/projects), Upstash Redis (ephemeral signaling mailboxes, rate limits), Gmail SMTP (recovery mail), Cloudflare Realtime TURN free tier (NAT fallback relay, configurable), GitHub App.
 - **Rejected stores**: Airtable (5 req/s, record caps, not a database) and Dropbox API (file store, no queries/transactions) — see design.md.
-- **Licensing**: Overleaf and Oleafly are AGPL-3.0; reusing their code makes p2platex AGPL-3.0. Decision recorded in design.md.
+- **Licensing**: Overleaf and Oleafly are AGPL-3.0; reusing their code makes HiveTeX AGPL-3.0. Decision recorded in design.md.
 - **Known limitation**: a project is only reachable when at least one member device is online (or via GitHub backup, for members with repo access).

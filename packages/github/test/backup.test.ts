@@ -136,27 +136,10 @@ describe('GitHub import (10.6 groundwork)', () => {
   });
 });
 
-describe('repositories from before the rename (p2platex)', () => {
-  it('treats old backup commits as its own, reads the old manifest and replaces it', async () => {
-    const r = gh.repo('octocat/paper', { empty: true });
-    // a backup made under the previous name
-    gh.foreignCommit(
-      'octocat/paper',
-      'main',
-      { 'a.tex': 'A', 'old.tex': 'O', '.p2platex.json': JSON.stringify({ version: 2, paths: ['a.tex', 'old.tex'] }) },
-      'backup\n\nX-P2platex-Backup: 1',
-    );
-    const res = await pushBackup(client, repo, 'main', files({ 'a.tex': 'A2' }), { message: 'm', lastSha: 'an-older-backup' });
-    expect(res.branch).toBe('main'); // not diverted to hivetex/backup
-    const state = r.files('main');
-    expect(state['old.tex']).toBeUndefined(); // deletion mirrored using the old manifest's paths
-    expect(state['.p2platex.json']).toBeUndefined();
-    expect(JSON.parse(state['.hivetex.json'] as string).paths).toEqual(['a.tex']);
-  });
-
-  it('never imports the old bookkeeping files', async () => {
+describe('bookkeeping files', () => {
+  it('never imports the backup manifest or marker', async () => {
     gh.repo('octocat/paper', { empty: true });
-    gh.foreignCommit('octocat/paper', 'main', { 'main.tex': 'x', '.p2platex.json': '{}', '.p2platex': 'managed', '.hivetex.json': '{}' });
+    gh.foreignCommit('octocat/paper', 'main', { 'main.tex': 'x', '.hivetex': 'managed', '.hivetex.json': '{}' });
     const got = await importRepo(client, repo, 'main');
     expect([...got.keys()]).toEqual(['main.tex']);
   });

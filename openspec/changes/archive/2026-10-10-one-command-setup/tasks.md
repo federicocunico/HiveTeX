@@ -4,7 +4,7 @@
 
 - [x] 1.1 Origin fallback to `VERCEL_PROJECT_PRODUCTION_URL` on production deployments; verify config unit tests (APP_ORIGIN wins, production domain, preview deployment URL, local default)
 - [x] 1.2 `BOOTSTRAP_ADMIN` on register and login, atomic (only when no admin exists); verify server tests (promoted when first, unchanged when an admin exists, other usernames unaffected)
-- [x] 1.3 Migrations in the Vercel build command; verify `vercel.json` parses and `pnpm --filter @p2platex/server migrate` fails clearly without `DATABASE_URL`
+- [x] 1.3 Migrations in the Vercel build command; verify `vercel.json` parses and `pnpm --filter @hivetex/server migrate` fails clearly without `DATABASE_URL`
 
 ## 2. Setup command
 

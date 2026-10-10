@@ -1,4 +1,4 @@
-import { type FolderMarker, LEGACY_MARKER_FILE, MARKER_FILE, parseMarker } from '@hivetex/sync';
+import { type FolderMarker, MARKER_FILE, parseMarker } from '@hivetex/sync';
 import { isDesktop } from './api.js';
 import { folderAccessSupported, pickDirectory } from './fs-access.js';
 import { type Location, folderLabel, setLocation } from './locations.js';
@@ -19,11 +19,10 @@ export async function pickProjectFolder(title = 'Choose a folder'): Promise<Pick
 }
 
 /**
- * Reads the `.hivetex.json` marker of a picked folder, or its name from before the product was renamed
- * (null when the folder is not a project folder yet). Binding the folder later replaces an old marker.
+ * Reads the `.hivetex.json` marker of a picked folder (null when the folder is not a project folder yet).
  */
 export async function readFolderMarker(f: PickedFolder): Promise<FolderMarker | null> {
-  const names = [MARKER_FILE, LEGACY_MARKER_FILE];
+  const names = [MARKER_FILE];
   if ('handle' in f) {
     for (const name of names) {
       try {

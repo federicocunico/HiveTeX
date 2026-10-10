@@ -18,7 +18,7 @@ Current state observed in the code:
   `applyTextDiff` (good: keeps identity). Binary goes to the blob store via `addBinary`.
 - `ProjectModel` (`packages/sync/src/model.ts`) keeps the file index in a root Y.Doc and each text file in its own
   subdoc; `restoreSnapshot` already does a "write many files" pass that we can learn from.
-- The folder mirror has `DEFAULT_IGNORES` and `.p2platexignore` (`packages/sync/src/mirror.ts`) using the `ignore`
+- The folder mirror has `DEFAULT_IGNORES` and `.hivetexignore` (`packages/sync/src/mirror.ts`) using the `ignore`
   package.
 - Compiler choice is the `engine` key in `model.settings` (default `pdflatex` when unset).
 - Server: `local.ts` (PGlite + in-memory KV/limiter/signal, console mailer) vs `production.ts` (Neon HTTP, Upstash
@@ -54,7 +54,7 @@ Split `zip.ts` into small pure modules so they are unit-testable in Vitest witho
   Tar is an in-house ~100-line ustar/pax reader over `gunzipSync` output (fflate), rejecting types other than `0`/`\0`
   (regular) and `5` (dir), which blocks symlinks/hardlinks/devices. Alternative: `tar-stream`/`js-untar` — rejected:
   Node stream deps or unmaintained; format subset we need is tiny.
-- `filter.ts` — reuses `DEFAULT_IGNORES` from `@p2platex/sync` (export it from the package index if not already) plus
+- `filter.ts` — reuses `DEFAULT_IGNORES` from `@hivetex/sync` (export it from the package index if not already) plus
   import-only junk (`__MACOSX/`, `Thumbs.db`, `.svn/`). Same list as the mirror → one source of truth.
 - `classify.ts` — text/binary decision (moves the regex out of `session.addFile`; adds `.Rnw`, `.ist`, `.clo`, `.lua`,
   `.bbl`, `.tikz`, `.pgf`, `.asy`, `.latexmkrc`/`latexmkrc`, `.gitignore`) and decoding: `new TextDecoder('utf-8',
@@ -135,7 +135,7 @@ not hermetic.
 - Mailer: `SMTP_HOST`/`SMTP_PORT`/`SMTP_SECURE` override Gmail transport when set; `GMAIL_*` remain the production
   path. Mailpit needs no auth.
 - Ticket keys: `docker.ts` generates an ephemeral Ed25519 key when `TICKET_SIGNING_JWK` is unset **and**
-  `P2PLATEX_DEV_STACK=1`; production still fails fast on a missing key.
+  `HIVETEX_DEV_STACK=1`; production still fails fast on a missing key.
 - Committed `docker/.env.stack` holds only dev defaults (passwords like `postgres`/`devtoken`), satisfying the
   *No secrets* requirement.
 

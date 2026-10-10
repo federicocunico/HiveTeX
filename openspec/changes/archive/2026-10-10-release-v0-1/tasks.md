@@ -3,10 +3,10 @@
 ## 1. Versioning and links
 
 - [x] 1.1 `scripts/set-version.mjs` + `make version VERSION=x.y.z`. It updates `tauri.conf.json`, `Cargo.toml`
-  `[package]`, the `p2platex-desktop` entry in `Cargo.lock`, and the root/web/desktop `package.json`. Set `0.1.0`;
+  `[package]`, the `hivetex-desktop` entry in `Cargo.lock`, and the root/web/desktop `package.json`. Set `0.1.0`;
   verify `cargo check` and that `git diff` shows only version fields.
 - [x] 1.2 Updater endpoint and web source link point to `federicocunico/HiveTeX` (overridable at build time); verify
-  with grep that no `p2platex/p2platex` link remains outside archived changes.
+  with grep that no `hivetex/hivetex` link remains outside archived changes.
 - [x] 1.3 macOS ad-hoc signing (`bundle.macOS.signingIdentity: "-"`); verify that the `tauri.conf.json` schema
   validates (`cargo check` / `tauri info`).
 
@@ -39,7 +39,7 @@
 
 ## 5. Release
 
-- [x] 5.1 Set the `TAURI_SIGNING_PRIVATE_KEY` repository secret from `~/.tauri/p2platex.key`, then push tag `v0.1.0`;
-  verify a draft release "p2platex v0.1.0" exists with installers for all three platforms, plus `latest.json` and
+- [x] 5.1 Set the `TAURI_SIGNING_PRIVATE_KEY` repository secret from `~/.tauri/hivetex.key`, then push tag `v0.1.0`;
+  verify a draft release "HiveTeX v0.1.0" exists with installers for all three platforms, plus `latest.json` and
   `.sig` files.
 - [x] 5.2 `make check`, CI and Desktop green on the final commit.
