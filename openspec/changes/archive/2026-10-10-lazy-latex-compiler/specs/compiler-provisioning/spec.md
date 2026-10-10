@@ -81,6 +81,10 @@ file reads; otherwise the helper's builds stay in that user's browser.
 - **WHEN** a signed-in web user with the desktop app running chooses *Compile with my desktop app*
 - **THEN** the desktop app asks the user to allow it, and after confirmation the web app compiles through the desktop
 
+#### Scenario: Not paired yet
+- **WHEN** a web user who never chose *Compile with my desktop app* opens a project
+- **THEN** the web app does not contact the local service (browsers may ask permission to reach local apps)
+
 #### Scenario: Another website
 - **WHEN** a page from another origin, or a request without a valid pairing token, calls the local service
 - **THEN** the request is refused and nothing is compiled

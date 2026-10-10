@@ -105,5 +105,8 @@ undo any change set you don't want.
 instead of opening, because WebDriver cannot drive OS dialogs), starts the local API, and drives the real app through
 [`tauri-driver`](https://v2.tauri.app/develop/tests/webdriver/): create a project from a folder, external edits, link a
 folder, import a folder, open a marker folder. Requirements: `cargo install tauri-driver --locked`, plus
-`WebKitWebDriver` on Linux (`webkit2gtk-driver`) or an `msedgedriver` matching your WebView2 version on Windows (set
-`MSEDGEDRIVER=C:\path\msedgedriver.exe`). Release builds never include `test-picker`.
+`WebKitWebDriver` on Linux (`webkit2gtk-driver`). On Windows, `msedgedriver` must match the installed WebView2 version
+exactly: the first run downloads that version from Microsoft into `apps/desktop/src-tauri/target/msedgedriver/` and
+reuses it afterwards (a new one is fetched when WebView2 updates). Offline, or to use your own copy, set
+`MSEDGEDRIVER=C:\path\msedgedriver.exe`. These are developer test tools: the app itself never needs them, and release
+builds never include `test-picker`.

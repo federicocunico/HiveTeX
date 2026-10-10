@@ -81,6 +81,10 @@ here is free; Vercel Hobby is for non-commercial use. Run the commands from the 
     - **Linux:** run `chmod +x HiveTeX_*.AppImage` and start it, or install the `.deb`. Device keys need a keychain
       (GNOME Keyring or KWallet), which standard desktops have.
     - **Desktop, any OS:** the sign-in screen shows the server. Use *Change* if it isn't your deployment.
+    - **No LaTeX needed:** without a TeX installation, the desktop app sets up a quick compiler at the first compile
+      (about 20 MB; packages are downloaded as documents need them). *Account → Compiler* offers full LaTeX. In the
+      browser, *Compile with my desktop app* compiles with the desktop app running on the same computer. See
+      [docs/compilation.md](docs/compilation.md#engines).
 
     To test: one person creates a project (*New project*) and shares its ID and password. The others use *Join a
     project*. Type together, compile, and try *Open folder…* with a git clone and an AI tool (see

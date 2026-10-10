@@ -1,4 +1,5 @@
 pub mod managed;
+pub mod helper;
 pub mod mirror;
 pub mod probe;
 pub mod rtc;
@@ -239,7 +240,6 @@ fn secret_delete(key: String) -> Result<(), String> {
     secrets::delete(&key)
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// The built-in compiler's TeX files on disk (see texcache.rs).
 #[tauri::command]
 fn texcache_set_upstream(cache: State<'_, texcache::TexCache>, url: String) -> Result<(), String> {
@@ -295,6 +295,146 @@ fn texcache_response(app: &tauri::AppHandle, path: &str) -> impl std::future::Fu
     }
 }
 
+/// Origin of the web app the helper serves by default (the shipped server).
+const DEFAULT_WEB_ORIGIN: &str = "https://hivetex.vercel.app";
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct HelperSettings {
+    enabled: bool,
+    /// Extra web origins allowed besides the default (a self-hosted server's web app).
+    origins: Vec<String>,
+}
+
+impl Default for HelperSettings {
+    fn default() -> Self {
+        HelperSettings { enabled: true, origins: Vec::new() }
+    }
+}
+
+/// The local compile helper (helper.rs) and the pairing requests waiting for the user's answer.
+struct HelperState {
+    helper: Option<helper::Helper>,
+    settings_path: std::path::PathBuf,
+    settings: std::sync::Mutex<HelperSettings>,
+    pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<bool>>>>,
+}
+
+impl HelperState {
+    fn origins(settings: &HelperSettings) -> Vec<String> {
+        let mut o = vec![DEFAULT_WEB_ORIGIN.to_string()];
+        o.extend(settings.origins.iter().cloned());
+        // Development and UI tests: the web app served locally.
+        if let Ok(extra) = std::env::var("HIVETEX_HELPER_ORIGINS") {
+            o.extend(extra.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+        }
+        o
+    }
+
+    fn start(app: &tauri::AppHandle, dir: &std::path::Path) -> HelperState {
+        let settings_path = dir.join("helper-settings.json");
+        let settings: HelperSettings = std::fs::read(&settings_path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<bool>>>> = Default::default();
+        let root = dir.to_path_buf();
+        let compile: helper::CompileFn = std::sync::Arc::new(move |req| tex::compile_with(&root, req, None));
+        let (handle, waiting) = (app.clone(), pending.clone());
+        let confirm: helper::ConfirmFn = std::sync::Arc::new(move |req: helper::PairRequest| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            waiting.lock().unwrap().insert(req.id.clone(), tx);
+            if let Some(w) = handle.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            let _ = handle.emit("helper://pair-request", req.clone());
+            let answer = rx.recv_timeout(std::time::Duration::from_secs(60)).unwrap_or(false);
+            waiting.lock().unwrap().remove(&req.id);
+            answer
+        });
+        let status: helper::StatusFn = std::sync::Arc::new(tex::detect);
+        let helper = match helper::Helper::start(Some(dir.join("helper-pairings.json")), Self::origins(&settings), compile, confirm, status) {
+            Ok(h) => {
+                h.set_enabled(settings.enabled);
+                Some(h)
+            }
+            Err(e) => {
+                eprintln!("local compile helper: {e}");
+                None
+            }
+        };
+        HelperState { helper, settings_path, settings: std::sync::Mutex::new(settings), pending }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct HelperInfo {
+    running: bool,
+    port: Option<u16>,
+    enabled: bool,
+    origins: Vec<String>,
+    pairings: Vec<PairingInfo>,
+}
+
+#[derive(serde::Serialize)]
+struct PairingInfo {
+    id: String,
+    username: String,
+    server: String,
+    created: u64,
+}
+
+fn helper_info_of(state: &HelperState) -> HelperInfo {
+    let s = state.settings.lock().unwrap().clone();
+    let pairings = state.helper.as_ref().map(|h| h.pairings()).unwrap_or_default();
+    HelperInfo {
+        running: state.helper.is_some(),
+        port: state.helper.as_ref().map(|h| h.port),
+        enabled: s.enabled,
+        origins: HelperState::origins(&s),
+        pairings: pairings.into_iter().map(|p| PairingInfo { id: p.id, username: p.username, server: p.server, created: p.created }).collect(),
+    }
+}
+
+#[tauri::command]
+fn helper_info(state: State<'_, HelperState>) -> HelperInfo {
+    helper_info_of(&state)
+}
+
+/// Turns the helper on or off and sets the extra web origins it serves (a self-hosted server's web app).
+#[tauri::command]
+fn helper_configure(state: State<'_, HelperState>, enabled: bool, origins: Vec<String>) -> Result<HelperInfo, String> {
+    let origins: Vec<String> = origins.into_iter().map(|o| o.trim().trim_end_matches('/').to_string()).filter(|o| !o.is_empty()).collect();
+    for o in &origins {
+        let ok = (o.starts_with("https://") || o.starts_with("http://localhost") || o.starts_with("http://127.0.0.1")) && !o[8..].contains('/');
+        if !ok {
+            return Err(format!("not a web app origin: {o}"));
+        }
+    }
+    let s = HelperSettings { enabled, origins };
+    std::fs::write(&state.settings_path, serde_json::to_vec_pretty(&s).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    if let Some(h) = &state.helper {
+        h.set_enabled(enabled);
+        h.set_allowed_origins(HelperState::origins(&s));
+    }
+    *state.settings.lock().unwrap() = s;
+    Ok(helper_info_of(&state))
+}
+
+/// The user's answer to a `helper://pair-request`.
+#[tauri::command]
+fn helper_answer(state: State<'_, HelperState>, id: String, allow: bool) {
+    if let Some(tx) = state.pending.lock().unwrap().remove(&id) {
+        let _ = tx.send(allow);
+    }
+}
+
+#[tauri::command]
+fn helper_revoke(state: State<'_, HelperState>, id: String) -> HelperInfo {
+    if let Some(h) = &state.helper {
+        h.revoke(&id);
+    }
+    helper_info_of(&state)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // `--ignore-system-tex`: behave as on a computer without TeX (UI tests of the quick compiler; only removes options).
     if std::env::args().any(|a| a == "--ignore-system-tex") {
@@ -319,6 +459,7 @@ pub fn run() {
             let picked = dir.join("picked-folders.json");
             adopt_legacy_file(&picked, LEGACY_IDENTIFIER);
             app.manage(PickedFolders::load(picked));
+            app.manage(HelperState::start(app.handle(), &dir));
             Ok(())
         })
         .manage(MirrorState::default())
@@ -354,7 +495,11 @@ pub fn run() {
             rtc_close,
             secret_get,
             secret_set,
-            secret_delete
+            secret_delete,
+            helper_info,
+            helper_configure,
+            helper_answer,
+            helper_revoke
         ])
         .run(tauri::generate_context!())
         .expect("error while running HiveTeX");
@@ -477,7 +622,8 @@ mod config_tests {
         assert!(csp.contains("object-src 'none'"));
         assert!(!csp.contains("'unsafe-eval'"));
         assert!(!csp.contains("script-src *"));
-        assert!(!csp.replace("http://ipc.localhost", "").contains("http:"), "plain http connections are not allowed");
+        // http://ipc.localhost and http://texcache.localhost are the app's own protocols on Windows, not the network
+        assert!(!csp.replace("http://ipc.localhost", "").replace("http://texcache.localhost", "").contains("http:"), "plain http connections are not allowed");
         assert!(conf["build"]["devUrl"].as_str().unwrap().starts_with("http://localhost"));
         assert_eq!(conf["app"]["withGlobalTauri"], serde_json::json!(false));
     }

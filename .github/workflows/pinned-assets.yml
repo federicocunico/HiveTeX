@@ -1,0 +1,22 @@
+name: Pinned downloads (weekly)
+# The quick compiler (Tectonic) and full LaTeX (TinyTeX) are downloaded by the desktop app from their GitHub releases,
+# pinned by SHA-256. This checks every week that they are still published unchanged.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: node scripts/check-pinned-assets.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

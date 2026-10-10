@@ -15,6 +15,7 @@
     log = '',
     compileError = '',
     note = '',
+    hint = '',
     expanded,
     onToggle,
     onGo,
@@ -27,6 +28,8 @@
     compileError?: string;
     /** Why this device cannot compile (no TeX, …). */
     note?: string;
+    /** Plain explanation of a failed build (a missing package), above the line-by-line problems. */
+    hint?: string;
     expanded: boolean;
     onToggle: () => void;
     onGo: (file: string, line: number) => void;
@@ -57,6 +60,7 @@
       <div class="body">
         {#if compileError}<div class="error msg" role="alert">{compileError}</div>{/if}
         {#if note}<div class="notice msg">{note}</div>{/if}
+        {#if hint}<div class="notice msg" role="status" data-testid="missing-package">{hint}</div>{/if}
         {#if failed && diagnostics.length === 0}
           <div class="error msg">The compile failed without a message that points to a line. Open the raw log for details.</div>
         {/if}

@@ -23,6 +23,8 @@
   import SearchPanel from '../components/workspace/SearchPanel.svelte';
   import StatusBar from '../components/workspace/StatusBar.svelte';
   import { ApiError, api, isDesktop } from '../lib/api.js';
+  import { missingPackageHint } from '../lib/compile-mode.js';
+  import { PAIR_MESSAGES } from '../lib/helper-engine.js';
   import { auth } from '../lib/auth.svelte.js';
   import { registerCommands, registerSource, setGotoLine } from '../lib/commands.svelte.js';
   import { openPalette, openShortcuts } from '../lib/palette.svelte.js';
@@ -382,6 +384,19 @@
 
   let showLocation = $state(false);
   const canUseFolders = isDesktop || folderAccessSupported();
+
+  // Web: compile with the HiveTeX desktop app running on this computer (it asks the user to allow it).
+  let pairing = $state(false);
+  let pairMessage = $state('');
+  async function compileWithDesktop() {
+    if (!session) return;
+    pairing = true;
+    pairMessage = 'Confirm in the HiveTeX desktop app…';
+    const r = await session.pairDesktopHelper();
+    pairing = false;
+    pairMessage = r === 'paired' ? '' : PAIR_MESSAGES[r];
+    if (r === 'paired') session.requestCompile();
+  }
 
   /** Makes a folder of the user's choice this project's location on this device. */
   async function linkFolder() {
@@ -913,6 +928,7 @@
               log={s.result?.log ?? ''}
               {compileError}
               note={s.engineNote && !s.engine ? s.engineNote : ''}
+              hint={s.result && !s.result.ok ? (missingPackageHint(s.result.log, s.result.by.dev === s.myDeviceId ? s.compilerName : '') ?? '') : ''}
               expanded={layout.problems}
               onToggle={() => setLayout({ problems: !layout.problems })}
               onGo={reverse}
@@ -950,7 +966,15 @@
     </div>
 
     {#if !layout.focus}
-      <StatusBar session={s} {cursor} {keymapMode} onPeople={() => openPanel('people')} />
+      <StatusBar
+        session={s}
+        {cursor}
+        {keymapMode}
+        onPeople={() => openPanel('people')}
+        onUseDesktop={!isDesktop && s.engineKind !== 'native' && s.compileMode !== 'peers' ? compileWithDesktop : undefined}
+        {pairing}
+        {pairMessage}
+      />
     {:else}
       <button type="button" class="leave-focus" onclick={toggleFocus}><Icon icon={Minimize} size={14} />Leave focus mode</button>
     {/if}

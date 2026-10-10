@@ -93,11 +93,10 @@ before(async () => {
   // the server is shown (and changeable) before signing in
   assert.equal(await (await byTestId('server-current')).getText(), 'http://localhost:3000');
   const username = uniq('desk');
-  await (await b.$("//label[contains(., 'Username')]//input")).setValue(username);
-  await (await b.$("//label[contains(., 'Email')]//input")).setValue(`${username}@example.com`);
-  const pws = await b.findAll('input[type=password]');
-  await pws[0].setValue(PW);
-  await pws[1].setValue(PW);
+  await (await b.$('#reg-user')).setValue(username);
+  await (await b.$('#reg-email')).setValue(`${username}@example.com`);
+  await (await b.$('#reg-pw')).setValue(PW);
+  await (await b.$('#reg-pw2')).setValue(PW);
   await (await b.$("//button[normalize-space()='Create account']")).click();
   await b.$(PROJECTS_H1);
 });
@@ -196,4 +195,51 @@ test('without any TeX installed, the first compile sets up the quick compiler an
   // builds stay local: the PDF is this device's own
   await until(async () => (await textOf('compiled-by')).includes('(this device)'), 'local PDF from the quick compiler', 300_000);
   assert.match(await textOf('compiler-state'), /builds stay on this device/);
+});
+
+test('the web app pairs with the desktop app (confirmed here), compiles through it, and the pairing can be revoked', { timeout: 600_000 }, async () => {
+  const origin = 'https://hivetex.vercel.app';
+  let port;
+  for (const p of [47812, 47813, 47814, 47815]) {
+    const r = await fetch(`http://127.0.0.1:${p}/status`, { headers: { Origin: origin } }).catch(() => null);
+    if (r?.ok && (await r.json()).app === 'hivetex') {
+      port = p;
+      break;
+    }
+  }
+  assert.ok(port, 'helper listening');
+  const base = `http://127.0.0.1:${port}`;
+  // another website is refused
+  assert.equal((await fetch(`${base}/status`, { headers: { Origin: 'https://evil.example' } })).status, 403);
+  const pairing = fetch(`${base}/pair`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'webuser', server: origin }) });
+  await until(() => byTestId('pair-request'), 'pairing asked in the app');
+  assert.match(await textOf('pair-request'), /webuser/);
+  await (await b.$("//div[@data-testid='pair-request']//button[normalize-space()='Allow']")).click();
+  const res = await pairing;
+  assert.equal(res.status, 200);
+  const { token } = await res.json();
+  const doc = String.raw`\documentclass{article}\begin{document}From the browser.\end{document}` + '\n';
+  const compiled = await fetch(`${base}/compile`, {
+    method: 'POST',
+    headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ main: 'main.tex', engine: 'pdflatex', project: 'web1', files: [{ path: 'main.tex', b64: Buffer.from(doc).toString('base64') }] }),
+  }).then((r) => r.json());
+  assert.equal(compiled.ok, true, compiled.log);
+  assert.ok(Buffer.from(compiled.pdfB64, 'base64').subarray(0, 4).toString() === '%PDF');
+  assert.equal(compiled.localOnly, true, 'quick compiler builds are not shared');
+
+  // Account > Compiler lists the pairing; revoking it stops the token
+  await b.execute(() => {
+    location.hash = '#/account';
+  });
+  await until(async () => (await textOf('compiler-panel')).includes('webuser'), 'pairing listed');
+  assert.match(await textOf('current-compiler'), /quick compiler/);
+  // (the app's data folder may keep pairings from earlier runs: revoke them all)
+  await until(async () => {
+    if (!(await textOf('compiler-panel')).includes('webuser')) return true;
+    await (await byTestId('revoke-pairing')).click();
+    return false;
+  }, 'pairing revoked');
+  const after = await fetch(`${base}/compile`, { method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${token}` }, body: '{}' });
+  assert.equal(after.status, 401);
 });

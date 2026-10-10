@@ -28,6 +28,14 @@
     justify-items: end;
     pointer-events: none;
   }
+  /* With a dialog open, toasts move to the top so they never cover its buttons (they sit in the dialog's footer). */
+  :global(body:has(.hx-scrim)) .hx-toaster {
+    top: calc(12px + env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: 50%;
+    transform: translateX(50%);
+    justify-items: center;
+  }
   .toast {
     pointer-events: auto;
     display: flex;

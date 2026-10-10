@@ -1,5 +1,5 @@
 import type { CompileEngine, CompileInput, CompileOutput } from '@hivetex/compile';
-import { safeStorage } from './api.js';
+import { isDesktop, safeStorage } from './api.js';
 
 /**
  * In-browser compilation with SwiftLaTeX (pdfTeX / XeTeX compiled to WebAssembly) in a dedicated worker.
@@ -10,6 +10,55 @@ const DEFAULT_TEXLIVE = 'https://texlive2.swiftlatex.com/';
 
 export function texliveEndpoint(): string {
   return safeStorage('texliveUrl') ?? (import.meta.env.VITE_TEXLIVE_URL as string | undefined) ?? DEFAULT_TEXLIVE;
+}
+
+/** Where the compiler worker loads TeX files from: on the desktop, the app's disk cache (texcache://), which downloads
+ * each file from the TeX file server once; on the web, the server itself (with the service worker cache in Chromium). */
+let engineEndpoint = texliveEndpoint();
+
+/** A TeX file the compiler is fetching (for the status bar): 'start', then 'done' or 'failed'. */
+export type TexFetch = { file: string; state: 'start' | 'done' | 'failed' };
+const fetchListeners = new Set<(f: TexFetch) => void>();
+export function onTexFetch(cb: (f: TexFetch) => void): () => void {
+  fetchListeners.add(cb);
+  return () => fetchListeners.delete(cb);
+}
+const emitFetch = (f: TexFetch) => {
+  for (const cb of fetchListeners) cb(f);
+};
+
+let cacheReady: Promise<void> | null = null;
+/** Sets up the TeX file cache once per page (best effort: without it files are simply downloaded again). */
+function setUpCache(): Promise<void> {
+  cacheReady ??= (async () => {
+    try {
+      if (isDesktop) {
+        const [{ invoke }, { listen }] = await Promise.all([import('@tauri-apps/api/core'), import('@tauri-apps/api/event')]);
+        await invoke('texcache_set_upstream', { url: texliveEndpoint() });
+        await listen<TexFetch>('texcache://fetch', (e) => emitFetch(e.payload));
+        engineEndpoint = navigator.userAgent.includes('Windows') ? 'http://texcache.localhost/' : 'texcache://localhost/';
+      } else if ('serviceWorker' in navigator && window.isSecureContext) {
+        navigator.serviceWorker.addEventListener('message', (e) => {
+          const d = e.data as { type?: string } & TexFetch;
+          if (d?.type === 'hivetex-tex') emitFetch({ file: d.file, state: d.state });
+        });
+        await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js?tex=${encodeURIComponent(texliveEndpoint())}`);
+        await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(r, 3000))]);
+      }
+    } catch (e) {
+      console.warn('TeX file cache unavailable', e);
+      engineEndpoint = texliveEndpoint();
+    }
+  })();
+  return cacheReady;
+}
+
+/** Empties the in-browser compiler's TeX file cache on this device. */
+export async function clearTexCache(): Promise<void> {
+  if (isDesktop) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('texcache_clear');
+  } else if ('caches' in window) await caches.delete('hivetex-tex-v1');
 }
 
 type EngineName = 'pdflatex' | 'xelatex';
@@ -27,7 +76,7 @@ class Runner {
       w.onmessage = (ev) => (ev.data?.result === 'ok' ? resolve() : reject(new Error('engine failed to start')));
       w.onerror = () => reject(new Error('engine failed to load'));
     });
-    w.postMessage({ cmd: 'settexliveurl', url: texliveEndpoint() });
+    w.postMessage({ cmd: 'settexliveurl', url: engineEndpoint });
     return w;
   }
 
@@ -98,6 +147,7 @@ export async function loadWasmEngine(_project: string): Promise<(CompileEngine &
   if (safeStorage('hivetex.fakeEngine') === '1') return (await import('./fake-engine.js')).fakeEngine as CompileEngine & { supports: EngineName[] };
   if (typeof Worker === 'undefined' || typeof WebAssembly === 'undefined') return null;
   if (!(await texServerReachable())) return null;
+  await setUpCache();
   const runners: Partial<Record<EngineName, Runner>> = {};
   return {
     kind: 'wasm',

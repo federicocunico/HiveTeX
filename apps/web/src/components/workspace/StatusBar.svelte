@@ -10,12 +10,19 @@
     cursor = null,
     keymapMode = '',
     onPeople,
+    onUseDesktop,
+    pairing = false,
+    pairMessage = '',
   }: {
     session: ProjectSession;
     cursor?: { line: number; col: number } | null;
     /** e.g. "-- NORMAL --" with the Vim keymap. */
     keymapMode?: string;
     onPeople?: () => void;
+    /** Web: compile with the HiveTeX desktop app on this computer (absent when that does not apply). */
+    onUseDesktop?: (() => void) | undefined;
+    pairing?: boolean;
+    pairMessage?: string;
   } = $props();
 
   const others = $derived(s.peers.length);
@@ -67,6 +74,10 @@
     {:else if s.compilerName}{s.compilerName}{s.localOnlyCompiler ? ' (builds stay on this device)' : ''}
     {:else}{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}{/if}
   </span>
+  {#if onUseDesktop}
+    <button type="button" class="item linkish" disabled={pairing} onclick={onUseDesktop} data-testid="use-desktop" data-tip="Compile on this computer with the HiveTeX desktop app (TeX Live, MiKTeX or its own compiler) instead of in the browser">Compile with my desktop app</button>
+  {/if}
+  {#if pairMessage}<span class="pill warn" role="status" data-testid="pair-message">{pairMessage}</span>{/if}
 </footer>
 
 <style>

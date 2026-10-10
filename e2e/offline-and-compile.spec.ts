@@ -73,7 +73,7 @@ test('compiles in the browser and shows the PDF with an up-to-date indicator (7.
   await u.page.getByRole('treeitem', { name: 'main.tex' }).click();
   await typeInEditor(u.page, '\\documentclass{article}\n\\begin{document}\nHello from hivetex.\n\\end{document}\n');
 
-  await expect(u.page.getByTestId('statusbar')).toContainText('in-browser TeX');
+  await expect(u.page.getByTestId('statusbar')).toContainText('in-browser compiler');
   await expect(u.page.getByTestId('leader')).toContainText('this device');
   // compile happens automatically after typing pauses; wait for the preview
   await expect(u.page.locator('[data-testid=pdf-scroll] canvas').first()).toBeVisible({ timeout: 200_000 });

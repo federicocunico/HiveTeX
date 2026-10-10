@@ -26,17 +26,17 @@
 
 ## 4. Local compile helper
 
-- [ ] 4.1 Helper service (D5): loopback listener, origin allowlist + PNA preflight, pairing with in-app confirmation,
+- [x] 4.1 Helper service (D5): loopback listener, origin allowlist + PNA preflight, pairing with in-app confirmation,
   tokens in the keychain, revoke, `/status`, `/compile` with limits and path validation; verify Rust tests (foreign
   origin refused, missing/invalid token refused, oversized body refused, compile through the native pipeline)
-- [ ] 4.2 Web helper engine and pairing UI: probe, pair, compile through it, advertise `native`; verify a Playwright
+- [x] 4.2 Web helper engine and pairing UI: probe, pair, compile through it, advertise `native`; verify a Playwright
   test against a local helper (desktop app built with the helper) or a test double implementing the protocol
 
 ## 5. In-browser fallback and experience
 
-- [ ] 5.1 Web service worker cache for Chromium (D6), reachability gate before choosing the in-browser engine; verify a
+- [x] 5.1 Web service worker cache for Chromium (D6), reachability gate before choosing the in-browser engine; verify a
   Playwright test with a local stand-in package server: second compile makes no requests
-- [ ] 5.2 Compiler state, status bar, failure messages, Account → Compiler panel (D7); verify svelte-check and e2e
+- [x] 5.2 Compiler state, status bar, failure messages, Account → Compiler panel (D7); verify svelte-check and e2e
   (state shown; "no compiler available" when nothing can compile)
-- [ ] 5.3 Docs (`docs/compilation.md`, README first-run notes), scheduled CI check of pinned release URLs and checksums;
+- [x] 5.3 Docs (`docs/compilation.md`, README first-run notes), scheduled CI check of pinned release URLs and checksums;
   verify `make check`, CI and Desktop green

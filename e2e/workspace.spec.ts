@@ -123,6 +123,32 @@ test('at 1024 px one of editor and PDF shows, with a toggle, and nothing overflo
   await o.ctx.close();
 });
 
+test('a toast still showing never covers the buttons of a dialog opened after it', async ({ browser }) => {
+  const o = await owner(browser, { width: 1024, height: 640 });
+  const p = o.page;
+  await addFile(p, 'main.tex');
+  await p.getByRole('treeitem', { name: 'main.tex' }).click();
+  await p.getByRole('button', { name: 'Hide the formatting toolbar' }).click();
+  await expect(p.locator('.hx-toaster .toast')).toBeVisible();
+  // back to the projects page (same page, so the toast stays) and straight into New project
+  await p.evaluate(() => (location.hash = '#/'));
+  await p.getByTestId('new-project-btn').click();
+  const dialog = p.getByRole('dialog', { name: 'New project' });
+  await expect(dialog).toBeVisible();
+  await expect(p.locator('.hx-toaster .toast')).toBeVisible();
+  const covered = await dialog.evaluate((d) => {
+    const t = document.querySelector('.hx-toaster .toast')!.getBoundingClientRect();
+    return [...d.querySelectorAll('button')]
+      .filter((b) => {
+        const r = b.getBoundingClientRect();
+        return r.width > 0 && r.left < t.right && r.right > t.left && r.top < t.bottom && r.bottom > t.top;
+      })
+      .map((b) => b.textContent?.trim() || b.getAttribute('aria-label'));
+  });
+  expect(covered).toEqual([]);
+  await o.ctx.close();
+});
+
 test('a failing compile is listed under Problems, and Go to line moves the cursor there', async ({ browser }) => {
   const o = await owner(browser);
   const p = o.page;

@@ -27,9 +27,15 @@ shortcut reference (Ctrl+Shift+/).
 | 7 | Share / members | H5 error prevention | Owners were offered Remove and Ban on their own row. | Fixed: your own row shows your role, without actions. |
 | 8 | Workspace header | H6 recognition | Header avatars only appear when co-authors are online; alone, there is no hint that collaboration exists. | Kept: the Share button and the People panel say it; an empty avatar row would be noise. |
 | 9 | Projects page | H4 consistency | Rows show no co-author avatars (the mockup had them) because the project list API returns no members. | Open: needs an API field; tracked as a follow-up, not part of this change. |
+| 10 | Desktop, any dialog | H3 user control | A toast still showing (for example "Stopped using the folder") covered the New project dialog's Cancel and Create buttons, so the click went to the toast. Found by the desktop UI test. | Fixed: while a dialog is open, toasts move to the top centre. Covered by `workspace.spec.ts`. |
+
+## Desktop
+
+The desktop UI test (`make desktop-e2e`, WebView2 154 on Windows 11) passes 4/4 after merging master: create from a
+folder, link and reopen a folder, quick compiler set up on first compile, pairing with the web app. It needed the
+registration fields addressed by id (labels now sit beside their inputs) and found finding 10. The runner now fetches
+the `msedgedriver` matching the installed WebView2 by itself. The Linux job runs in CI on push.
 
 ## Not covered here
 
-- The desktop app (WebView2 / WebKitGTK) was not walked through: its UI test needs `msedgedriver` and the default
-  ports, neither available in this environment. The desktop shell builds with the new window limits and icons.
 - Screen-reader walkthroughs beyond the automated axe checks.

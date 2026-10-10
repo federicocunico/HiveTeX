@@ -17,6 +17,7 @@
   import GithubContinue from './views/GithubContinue.svelte';
   import Projects from './views/Projects.svelte';
   import Toaster from './ui/Toaster.svelte';
+  import PairRequest from './components/PairRequest.svelte';
 
   onMount(loadMe);
 
@@ -129,6 +130,7 @@
       {/if}
     </main>
   </div>
+  <PairRequest />
   <footer class="sr-only">HiveTeX is open source (AGPL-3.0): {SOURCE_URL}</footer>
 {/if}
 <Toaster />

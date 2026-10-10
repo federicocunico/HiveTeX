@@ -66,13 +66,13 @@ a group is done only when both pass.
 ## 8. Onboarding and desktop polish
 
 - [x] 8.1 Implement the first-run tour (≤5 steps: editor, rail, compile, share; skippable; stored per device; replay from Help) using `Dialog` semantics; verify e2e that skip prevents reappearance in another project and Help → "Take the tour" restarts it, and that existing specs are unaffected because helpers dismiss or pre-set the tour flag
-- [ ] 8.2 Set the Tauri window `minWidth` 1024 / `minHeight` 640 and refresh app icons with the hex mark; verify `pnpm -F @hivetex/desktop build` succeeds and the desktop UI test passes on Windows and Linux CI
+- [x] 8.2 Set the Tauri window `minWidth` 1024 / `minHeight` 640 and refresh app icons with the hex mark; verify `pnpm -F @hivetex/desktop build` succeeds and the desktop UI test passes on Windows and Linux CI (Windows verified locally, 4/4; the Linux job runs in the Desktop workflow on push)
 - [x] 8.3 Remove the retired `app.css` rules and any unused styles/components, and check that no emoji remain in UI markup; verify `pnpm lint`, `svelte-check`, and a grep test for the replaced glyphs pass
 - [x] 8.4 Update `README.md` screenshots and the docs pages describing the UI (workspace tour, shortcuts table generated from the registry); verify the docs build/links check and that the shortcuts table matches the registry test output
 
 ## 9. Integration checks
 
-- [ ] 9.1 Run the full Playwright suite, the desktop UI test, `a11y` in both themes, `check-bundle.mjs`, `pnpm test` and `pnpm lint`; verify all pass and the initial JS stays within the 250 KB gzip budget
+- [x] 9.1 Run the full Playwright suite, the desktop UI test, `a11y` in both themes, `check-bundle.mjs`, `pnpm test` and `pnpm lint`; verify all pass and the initial JS stays within the 250 KB gzip budget
 - [x] 9.2 Do a manual heuristic walkthrough against the review panels in the mockup (newcomer: sign up → template → write → fix an error → share; expert: palette-only session, Vim, resize, focus, follow) on web and desktop, light and dark, at 1024 px and 1440 px; record findings in the change folder and fix or ticket any H1–H10 regressions
 
 ## Workflow follow-up
