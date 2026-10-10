@@ -38,7 +38,7 @@
     try {
       const pdfjs = await import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
-      doc?.destroy();
+      if (typeof doc?.destroy === 'function') void doc.destroy();
       doc = await pdfjs.getDocument({ data: pdf.slice(), useSystemFonts: false }).promise;
       if (my !== token) return;
       pageCount = doc.numPages;
@@ -126,7 +126,7 @@
 
   onDestroy(() => {
     token++;
-    doc?.destroy();
+    if (typeof doc?.destroy === 'function') void doc.destroy();
   });
 </script>
 

@@ -129,8 +129,9 @@ shared PDFs. Therefore:
 - **Pairing:**
   1. `POST /pair {username, server}` opens a confirmation in the desktop app: "Allow the HiveTeX web app (`<username>`
      on `<server>`) to compile on this computer?"
-  2. On *Allow*, it returns a random 256-bit token, stored in the desktop's keychain list of pairings. The web app keeps
-     it in localStorage. *Deny* returns 403.
+  2. On *Allow*, it returns a random 256-bit token. The desktop keeps only its SHA-256 in `helper-pairings.json` (app
+     data), so the file grants nothing if read; the web app keeps the token in localStorage. *Deny* (or no answer within
+     60 s) returns 403.
   3. Account (desktop) lists pairings and can revoke them.
 - **Endpoints:**
   - `GET /status`: no secret; returns name and version only, to detect the helper;
@@ -138,11 +139,12 @@ shared PDFs. Therefore:
     50 MB. It runs the same compile as the desktop app's own (D1 native order, hardening, timeout) in a fresh temp dir,
     and returns `{ok, log, pdf_b64, synctex_b64}`.
   - Paths are validated like the mirror's (`resolve_inside`).
-- **Limits:** one compile at a time (a newer request cancels the older), 30 compiles per minute per token.
+- **Limits:** one compile at a time (later requests wait their turn), 30 compiles per minute per token.
 - **Web side:** `lib/helper-engine.ts`, a `CompileEngine` (`kind: 'native'`) wrapping the endpoint.
-  - `loadEngine()` on the web probes `GET /status` (300 ms timeout).
-  - When reachable with a token, it is used. When reachable without one, the Compiler panel and the first compile
-    offer *Compile with my desktop app* (pairing).
+  - Browsers ask before a public site reaches local apps (Chromium Local Network Access), so the web app contacts the
+    helper only once paired: `loadEngine()` probes `GET /status` (300 ms timeout) only when a token is stored.
+  - Without one, the status bar and Account → Compiler offer *Compile with my desktop app*, which probes and pairs.
+  - `GET /status` also reports the compiler (`compiler`, `supports`, `verifiedReads`), with no secret.
 
 ### D6. In-browser fallback and caches
 - The engine is selected only when nothing above is available **and** a HEAD probe of its format file succeeds

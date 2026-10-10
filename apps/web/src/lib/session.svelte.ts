@@ -31,6 +31,7 @@ import {
 } from '@hivetex/sync';
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
+import { HelperEngine, type PairResult, helperToken, pairWithDesktop, probeHelper } from './helper-engine.js';
 import { applyImport, planFor } from './import/apply.js';
 import { classify } from './import/classify.js';
 import { detectEngine, detectMain } from './import/detect.js';
@@ -363,16 +364,52 @@ export class ProjectSession {
         }
       }
     } else {
-      const { loadWasmEngine } = await import('./wasm-engine.js');
-      const wasm = await loadWasmEngine(this.project.id);
-      if (wasm) {
-        this.engine = wasm;
-        kind = 'wasm';
-        supports = wasm.supports;
-      } else this.engineNote = 'In-browser compilation needs a TeX package server, which is not reachable. Another collaborator running the desktop app (with TeX installed) will compile for everyone, or set a server in Settings.';
+      // The desktop app running on this computer compiles for the browser (paired once), else the in-browser engine.
+      const helper = await this.useDesktopHelper();
+      if (helper) {
+        kind = 'native';
+        supports = helper.supports;
+      } else {
+        const { loadWasmEngine } = await import('./wasm-engine.js');
+        const wasm = await loadWasmEngine(this.project.id);
+        if (wasm) {
+          this.engine = wasm;
+          kind = 'wasm';
+          supports = wasm.supports;
+          this.compilerName = 'in-browser compiler';
+          this.compilerPhase = 'ready';
+        } else this.engineNote = 'In-browser compilation needs a TeX package server, which is not reachable. Another collaborator running the desktop app (with TeX installed) will compile for everyone, or set a server in Settings.';
+      }
     }
     this.engineKind = kind;
     return { kind, supports };
+  }
+
+  /** Uses the paired desktop app as this browser's compiler when it is running; returns it, or null. */
+  private async useDesktopHelper(): Promise<HelperEngine | null> {
+    const stored = helperToken();
+    // Browsers ask the user before a website reaches this computer (Local Network Access): probe only once paired.
+    if (!stored) return null;
+    const status = await probeHelper();
+    if (!status?.compiler) return null;
+    const engine = new HelperEngine(status, stored.token, this.project.id);
+    this.engine = engine;
+    this.localOnlyCompiler = !engine.verifiedReads;
+    this.compilerName = `desktop app (${compilerLabel(engine.flavor)})`;
+    this.compilerPhase = 'ready';
+    return engine;
+  }
+
+  /** Pairs this browser with the desktop app (the user confirms there), then compiles with it. */
+  async pairDesktopHelper(): Promise<PairResult> {
+    const result = await pairWithDesktop(this.user.username);
+    if (result !== 'paired') return result;
+    const engine = await this.useDesktopHelper();
+    if (!engine) return 'not-found';
+    this.engineKind = 'native';
+    this.engineNote = '';
+    this.election?.update({ engine: 'native', supports: engine.supports, optOut: this.policy().optOut });
+    return 'paired';
   }
 
   private async setupCompile() {
@@ -386,8 +423,22 @@ export class ProjectSession {
       const { listen } = await import('@tauri-apps/api/event');
       this.unlistenPackages = await listen<string>('compile://package', (e) => {
         this.compilerPhase = 'packages';
-        this.compilerDetail = `downloading ${e.payload}`;
+        this.compilerDetail = e.payload.startsWith('installing ') ? e.payload : `downloading ${e.payload}`;
       });
+    }
+    if (kind === 'wasm') {
+      // TeX files the in-browser compiler downloads (the first time each is needed), for the status bar.
+      const { onTexFetch } = await import('./wasm-engine.js');
+      const un = onTexFetch((f) => {
+        if (f.state !== 'start') return;
+        this.compilerPhase = 'packages';
+        this.compilerDetail = `downloading ${f.file}`;
+      });
+      const prev = this.unlistenPackages;
+      this.unlistenPackages = () => {
+        prev?.();
+        un();
+      };
     }
 
     const power: 'mains' | 'battery' = 'mains';

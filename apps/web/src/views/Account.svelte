@@ -3,6 +3,7 @@
   import { auth, logoutAll } from '../lib/auth.svelte.js';
   import { go } from '../lib/router.svelte.js';
   import { texliveEndpoint } from '../lib/wasm-engine.js';
+  import CompilerPanel from '../components/CompilerPanel.svelte';
   import { COMPILE_MODES, COMPILE_MODE_KEY, type CompileMode, readCompileMode } from '../lib/compile-mode.js';
 
   let compileMode = $state<CompileMode>(readCompileMode());
@@ -102,6 +103,7 @@
         <span><strong>{m.label}</strong><br /><small class="muted">{m.hint}</small></span>
       </label>
     {/each}
+    <CompilerPanel />
   </div>
 
   <form class="card" onsubmit={saveConnection} style="max-width: 420px; margin-top: 16px">

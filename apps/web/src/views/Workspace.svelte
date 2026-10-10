@@ -10,7 +10,7 @@
   import PdfView from '../components/PdfView.svelte';
   import { ApiError, api, isDesktop } from '../lib/api.js';
   import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
-  import { COMPILE_MODES, type CompileMode } from '../lib/compile-mode.js';
+  import { COMPILE_MODES, type CompileMode, missingPackageHint } from '../lib/compile-mode.js';
   import { auth } from '../lib/auth.svelte.js';
   import { type ProjectIndex, buildIndex, emptyIndex } from '../lib/latex.js';
   import { go } from '../lib/router.svelte.js';
@@ -20,6 +20,7 @@
   import { exportZip } from '../lib/import/zip.js';
   import { takePendingImport } from './Projects.svelte';
   import { takeFreshFolderProject } from '../lib/folders.js';
+  import { PAIR_MESSAGES } from '../lib/helper-engine.js';
 
   let { projectId }: { projectId: string } = $props();
 
@@ -315,6 +316,19 @@
   let showLocation = $state(false);
   const canUseFolders = isDesktop || folderAccessSupported();
 
+  // Web: compile with the HiveTeX desktop app running on this computer (it asks the user to allow it).
+  let pairing = $state(false);
+  let pairMessage = $state('');
+  async function compileWithDesktop() {
+    if (!session) return;
+    pairing = true;
+    pairMessage = 'Confirm in the HiveTeX desktop app…';
+    const r = await session.pairDesktopHelper();
+    pairing = false;
+    pairMessage = r === 'paired' ? '' : PAIR_MESSAGES[r];
+    if (r === 'paired') session.requestCompile();
+  }
+
   /** Makes a folder of the user's choice this project's location on this device. */
   async function linkFolder() {
     showLocation = false;
@@ -490,6 +504,10 @@
       />
       <div class="diag" data-testid="diagnostics">
         {#if compileError}<div class="error" style="margin: 6px">{compileError}</div>{/if}
+        {#if s.result && !s.result.ok}
+          {@const hint = missingPackageHint(s.result.log, s.result.by.dev === s.myDeviceId ? s.compilerName : '')}
+          {#if hint}<div class="notice" style="margin: 6px" role="status" data-testid="missing-package">{hint}</div>{/if}
+        {/if}
         {#if s.result && !s.result.ok && s.result.diagnostics.length === 0}
           <div class="error" style="margin: 6px">Compilation failed. <details><summary>Log</summary><pre style="white-space: pre-wrap">{s.result.log.slice(-3000)}</pre></details></div>
         {/if}
@@ -526,6 +544,10 @@
         {:else if s.compilerName}{s.compilerName}{s.localOnlyCompiler ? ' (builds stay on this device)' : ''}
         {:else}{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}{/if}
       </span>
+      {#if !isDesktop && s.engineKind !== 'native' && s.compileMode !== 'peers'}
+        <button class="small ghost" disabled={pairing} onclick={compileWithDesktop} data-testid="use-desktop" title="Compile on this computer with the HiveTeX desktop app (TeX Live, MiKTeX or its own compiler) instead of in the browser">Compile with my desktop app</button>
+      {/if}
+      {#if pairMessage}<span class="pill warn" role="status" data-testid="pair-message">{pairMessage}</span>{/if}
       {#if s.compileMode === 'peers' && !s.leaderName}
         <span class="pill warn" role="status" data-testid="no-peer-compiler" title="Switch to Automatic (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">no peer can compile right now</span>
       {/if}
