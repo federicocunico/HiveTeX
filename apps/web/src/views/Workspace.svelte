@@ -12,6 +12,7 @@
   import BackupPanel from '../components/workspace/BackupPanel.svelte';
   import HistoryPanel from '../components/workspace/HistoryPanel.svelte';
   import OutlinePanel from '../components/workspace/OutlinePanel.svelte';
+  import SyncPanel from '../components/workspace/SyncPanel.svelte';
   import PeoplePanel from '../components/workspace/PeoplePanel.svelte';
   import FormatToolbar, { type FormatAction } from '../components/workspace/FormatToolbar.svelte';
   import PickerDialog from '../components/workspace/PickerDialog.svelte';
@@ -84,6 +85,7 @@
     Settings,
     Share,
     Users,
+    RefreshCw,
   } from '../ui/icons.js';
   import AvatarStack from '../ui/AvatarStack.svelte';
   import Icon from '../ui/Icon.svelte';
@@ -493,6 +495,7 @@
     { id: 'changes', label: 'Changes', icon: Changes, testid: 'changes-btn' },
     { id: 'history', label: 'History', icon: History, testid: 'rail-history' },
     { id: 'people', label: 'People', icon: Users, testid: 'rail-people' },
+    { id: 'sync', label: 'Sync', icon: RefreshCw, testid: 'rail-sync' },
     { id: 'backup', label: 'GitHub backup', icon: CloudUpload, testid: 'backup-btn' },
   ];
 
@@ -537,6 +540,8 @@
     for (const p of session?.presence ?? []) if (p.file) (out[p.file] ??= []).push({ name: p.name, color: p.color });
     return out;
   });
+  /** Files whose content has not arrived yet (shown muted in the file tree). */
+  const pendingPaths = $derived(new Set((session?.syncStatus?.files ?? []).filter((f) => !f.have).map((f) => f.path)));
   const hereWithMe = $derived(active ? (presenceByFile[active.path] ?? []) : []);
 
   /** The co-author being followed (username), if any. */
@@ -855,6 +860,7 @@
                   onDownload={downloadFile}
                   onSetMain={setMain}
                   presence={presenceByFile}
+                  pending={pendingPaths}
                   {folderActions}
                 >
                   {#snippet headerExtra()}
@@ -899,6 +905,8 @@
                   <button type="button" class="small" aria-pressed={following === p.name} onclick={() => follow(p.name)} data-testid="follow-{p.name}">{following === p.name ? 'Following' : 'Follow'}</button>
                 {/snippet}
               </PeoplePanel>
+            {:else if layout.panel === 'sync'}
+              <SyncPanel session={s} onOpenFile={(path) => { const f = s.files.find((x) => x.path === path); if (f) openFile(f); }} />
             {:else if layout.panel === 'backup'}
               <BackupPanel session={s} />
             {/if}
@@ -1003,6 +1011,7 @@
         {cursor}
         {keymapMode}
         onPeople={() => openPanel('people')}
+        onSync={() => openPanel('sync')}
         onUseDesktop={!isDesktop && s.engineKind !== 'native' && s.compileMode !== 'peers' ? compileWithDesktop : undefined}
         {pairing}
         {pairMessage}

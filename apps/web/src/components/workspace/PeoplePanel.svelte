@@ -39,9 +39,17 @@
         {@render actions?.({ dev: p.dev, name: p.uname })}
       </li>
     {/each}
+    {#each session.connecting as c (c.dev)}
+      <li data-testid="connecting-{c.uname}">
+        <Avatar name={c.uname} size={28} />
+        <span class="who"><strong>{c.uname}</strong><span class="meta">connecting{c.attempts ? ` · attempt ${c.attempts + 1}` : ''}{c.lastError ? ` · ${c.lastError}` : ''}</span></span>
+      </li>
+    {/each}
   </ul>
-  {#if session.peers.length === 0}
+  {#if session.peers.length === 0 && session.connecting.length === 0}
     <p class="intro">No co-author is online right now. Their edits arrive when they connect.</p>
+  {:else if session.peers.length === 0}
+    <p class="intro">A co-author is online but not connected yet. Use Sync now in the Sync panel to retry.</p>
   {/if}
   <div class="invite">
     <button type="button" onclick={onShare}><Icon icon={Share} />Invite co-authors</button>

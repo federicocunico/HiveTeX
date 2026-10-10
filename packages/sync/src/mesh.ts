@@ -59,6 +59,7 @@ export class Mesh {
   private appHandlers = new Map<string, Set<AppHandler>>();
   private rawHandlers = new Map<number, RawHandler>();
   private joinCbs = new Set<(p: PeerInfo) => void>();
+  private docSyncedCbs = new Set<(docId: string, from: PeerInfo) => void>();
   private leaveCbs = new Set<(p: PeerInfo) => void>();
   private maxEpoch = 0;
   private maxEpochSince = 0;
@@ -113,6 +114,10 @@ export class Mesh {
   /** Fires when any peer reveals a newer membership epoch than we have seen (time to refresh our ticket). */
   onEpochAdvance(cb: (epoch: number) => void) {
     this.epochCbs.add(cb);
+  }
+  /** Fires when a peer's state for a document was applied (the document is now exchanged with that peer). */
+  onDocSynced(cb: (docId: string, from: PeerInfo) => void) {
+    this.docSyncedCbs.add(cb);
   }
   onApp(topic: string, h: AppHandler) {
     const s = this.appHandlers.get(topic) ?? new Set();
@@ -281,6 +286,24 @@ export class Mesh {
     for (const c of this.conns.keys()) await this.requestDoc(c, docId);
   }
 
+  /**
+   * Asks every peer again for the state of every document we know or requested (a lost or never-sent answer is
+   * recovered), then requests the documents of all text files. Used by "Sync now".
+   */
+  async resync() {
+    const ids = new Set(await this.o.model.knownDocIds());
+    for (const f of this.o.model.list()) if (f.kind === 'text') ids.add(`f:${f.id}`);
+    for (const set of this.requested.values()) for (const id of set) ids.add(id);
+    for (const c of this.conns.keys()) {
+      const req = this.requested.get(c);
+      for (const id of ids) {
+        req?.add(id);
+        const doc = await this.o.model.getDoc(id);
+        await this.safeSend(c, MsgType.STEP1, packDoc(id, Y.encodeStateVector(doc)));
+      }
+    }
+  }
+
   /** Fetches every text file's document from peers (compile leader, export, mirror). */
   async prefetchAll() {
     for (const f of this.o.model.list()) if (f.kind === 'text') await this.openDoc(`f:${f.id}`);
@@ -296,7 +319,14 @@ export class Mesh {
         case MsgType.STEP1: {
           const { docId, data } = unpackDoc(payload);
           this.interest.get(conn)?.add(docId);
-          if (!(await this.hasDoc(docId))) return;
+          if (!(await this.hasDoc(docId))) {
+            // A file we know whose content is empty has no stored document: answer with an empty state so the peer
+            // can tell "nothing to receive" from "no answer".
+            if (docId.startsWith('f:') && this.o.model.byId(docId.slice(2))) {
+              await this.safeSend(conn, MsgType.STEP2, packDoc(docId, Y.encodeStateAsUpdate(new Y.Doc())));
+            }
+            return;
+          }
           const doc = await this.o.model.getDoc(docId);
           await this.safeSend(conn, MsgType.STEP2, packDoc(docId, Y.encodeStateAsUpdate(doc, data)));
           // Ask for their state as well if we have not yet.
@@ -310,6 +340,7 @@ export class Mesh {
           if (!this.interest.get(conn)?.has(docId) && !this.requested.get(conn)?.has(docId)) return;
           const doc = await this.o.model.getDoc(docId);
           Y.applyUpdate(doc, data, conn);
+          for (const cb of this.docSyncedCbs) cb(docId, info);
           return;
         }
         case MsgType.AWARENESS:

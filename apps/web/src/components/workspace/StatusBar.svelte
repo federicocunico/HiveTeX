@@ -1,6 +1,7 @@
 <script lang="ts">
   import { COMPILE_MODES, type CompileMode } from '../../lib/compile-mode.js';
   import type { ProjectSession } from '../../lib/session.svelte.js';
+  import { syncLabel } from '../../lib/sync-view.js';
   import { Cpu, RefreshCw, Users, WifiOff } from '../../ui/icons.js';
   import Icon from '../../ui/Icon.svelte';
 
@@ -10,6 +11,7 @@
     cursor = null,
     keymapMode = '',
     onPeople,
+    onSync,
     onUseDesktop,
     pairing = false,
     pairMessage = '',
@@ -19,6 +21,8 @@
     /** e.g. "-- NORMAL --" with the Vim keymap. */
     keymapMode?: string;
     onPeople?: () => void;
+    /** Opens the Sync panel. */
+    onSync?: () => void;
     /** Web: compile with the HiveTeX desktop app on this computer (absent when that does not apply). */
     onUseDesktop?: (() => void) | undefined;
     pairing?: boolean;
@@ -26,7 +30,14 @@
   } = $props();
 
   const others = $derived(s.peers.length);
-  const peopleText = $derived(others === 0 ? 'No co-authors online' : `${others} co-author${others === 1 ? '' : 's'} online`);
+  const connecting = $derived(s.connecting.length);
+  const peopleText = $derived(
+    others === 0 && connecting === 0
+      ? 'No co-authors online'
+      : `${others === 0 ? 'No co-authors connected' : `${others} co-author${others === 1 ? '' : 's'} online`}${connecting ? ` (${connecting} connecting)` : ''}`,
+  );
+  const status = $derived(s.syncStatus);
+  const busy = $derived(status?.stage === 'receiving' || status?.stage === 'connecting');
 </script>
 
 <footer class="statusbar" data-testid="statusbar">
@@ -35,11 +46,14 @@
       <Icon icon={WifiOff} size={13} />Offline: edits are kept and sync when you reconnect
     </span>
   {:else}
-    <span class="item ok"><Icon icon={RefreshCw} size={13} />{s.noPeerOnline ? 'Saved on this device' : 'All changes synced'}</span>
+    <button type="button" class="item linkish {status?.stage === 'synced' ? 'ok' : ''}" onclick={onSync} data-testid="sync-status" data-stage={status?.stage ?? 'alone'} data-tip="Show which files are synced, who is editing them, and sync now">
+      <Icon icon={RefreshCw} size={13} /><span role="status">{syncLabel(status)}</span>
+    </button>
+    {#if busy && status?.stalled}<button type="button" class="item linkish" onclick={() => void s.syncNow()} disabled={s.syncingNow} data-testid="sync-now-inline">Sync now</button>{/if}
   {/if}
   <button type="button" class="item linkish" onclick={() => s.setPaused(!s.paused)} data-testid="pause-sync" data-tip={s.paused ? 'Reconnect to co-authors' : 'Disconnect and keep editing on this device'}>{s.paused ? 'Resume sync' : 'Work offline'}</button>
 
-  <button type="button" class="item linkish" onclick={onPeople} data-tip={s.peers.map((p) => p.uname).join(', ') || 'Nobody else is here right now'}>
+  <button type="button" class="item linkish" onclick={onPeople} data-tip={[...s.peers.map((p) => p.uname), ...s.connecting.map((c) => `${c.uname} (connecting)`)].join(', ') || 'Nobody else is here right now'}>
     <Icon icon={Users} size={13} /><span data-testid="peer-count">{peopleText}{others ? `: ${s.peers.map((p) => p.uname).join(', ')}` : ''}</span>
   </button>
 
