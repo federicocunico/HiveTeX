@@ -21,6 +21,8 @@ export interface AgentOptions {
   blobs: BlobManager;
   self: { dev: string; uname: string };
   getRole: () => 'owner' | 'editor' | 'viewer';
+  /** Project identity for the repository's `.p2platex.json` marker. */
+  project?: { id: string; slug: string };
   /** Returns a valid GitHub user token for this device, or null if the user has not connected GitHub. */
   getToken: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
@@ -215,7 +217,7 @@ export class BackupAgent {
       const client = new GitHubClient(token, this.o.fetchImpl ?? fetch.bind(globalThis));
       const files = await this.collect();
       const m = this.meta;
-      const res = await pushBackup(client, b.repo, b.branch, files, { message: commitMessage(m, this.now()), lastSha: m.lastSha });
+      const res = await pushBackup(client, b.repo, b.branch, files, { message: commitMessage(m, this.now()), lastSha: m.lastSha, ...(this.o.project ? { project: this.o.project } : {}) });
       const next = this.meta;
       next.lastBackupAt = this.now();
       next.lastError = null;

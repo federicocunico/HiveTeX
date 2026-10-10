@@ -2,12 +2,14 @@
   import { type PdfPosition, forwardSearch, parseSyncTeXGz, reverseSearch } from '@p2platex/compile';
   import type { FileEntry, HistorySnapshot } from '@p2platex/sync';
   import { onDestroy, onMount } from 'svelte';
+  import ChangesPanel from '../components/ChangesPanel.svelte';
   import FileTree from '../components/FileTree.svelte';
   import ImportDialog, { type ImportRequest } from '../components/ImportDialog.svelte';
   import ProjectSettings from '../components/ProjectSettings.svelte';
   import Editor from '../components/Editor.svelte';
   import PdfView from '../components/PdfView.svelte';
   import { ApiError, api, isDesktop } from '../lib/api.js';
+  import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
   import { auth } from '../lib/auth.svelte.js';
   import { type ProjectIndex, buildIndex, emptyIndex } from '../lib/latex.js';
   import { go } from '../lib/router.svelte.js';
@@ -16,6 +18,7 @@
   import { type LooseItem, isArchiveName, readLoose } from '../lib/import/sources.js';
   import { exportZip } from '../lib/import/zip.js';
   import { takePendingImport } from './Projects.svelte';
+  import { takeFreshFolderProject } from '../lib/folders.js';
 
   let { projectId }: { projectId: string } = $props();
 
@@ -25,6 +28,7 @@
   let index: ProjectIndex = emptyIndex();
   let showSettings = $state(false);
   let showHistory = $state(false);
+  let showChanges = $state(false);
   let showSearch = $state(false);
   let showPdf = $state(false);
   let snapshots = $state<HistorySnapshot[]>([]);
@@ -68,15 +72,31 @@
         } else throw e;
       }
       if (!info) throw new Error('Project not found on this device');
+      // Account recents (best effort: offline opens are simply not recorded).
+      void api('POST', `/projects/${projectId}/opened`).catch(() => {});
       const s = new ProjectSession(info, auth.user);
       await s.open();
       session = s;
-      if (localStorage.getItem('p2platex.test') === '1') (window as unknown as { __p2p: unknown }).__p2p = { session: s, compile: { parseSyncTeXGz, forwardSearch, reverseSearch } };
+      if (localStorage.getItem('p2platex.test') === '1') (window as unknown as { __p2p: unknown }).__p2p = {
+          session: s,
+          compile: { parseSyncTeXGz, forwardSearch, reverseSearch },
+          // e2e: simulate an external tool editing the bound folder (same origin the folder mirror uses)
+          folderEdit: async (path: string, text: string) => {
+            const { applyTextDiff, MIRROR_ORIGIN } = await import('@p2platex/sync');
+            const f = s.model.find(path);
+            if (f) applyTextDiff(await s.model.openText(f.id), text, MIRROR_ORIGIN);
+          },
+        };
       s.model.onFilesChanged(() => scheduleIndex());
       s.model.onDocUpdate(() => scheduleIndex());
       scheduleIndex();
       const pending = takePendingImport();
       if (pending && s.canWrite) importRequest = pending;
+      // Created from a folder: its files were imported when the folder was bound; pick main and engine from them.
+      if (takeFreshFolderProject(s.project.id) && s.canWrite) {
+        const main = await s.detectMainAndEngine().catch(() => null);
+        if (main) say(`Main document: ${main}`);
+      }
       const first = s.model.find(String(s.model.settings.get('main') ?? 'main.tex')) ?? s.files.find((f) => f.kind === 'text');
       if (first) activeId = first.id;
     } catch (e) {
@@ -291,16 +311,42 @@
     }
   }
 
+  let showLocation = $state(false);
+  const canUseFolders = isDesktop || folderAccessSupported();
+
+  /** Makes a folder of the user's choice this project's location on this device. */
   async function linkFolder() {
-    const { pickFolder } = await import('../lib/tauri-fs.js');
-    const dir = await pickFolder();
-    if (dir && session) {
-      try {
-        await session.bindFolder(dir);
-        say(`Mirroring to ${dir}`);
-      } catch (e) {
-        error = e instanceof Error ? e.message : String(e);
+    showLocation = false;
+    if (!session) return;
+    try {
+      if (isDesktop) {
+        const { pickFolder } = await import('../lib/tauri-fs.js');
+        const dir = await pickFolder('Choose the folder for this project');
+        if (!dir) return;
+        await session.bindFolder({ desktopPath: dir });
+      } else {
+        const handle = await pickDirectory();
+        if (!handle) return;
+        await session.bindFolder({ handle });
       }
+      say(`Project files are now in the folder "${session.mirrorDir}"`);
+    } catch (e) {
+      say(`Could not use that folder: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async function unlinkFolder() {
+    showLocation = false;
+    const label = session?.mirrorDir;
+    await session?.unbindFolder();
+    if (label) say(`Stopped using "${label}". The files there were left as they are.`);
+  }
+
+  async function allowFolder() {
+    try {
+      if (!(await session?.allowFolderAccess())) say('Access to the folder was not granted');
+    } catch (e) {
+      say(`Could not re-open the folder: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -338,14 +384,31 @@
         {s.compileStatus === 'compiling' ? 'Compiling…' : 'Recompile'}
       </button>
       {#if s.engine}<button class="small" onclick={compileLocal} title="Compile on this device only; does not share the result">Compile here</button>{/if}
-      {#if isDesktop}
-        {#if s.mirrorDir}
-          <button class="small" onclick={() => s.unbindFolder()} title={`Mirrored to ${s.mirrorDir}. Click to stop.`} data-testid="unlink-folder">Unlink folder</button>
-        {:else}
-          <button class="small" onclick={linkFolder} title="Mirror this project into a folder so tools like Claude Code, Codex or Cursor can edit it" data-testid="link-folder">Link folder…</button>
-        {/if}
+      {#if canUseFolders}
+        <span class="location">
+          {#if s.folderPending}
+            <button class="small primary" onclick={allowFolder} data-testid="allow-folder" title={`Let the app read and write "${s.location.kind === 'folder' ? s.location.label : ''}" again`}>Allow access to “{s.location.kind === 'folder' ? s.location.label : ''}”</button>
+          {/if}
+          <button class="small" onclick={() => (showLocation = !showLocation)} aria-expanded={showLocation} aria-haspopup="menu" data-testid="location-btn" title="Where this project's files live on this device">
+            {s.mirrorDir ? `📁 ${s.mirrorDir}` : 'In the app'} ▾
+          </button>
+          {#if showLocation}
+            <div class="location-menu" role="menu" data-testid="location-menu">
+              {#if s.mirrorDir}
+                <p class="muted">Files are in the folder <strong>{s.mirrorDir}</strong>. Edit them with any tool (Claude Code, Codex, an editor): changes sync with everyone.</p>
+                {#if isDesktop}<button role="menuitem" class="small" onclick={() => { showLocation = false; void s.revealFolder(); }}>Show in file manager</button>{/if}
+                <button role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use another folder…</button>
+                <button role="menuitem" class="small" onclick={unlinkFolder} data-testid="unlink-folder">Stop using the folder</button>
+              {:else}
+                <p class="muted">Files are stored in the app on this device. Put them in a folder to edit them with Claude Code, Codex or any editor.</p>
+                <button role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use a folder…</button>
+              {/if}
+            </div>
+          {/if}
+        </span>
       {/if}
       <button class="small" onclick={() => (showSearch = !showSearch)} aria-pressed={showSearch}>Search</button>
+      <button class="small" onclick={() => (showChanges = true)} data-testid="changes-btn" title="What changed, who changed it, and undo">Changes{s.changes.length ? ` (${Math.min(s.changes.length, 99)})` : ''}</button>
       <button class="small" onclick={openHistory}>History</button>
       {#if s.canWrite}<button class="small" onclick={() => (importRequest = { kind: 'pick' })} data-testid="import-btn" title="Import an Overleaf/GitHub zip, an arXiv tarball, a folder or files">Import…</button>{/if}
       <button class="small" onclick={downloadZip}>Download .zip</button>
@@ -450,7 +513,7 @@
       <button class="small ghost" onclick={() => s.setPaused(!s.paused)} data-testid="pause-sync">{s.paused ? 'Resume sync' : 'Work offline'}</button>
       {#if s.noPeerOnline && !s.offline}<span class="pill">no collaborator online</span>{/if}
       {#if s.revoked}<span class="pill bad">you no longer have access</span>{/if}
-      {#if s.mirrorDir}<span class="pill" title={s.mirrorDir}>folder linked</span>{/if}
+      {#if s.mirrorDir}<span class="pill" title={`Files are in the folder ${s.mirrorDir}`}>folder</span>{/if}
       {#if s.mirrorNotice}<span class="pill warn" role="status">{s.mirrorNotice}</span>{/if}
       <span class="spacer"></span>
       <span class="muted">{s.compileStatus}</span>
@@ -463,6 +526,10 @@
     {#key importRequest}
       <ImportDialog session={s} request={importRequest} onClose={importClosed} />
     {/key}
+  {/if}
+
+  {#if showChanges}
+    <ChangesPanel session={s} onClose={() => (showChanges = false)} />
   {/if}
 
   {#if showSettings}
@@ -490,3 +557,30 @@
     </div>
   {/if}
 {/if}
+
+<style>
+  .location {
+    position: relative;
+    display: inline-flex;
+    gap: 4px;
+  }
+  .location-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 20;
+    width: min(320px, 90vw);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+  }
+  .location-menu p {
+    margin: 0 0 4px;
+    font-size: 0.85em;
+  }
+</style>

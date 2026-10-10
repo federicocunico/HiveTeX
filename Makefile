@@ -21,7 +21,7 @@ HINT_cargo  := install Rust: https://rustup.rs
 HINT_npx    := install Node 22: https://nodejs.org
 
 .PHONY: help install dev build lint typecheck test size e2e bench check audit clean \
-        desktop-dev desktop-test desktop-build \
+        desktop-dev desktop-test desktop-e2e desktop-build \
         up down ps logs reset migrate-local test-stack \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
         require-vercel-link
@@ -78,6 +78,9 @@ desktop-dev: require-pnpm require-cargo ## Run the desktop app in dev mode
 
 desktop-test: require-cargo ## Rust tests of the desktop shell
 	cd apps/desktop/src-tauri && cargo test --lib
+
+desktop-e2e: require-pnpm require-cargo ## Desktop UI tests: debug app (test-picker) + tauri-driver + WebDriver (see docs/folders.md)
+	$(PNPM) --filter @p2platex/desktop e2e
 
 desktop-build: require-pnpm require-cargo ## Build desktop installers for this OS
 	$(PNPM) --filter @p2platex/desktop tauri build

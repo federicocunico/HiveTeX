@@ -1,0 +1,1 @@
+ALTER TABLE "memberships" ADD COLUMN "last_opened_at" timestamp with time zone;

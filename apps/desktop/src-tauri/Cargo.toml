@@ -42,3 +42,8 @@ keyring = { version = "3", features = ["sync-secret-service"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
+[features]
+# Automated desktop UI tests only: `mirror_pick` returns the folder named by P2PLATEX_TEST_PICK_DIR instead of opening
+# the native dialog (WebDriver cannot drive OS dialogs). Never enabled in release builds.
+test-picker = []

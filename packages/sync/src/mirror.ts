@@ -1,3 +1,5 @@
+import { MAX_BLOB_BYTES } from '@p2platex/protocol';
+import DiffMatchPatch from 'diff-match-patch';
 import diff from 'fast-diff';
 import ignore from 'ignore';
 import * as Y from 'yjs';
@@ -46,10 +48,40 @@ export const DEFAULT_IGNORES = [
   '*.xdv',
   '*.p2p-tmp',
   '.p2p-manifest.json',
+  // Folder marker (project identity, see MARKER_FILE): metadata, never a project file.
+  '.p2platex.json',
   '_minted*/',
 ];
 
 export const IGNORE_FILE = '.p2platexignore';
+
+/** Marker written into a bound folder (and into GitHub backups) so the folder or a clone knows its project. */
+export const MARKER_FILE = '.p2platex.json';
+
+export interface FolderMarker {
+  version: number;
+  project?: { id: string; slug: string };
+  /** Paths committed by the GitHub backup (kept untouched by the mirror). */
+  paths?: string[];
+}
+
+/** Origin of Yjs transactions that come from the bound folder (attribution in the change log). */
+export const MIRROR_ORIGIN = 'mirror-import';
+
+export function parseMarker(bytes: Uint8Array | null): FolderMarker | null {
+  if (!bytes) return null;
+  try {
+    const j = JSON.parse(new TextDecoder().decode(bytes)) as FolderMarker;
+    if (typeof j !== 'object' || j === null) return null;
+    if (j.project && (typeof j.project.id !== 'string' || typeof j.project.slug !== 'string')) return null;
+    return j;
+  } catch {
+    return null;
+  }
+}
+
+/** Project meta key holding the last text both sides agreed on, per path (3-way merge base across sessions). */
+const BASE_META = 'mirrorBase';
 
 /** Extensions stored as collaborative text (everything else is a binary asset). */
 export const TEXT_EXT =
@@ -75,6 +107,8 @@ export interface MirrorOptions {
   getRole: () => 'owner' | 'editor' | 'viewer';
   onNotice?: (msg: string) => void;
   debounceMs?: number;
+  /** Project identity written into the folder's marker file. */
+  marker?: { id: string; slug: string };
 }
 
 /**
@@ -97,6 +131,9 @@ export class MirrorSync {
   private running = false;
   /** Paths mirrored to disk in this session, so deletions of project files can remove them. */
   private onDisk = new Set<string>();
+  /** Persisted merge base (text) per path, so edits made while the app was closed merge 3-way on the next bind. */
+  private savedBase = new Map<string, string>();
+  private baseTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private o: MirrorOptions) {}
 
@@ -126,11 +163,38 @@ export class MirrorSync {
       }) as unknown as () => void,
     );
     await this.o.mesh.prefetchAll();
+    const saved = (await this.o.model.store.getMeta(BASE_META).catch(() => null)) as Record<string, string> | null;
+    this.savedBase = new Map(Object.entries(saved ?? {}));
     await this.initialReconcile();
+    await this.writeMarker();
+  }
+
+  /** Writes (or updates) the folder marker, keeping fields we do not own such as the backup's `paths`. */
+  private async writeMarker() {
+    if (!this.o.marker || this.o.getRole() === 'viewer') return;
+    const cur = parseMarker(await this.o.fs.read(MARKER_FILE).catch(() => null)) ?? { version: 2 };
+    if (cur.project?.id === this.o.marker.id && cur.project.slug === this.o.marker.slug && cur.version >= 2) return;
+    const next: FolderMarker = { ...cur, version: 2, project: { id: this.o.marker.id, slug: this.o.marker.slug } };
+    await this.o.fs.write(MARKER_FILE, new TextEncoder().encode(`${JSON.stringify(next, null, 2)}
+`)).catch(() => {});
+  }
+
+  private rememberBase(path: string, text: string) {
+    this.savedBase.set(path, text);
+    if (this.baseTimer) return;
+    this.baseTimer = setTimeout(() => {
+      this.baseTimer = null;
+      void this.o.model.store.setMeta(BASE_META, Object.fromEntries(this.savedBase)).catch(() => {});
+    }, 300);
   }
 
   stop() {
     this.running = false;
+    if (this.baseTimer) {
+      clearTimeout(this.baseTimer);
+      this.baseTimer = null;
+      void this.o.model.store.setMeta(BASE_META, Object.fromEntries(this.savedBase)).catch(() => {});
+    }
     for (const s of this.stopFns.splice(0)) s();
     for (const t of [...this.pendingDisk.values(), ...this.pendingModel.values()]) clearTimeout(t);
   }
@@ -152,7 +216,22 @@ export class MirrorSync {
       else if (entry.kind === 'text' && isTextPath(f.path, bytes)) {
         const ytext = await this.o.model.openText(entry.id);
         const text = new TextDecoder().decode(bytes);
-        if (ytext.toString() !== text) applyTextDiff(ytext, text);
+        const project = ytext.toString();
+        if (project === text) continue;
+        const base = this.savedBase.get(f.path);
+        if (base === undefined) {
+          // Never bound before: the user chose this folder, take its version.
+          applyTextDiff(ytext, text, MIRROR_ORIGIN);
+        } else if (text === base) {
+          // Unchanged on disk while closed: the project's newer version is written back below.
+        } else if (project === base) {
+          applyTextDiff(ytext, text, MIRROR_ORIGIN);
+        } else {
+          // Both changed while the app was closed (folder edits + co-authors): 3-way merge from the saved base.
+          const dmp = new DiffMatchPatch();
+          const [merged] = dmp.patch_apply(dmp.patch_make(base, text), project);
+          applyTextDiff(ytext, merged, MIRROR_ORIGIN);
+        }
       }
     }
     // Project -> disk: everything not on disk yet.
@@ -237,7 +316,10 @@ export class MirrorSync {
       this.noteWrite(f.path, hash);
       this.onDisk.add(f.path);
       await this.o.fs.write(f.path, bytes);
-      if (baseSnap) this.base.set(f.path, baseSnap);
+      if (baseSnap) {
+        this.base.set(f.path, baseSnap);
+        this.rememberBase(f.path, baseSnap.text);
+      }
     } finally {
       this.busy.delete(f.path);
       if (this.dirty.delete(f.path)) {
@@ -282,7 +364,7 @@ export class MirrorSync {
       // Deleted on disk.
       this.onDisk.delete(path);
       this.lastWritten.delete(path);
-      if (entry && entry.kind !== 'dir') this.o.model.delete(entry.id);
+      if (entry && entry.kind !== 'dir') this.o.model.delete(entry.id, MIRROR_ORIGIN);
       return;
     }
     const hash = await sha256Hex(bytes);
@@ -301,7 +383,8 @@ export class MirrorSync {
     const ytext = await this.o.model.openText(entry.id);
     const base = this.base.get(path);
     if (!base) {
-      applyTextDiff(ytext, next);
+      applyTextDiff(ytext, next, MIRROR_ORIGIN);
+      this.rememberBase(path, next);
       return;
     }
     const fork = new Y.Doc();
@@ -319,8 +402,9 @@ export class MirrorSync {
       }
     });
     const delta = Y.encodeStateAsUpdate(fork, before);
-    Y.applyUpdate(ytext.doc as Y.Doc, delta, 'mirror-import');
+    Y.applyUpdate(ytext.doc as Y.Doc, delta, MIRROR_ORIGIN);
     this.base.set(path, { text: next, state: Y.encodeStateAsUpdate(fork) });
+    this.rememberBase(path, next);
     fork.destroy();
   }
 
@@ -357,19 +441,24 @@ export class MirrorSync {
   }
 
   private async importFile(path: string, bytes: Uint8Array, entry: FileEntry | undefined) {
+    if (bytes.length > MAX_BLOB_BYTES) {
+      this.o.onNotice?.(`"${path}" is larger than ${Math.round(MAX_BLOB_BYTES / 1048576)} MB and was not added to the project.`);
+      return;
+    }
     if (isTextPath(path, bytes)) {
       const text = new TextDecoder().decode(bytes);
       if (entry?.kind === 'text') await this.mergeDiskText(entry, path, text);
       else {
-        if (entry) this.o.model.delete(entry.id);
-        await this.o.model.createTextNow(path, text);
+        if (entry) this.o.model.delete(entry.id, MIRROR_ORIGIN);
+        await this.o.model.createTextNow(path, text, MIRROR_ORIGIN);
+        this.rememberBase(path, text);
       }
     } else {
       const hash = await this.o.blobs.add(bytes);
-      if (entry?.kind === 'binary') this.o.model.setBinary(entry.id, hash, bytes.length);
+      if (entry?.kind === 'binary') this.o.model.setBinary(entry.id, hash, bytes.length, MIRROR_ORIGIN);
       else {
-        if (entry) this.o.model.delete(entry.id);
-        this.o.model.createBinary(path, hash, bytes.length);
+        if (entry) this.o.model.delete(entry.id, MIRROR_ORIGIN);
+        this.o.model.createBinary(path, hash, bytes.length, MIRROR_ORIGIN);
       }
     }
   }

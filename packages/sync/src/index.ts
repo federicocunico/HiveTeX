@@ -9,3 +9,4 @@ export * from './rtc.js';
 export * from './transport.js';
 export * from './mirror.js';
 export * from './tauri-rtc.js';
+export * from './changelog.js';

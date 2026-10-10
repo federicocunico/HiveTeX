@@ -284,3 +284,28 @@ describe('cross-origin access for the desktop app', () => {
     void c;
   });
 });
+
+describe('account recents', () => {
+  it('lists the most recently opened projects first, never-opened ones last', async () => {
+    const o = await register(env, 'rita');
+    const ids: string[] = [];
+    for (const slug of ['recent-aaa', 'recent-bbb', 'recent-ccc']) {
+      ids.push((await o.post('/projects', { slug, password: PPW })).json.project.id);
+      env.advance(1000);
+    }
+    expect((await o.post(`/projects/${ids[1]}/opened`)).status).toBe(200);
+    env.advance(1000);
+    expect((await o.post(`/projects/${ids[0]}/opened`)).status).toBe(200);
+    const r = await o.get('/projects');
+    expect(r.json.projects.map((p: { slug: string }) => p.slug)).toEqual(['recent-aaa', 'recent-bbb', 'recent-ccc']);
+    expect(r.json.projects[0].lastOpenedAt).toBe(new Date(env.clock.t).toISOString());
+    expect(r.json.projects[2].lastOpenedAt).toBeNull();
+  });
+
+  it('only members can record an open', async () => {
+    const { p } = await owner('recent-own');
+    const x = await register(env, 'xena');
+    expect((await x.post(`/projects/${p.id}/opened`)).status).toBe(404);
+    expect((await x.post('/projects/nope/opened')).status).toBe(404);
+  });
+});

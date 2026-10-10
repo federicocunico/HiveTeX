@@ -139,11 +139,30 @@ projectRoutes.get('/', async (c) => {
   const deps = c.get('deps');
   const { u } = await requireAuth(c);
   const rows = await deps.db
-    .select({ p: schema.projects, role: schema.memberships.role })
+    .select({ p: schema.projects, role: schema.memberships.role, joinedAt: schema.memberships.joinedAt, lastOpenedAt: schema.memberships.lastOpenedAt })
     .from(schema.memberships)
     .innerJoin(schema.projects, eq(schema.projects.id, schema.memberships.projectId))
     .where(eq(schema.memberships.userId, u.id));
-  return c.json({ projects: rows.filter((r) => !r.p.deletedAt).map((r) => view(r.p, r.role as Role)) });
+  // Recents across the account's devices: most recently opened first, never-opened ones last (newest joined first).
+  const t = (d: Date | null) => (d ? d.getTime() : 0);
+  rows.sort((a, b) => (b.lastOpenedAt ? 1 : 0) - (a.lastOpenedAt ? 1 : 0) || t(b.lastOpenedAt) - t(a.lastOpenedAt) || t(b.joinedAt) - t(a.joinedAt));
+  return c.json({
+    projects: rows.filter((r) => !r.p.deletedAt).map((r) => ({ ...view(r.p, r.role as Role), lastOpenedAt: r.lastOpenedAt ? r.lastOpenedAt.toISOString() : null })),
+  });
+});
+
+/** Records that the user opened the project (best effort from the workspace), for the account's recents. */
+projectRoutes.post('/:id/opened', rateLimit('opened', 240, 3600), async (c) => {
+  const deps = c.get('deps');
+  const { u } = await requireAuth(c);
+  const id = c.req.param('id');
+  const done = await deps.db
+    .update(schema.memberships)
+    .set({ lastOpenedAt: deps.now() })
+    .where(and(eq(schema.memberships.projectId, id), eq(schema.memberships.userId, u.id)))
+    .returning({ projectId: schema.memberships.projectId });
+  if (done.length === 0) throw new AppError(404, 'not_found', 'Project not found');
+  return c.json({ ok: true });
 });
 
 projectRoutes.post('/join', async (c) => {

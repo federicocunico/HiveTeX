@@ -73,6 +73,8 @@ export const memberships = pgTable(
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     role: text('role').notNull(), // owner | editor | viewer
     joinedAt: ts('joined_at').notNull().defaultNow(),
+    /** Last time this user opened the project (any device): orders the account's recents. */
+    lastOpenedAt: ts('last_opened_at'),
   },
   (t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('memberships_user_idx').on(t.userId)],
 );

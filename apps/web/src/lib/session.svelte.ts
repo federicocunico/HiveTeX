@@ -14,8 +14,12 @@ import {
 import type { Role, TicketClaims, TrustedKey } from '@p2platex/protocol';
 import {
   BlobManager,
+  ChangeLog,
+  type ChangeSet,
   ConnectionManager,
   MirrorSync,
+  LOCAL_ORIGIN,
+  type FsAdapter,
   type FileEntry,
   IndexedDbPersistence,
   Mesh,
@@ -29,9 +33,12 @@ import { BackupAgent, GitHubClient, importRepo, type Binding } from '@p2platex/g
 import { api, isDesktop, wsBase } from './api.js';
 import { applyImport, planFor } from './import/apply.js';
 import { classify } from './import/classify.js';
+import { detectEngine, detectMain } from './import/detect.js';
 import type { ApplyChoices, ApplyResult, ImportPlan } from './import/plan.js';
 import type { ImportBundle } from './import/sources.js';
 import { getGithubToken } from './github.js';
+import { folderPermission, webFs } from './fs-access.js';
+import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
 import { ensureRegistered } from './keys.js';
 
 export interface ProjectInfo {
@@ -41,6 +48,8 @@ export interface ProjectInfo {
   defaultRole: string;
   passwordProtected: boolean;
   githubRepo?: string | null;
+  /** Last time this account opened the project (any device), ISO; null if never. */
+  lastOpenedAt?: string | null;
   epoch: number;
 }
 
@@ -117,6 +126,11 @@ export class ProjectSession {
     await this.model.init();
     this.refreshFiles();
     this.model.onFilesChanged(() => this.refreshFiles());
+    // Who changed what (folder / editor / co-authors), kept on this device only.
+    this.changelog = new ChangeLog({ model: this.model, store: this.store });
+    this.changelog.start();
+    this.changelog.onChange(() => void this.refreshChanges());
+    void this.refreshChanges();
 
     let reg: Awaited<ReturnType<typeof ensureRegistered>> | null = null;
     try {
@@ -163,6 +177,7 @@ export class ProjectSession {
       blobs: this.blobs,
       self: { dev: this.deviceId, uname: this.user.username },
       getRole: () => this.role,
+      project: { id: this.project.id, slug: this.project.slug },
       getToken: () => getGithubToken(),
       // Only the owner-recorded repository (control plane) is ever pushed to.
       authorizedBinding: () => this.project.githubRepo ?? null,
@@ -176,8 +191,7 @@ export class ProjectSession {
     this.backup.start();
     this.dedupeTimer = undefined;
     this.model.onFilesChanged(() => this.scheduleDedupe());
-    const savedDir = isDesktop ? localStorage.getItem(`p2platex.mirror.${this.project.id}`) : null;
-    if (savedDir) await this.bindFolder(savedDir).catch((e) => (this.mirrorNotice = `Could not re-open the linked folder: ${e instanceof Error ? e.message : e}`));
+    await this.restoreLocation();
     this.model.onDocUpdate(() => {
       this.stale = true;
       this.scheduleSnapshot();
@@ -459,7 +473,7 @@ export class ProjectSession {
   mirrorDir = $state<string | null>(null);
   mirrorNotice = $state('');
   private mirror: MirrorSync | null = null;
-  private mirrorFs: { dispose(): Promise<void> } | null = null;
+  private mirrorFs: { dispose(): unknown } | null = null;
   setPaused(p: boolean) {
     this.paused = p;
     if (p) {
@@ -555,11 +569,54 @@ export class ProjectSession {
     }, 10 * 60_000);
   }
 
-  /** Desktop: mirror the project into a plain folder so external tools (Claude Code, Codex, Cursor...) can edit it. */
-  async bindFolder(dir: string) {
+  /** Where this project lives on this device; `folderPending` is set when a web folder needs "Allow access" again. */
+  location = $state<Location>({ kind: 'app' });
+  folderPending = $state(false);
+
+  /** Re-binds the folder remembered for this project on this device (desktop path or web handle). */
+  private async restoreLocation() {
+    await migrateLegacyMirrors().catch(() => 0);
+    const loc = await getLocation(this.project.id).catch((): Location => ({ kind: 'app' }));
+    this.location = loc;
+    if (loc.kind !== 'folder') return;
+    try {
+      if (loc.desktopPath && isDesktop) await this.bindFolder({ desktopPath: loc.desktopPath, label: loc.label });
+      else if (loc.handle) {
+        // Browsers ask again for access after a restart; that needs a click (see allowFolderAccess).
+        if ((await folderPermission(loc.handle)) === 'granted') await this.bindFolder({ handle: loc.handle, label: loc.label });
+        else this.folderPending = true;
+      }
+    } catch (e) {
+      this.mirrorNotice = `Could not re-open the folder "${loc.label}": ${e instanceof Error ? e.message : e}`;
+    }
+  }
+
+  /** Web: the user clicked "Allow access" for the remembered folder. */
+  async allowFolderAccess() {
+    const loc = this.location;
+    if (loc.kind !== 'folder' || !loc.handle) return false;
+    if ((await folderPermission(loc.handle, true)) !== 'granted') return false;
+    this.folderPending = false;
+    await this.bindFolder({ handle: loc.handle, label: loc.label });
+    return true;
+  }
+
+  /**
+   * Makes a folder this project's location on this device: the project is mirrored into it so external tools
+   * (Claude Code, Codex, Cursor, an editor...) can edit the files, and every change syncs with collaborators.
+   */
+  async bindFolder(target: { desktopPath: string; label?: string } | { handle: FileSystemDirectoryHandle; label?: string }) {
     await this.unbindFolder(false);
-    const { tauriFs } = await import('./tauri-fs.js');
-    const fsa = await tauriFs(this.project.id, dir);
+    let fsa: FsAdapter & { dispose(): unknown };
+    let loc: Location;
+    if ('desktopPath' in target) {
+      const { tauriFs } = await import('./tauri-fs.js');
+      fsa = await tauriFs(this.project.id, target.desktopPath);
+      loc = { kind: 'folder', label: target.label ?? folderLabel(target.desktopPath), desktopPath: target.desktopPath };
+    } else {
+      fsa = webFs(target.handle);
+      loc = { kind: 'folder', label: target.label ?? target.handle.name, handle: target.handle };
+    }
     this.mirrorFs = fsa;
     this.mirror = new MirrorSync({
       model: this.model,
@@ -567,30 +624,87 @@ export class ProjectSession {
       blobs: this.blobs,
       fs: fsa,
       getRole: () => this.role,
+      marker: { id: this.project.id, slug: this.project.slug },
       onNotice: (m) => {
         this.mirrorNotice = m;
       },
     });
-    await this.mirror.start();
-    this.mirrorDir = dir;
-    localStorage.setItem(`p2platex.mirror.${this.project.id}`, dir);
+    try {
+      await this.mirror.start();
+    } catch (e) {
+      await this.unbindFolder(false);
+      throw e;
+    }
+    this.mirrorDir = loc.label;
+    this.location = loc;
+    this.folderPending = false;
+    await setLocation(this.project.id, loc).catch(() => {});
   }
 
+  /** Stops using the folder. The files stay where they are; the project keeps living in the app. */
   async unbindFolder(forget = true) {
     this.mirror?.stop();
     this.mirror = null;
-    await this.mirrorFs?.dispose().catch(() => {});
+    await Promise.resolve(this.mirrorFs?.dispose()).catch(() => {});
     this.mirrorFs = null;
     this.mirrorDir = null;
-    if (forget) localStorage.removeItem(`p2platex.mirror.${this.project.id}`);
+    if (forget) {
+      this.location = { kind: 'app' };
+      this.folderPending = false;
+      await setLocation(this.project.id, { kind: 'app' }).catch(() => {});
+    }
+  }
+
+  /**
+   * After a project was created from a folder: picks the main document and the engine from the imported sources,
+   * unless they were already chosen. Returns the detected main file.
+   */
+  async detectMainAndEngine(): Promise<string | null> {
+    if (this.model.settings.get('main')) return String(this.model.settings.get('main'));
+    const texts: Array<{ path: string; text: string }> = [];
+    for (const f of this.model.list()) {
+      if (f.kind === 'text' && /\.tex$/i.test(f.path)) texts.push({ path: f.path, text: (await this.model.openText(f.id)).toString() });
+    }
+    const { main } = detectMain(texts);
+    if (!main) return null;
+    const engine = detectEngine(texts.find((t) => t.path === main)?.text ?? '');
+    this.model.root.transact(() => {
+      this.model.settings.set('main', main);
+      if (engine && !this.model.settings.get('engine')) this.model.settings.set('engine', engine);
+    }, LOCAL_ORIGIN);
+    return main;
+  }
+
+  /** Desktop: opens the bound folder in the system file manager. */
+  async revealFolder() {
+    if (!isDesktop || !this.mirrorDir) return;
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('mirror_reveal', { id: this.project.id });
   }
 
   async hashOf(bytes: Uint8Array) {
     return sha256Hex(bytes);
   }
 
+  changelog: ChangeLog | null = null;
+  changes = $state<ChangeSet[]>([]);
+
+  async refreshChanges() {
+    if (this.changelog) this.changes = await this.changelog.list();
+  }
+
+  /** Reverses a change set as a normal edit (editors/owners only). */
+  async undoChange(set: ChangeSet) {
+    if (!this.canWrite) throw new Error('Read-only members cannot undo changes.');
+    if (!this.changelog) return null;
+    await this.mesh.prefetchAll();
+    return this.changelog.undo(set);
+  }
+
   async close() {
     this.disposed = true;
+    await this.changelog?.flush().catch(() => {});
+    this.changelog?.stop();
     if (this.flushHandler) {
       window.removeEventListener('pagehide', this.flushHandler);
       document.removeEventListener('visibilitychange', this.flushHandler);

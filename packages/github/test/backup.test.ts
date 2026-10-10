@@ -34,6 +34,16 @@ describe('GitHub backup push (10.2)', () => {
     expect(gh.repo('octocat/paper').commits.get(head)?.message).toContain(BACKUP_TRAILER);
   });
 
+  it('writes a version 2 marker with the project identity, so a clone opens as the project', async () => {
+    gh.repo('octocat/paper', { empty: true });
+    const project = { id: 'p-123', slug: 'my-paper-2026' };
+    await pushBackup(client, repo, 'main', files({ 'main.tex': 'v1' }), { message: 'm', project });
+    const marker = JSON.parse(gh.repo('octocat/paper').files('main')['.p2platex.json'] as string);
+    expect(marker).toEqual({ version: 2, project, paths: ['main.tex'] });
+    const got = await importRepo(client, repo, 'main');
+    expect([...got.keys()]).toEqual(['main.tex']); // the marker is bookkeeping, never a project file
+  });
+
   it('uploads only changed blobs on later backups and does nothing when unchanged', async () => {
     gh.repo('octocat/paper', { empty: true });
     await pushBackup(client, repo, 'main', files({ 'a.tex': 'A', 'b.tex': 'B', 'c.tex': 'C' }), { message: 'm' });

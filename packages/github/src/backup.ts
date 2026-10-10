@@ -10,6 +10,8 @@ export interface PushOptions {
   /** Commit sha of this project's last successful backup (shared through the project). */
   lastSha?: string | null;
   backupBranch?: string;
+  /** Project identity written into the marker, so a clone of the repository opens as this project. */
+  project?: { id: string; slug: string };
 }
 
 export interface PushResult {
@@ -106,7 +108,7 @@ export async function pushBackup(
       deleted++;
     }
   }
-  const manifest = new TextEncoder().encode(`${JSON.stringify({ version: 1, paths: [...files.keys()].sort() }, null, 2)}\n`);
+  const manifest = new TextEncoder().encode(`${JSON.stringify({ version: 2, ...(opts.project ? { project: opts.project } : {}), paths: [...files.keys()].sort() }, null, 2)}\n`);
   if (remote.get(MANIFEST_PATH) !== (await gitBlobSha(manifest))) {
     entries.push({ path: MANIFEST_PATH, mode: '100644', type: 'blob', sha: await client.createBlob(repo, manifest) });
   }

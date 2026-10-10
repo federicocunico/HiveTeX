@@ -163,6 +163,11 @@ impl MirrorState {
         self.roots.lock().unwrap().remove(id);
     }
 
+    /// The bound folder itself (to reveal it in the system file manager).
+    pub fn root_dir(&self, id: &str) -> Result<PathBuf, String> {
+        self.root(id)
+    }
+
     fn root(&self, id: &str) -> Result<PathBuf, String> {
         self.roots.lock().unwrap().get(id).map(|r| r.dir.clone()).ok_or_else(|| "folder is not bound".to_string())
     }

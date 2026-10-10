@@ -1,0 +1,40 @@
+name: Stack (nightly)
+# The whole e2e suite against the Docker stack (production code path: Neon HTTP driver, Upstash REST signaling,
+# SMTP mail). Too slow for every push (~8 min), so it runs nightly and on demand.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: stack-nightly
+  cancel-in-progress: true
+
+jobs:
+  test-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Install browser for e2e
+        run: pnpm exec playwright install --with-deps chromium
+      - name: make test-stack
+        run: make test-stack
+        env:
+          CI: "true"
+      - name: Stack logs
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: stack-playwright-traces
+          path: test-results/
+          retention-days: 7
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

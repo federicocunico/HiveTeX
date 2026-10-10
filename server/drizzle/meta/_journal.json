@@ -15,6 +15,13 @@
       "when": 1791539467827,
       "tag": "0001_project_github_repo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791590666480,
+      "tag": "0002_memberships_last_opened",
+      "breakpoints": true
     }
   ]
 }

@@ -212,3 +212,43 @@ describe('TURN credentials (5.2)', () => {
     expect(last).toBe(429);
   });
 });
+
+describe('signaling session ids (reconnect race)', () => {
+  it("an old session closing after the device's new session joined keeps the new presence and announces no leave", async () => {
+    const { a, b, pid } = await setup();
+    const backend = new MemorySignalBackend();
+    const watcher = connect(backend);
+    await watcher.auth(b);
+    await watcher.until((m) => m.t === 'ready');
+    const old = connect(backend);
+    await old.auth(a);
+    const firstJoin = await watcher.until((m) => m.t === 'join' && m.dev === a.dev);
+    // quick reload: the new session joins before the old socket's close is processed
+    const fresh = connect(backend);
+    await fresh.auth(a);
+    await watcher.until((m) => m.t === 'join' && m.dev === a.dev && m.sid !== firstJoin.sid);
+    await old.handlers.onClose();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(watcher.inbox.some((m) => m.t === 'leave')).toBe(false);
+    const presence = await backend.getPresence(pid);
+    expect(Object.keys(presence)).toContain(a.dev);
+    expect(presence[a.dev]).toContain(a.ticket);
+    // a third device sees the reloaded device as present
+    const late = connect(backend);
+    await late.auth(b);
+    const ready = await late.until((m) => m.t === 'ready');
+    expect(ready.tickets).toContain(a.ticket);
+    // the new session leaving is a real departure
+    await fresh.handlers.onClose();
+    await watcher.until((m) => m.t === 'leave' && m.dev === a.dev);
+  });
+
+  it('compare-and-delete only removes the entry of the given session', async () => {
+    const backend = new MemorySignalBackend();
+    await backend.setPresence('p', 'd', 's2|tok', 90);
+    expect(await backend.removePresence('p', 'd', 's1')).toBe(false);
+    expect(await backend.getPresence('p')).toEqual({ d: 's2|tok' });
+    expect(await backend.removePresence('p', 'd', 's2')).toBe(true);
+    expect(await backend.getPresence('p')).toEqual({});
+  });
+});

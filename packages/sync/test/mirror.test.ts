@@ -176,3 +176,61 @@ describe('local folder mirror (9.3)', () => {
     expect(Buffer.from(got).equals(png)).toBe(true);
   });
 });
+
+describe('project folders (local-folder-projects)', () => {
+  it('writes the marker with the project identity, never as a project file, keeping backup paths', async () => {
+    net = await Net.create();
+    const [a] = [await net.add('alice', 'owner')];
+    const dir = await tmp();
+    await writeFile(join(dir, '.p2platex.json'), JSON.stringify({ version: 1, paths: ['main.tex'] }));
+    await a.model.createTextNow('main.tex', 'x');
+    const blobs = new BlobManager(a.mesh, a.store);
+    const m = new MirrorSync({ model: a.model, mesh: a.mesh, blobs, fs: nodeFs(dir), getRole: () => 'owner', debounceMs: 30, marker: { id: 'p123', slug: 'my-paper' } });
+    mirrors.push(m);
+    await m.start();
+    const marker = JSON.parse((await read(dir, '.p2platex.json')) as string);
+    expect(marker).toMatchObject({ version: 2, project: { id: 'p123', slug: 'my-paper' }, paths: ['main.tex'] });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(a.model.find('.p2platex.json')).toBeUndefined();
+  });
+
+  it('merges edits made in the folder while the app was closed with co-author edits made meanwhile', async () => {
+    net = await Net.create();
+    const [a, b] = [await net.add('alice', 'owner'), await net.add('bob', 'editor')];
+    await net.link(a, b);
+    const dir = await tmp();
+    const id = await a.model.createTextNow('main.tex', 'Intro para.\n\nMethod para.\n\nEnd.');
+    const first = await bind(a, dir);
+    await waitFor(async () => (await read(dir, 'main.tex')) === 'Intro para.\n\nMethod para.\n\nEnd.');
+    await new Promise((r) => setTimeout(r, 400)); // base persisted
+    first.m.stop(); // "app closed"
+
+    // while closed: an AI tool rewrites the intro on disk, a co-author edits the method paragraph
+    await writeFile(join(dir, 'main.tex'), 'Intro para, rewritten by the AI.\n\nMethod para.\n\nEnd.');
+    await b.mesh.openDoc(`f:${id}`);
+    const bt = await b.model.openText(id);
+    await waitFor(() => bt.toString().includes('Method para.'));
+    bt.insert(bt.toString().indexOf('Method para.') + 'Method para'.length, ' (edited by Bob)');
+    const at = await a.model.openText(id);
+    await waitFor(() => at.toString().includes('edited by Bob'));
+
+    await bind(a, dir); // "app reopened"
+    const want = 'Intro para, rewritten by the AI.\n\nMethod para (edited by Bob).\n\nEnd.';
+    await waitFor(() => at.toString() === want).catch(() => {
+      throw new Error(`project=${JSON.stringify(at.toString())}`);
+    });
+    await waitFor(async () => (await read(dir, 'main.tex')) === want);
+    await waitFor(() => bt.toString() === want);
+  });
+
+  it('does not add files larger than the transfer limit and says so', async () => {
+    net = await Net.create();
+    const [a] = [await net.add('alice', 'owner')];
+    const dir = await tmp();
+    const notices: string[] = [];
+    await bind(a, dir, notices);
+    await writeFile(join(dir, 'huge.bin'), Buffer.alloc(51 * 1024 * 1024));
+    await waitFor(() => notices.some((n) => n.includes('huge.bin')), 8000);
+    expect(a.model.find('huge.bin')).toBeUndefined();
+  }, 20_000);
+});

@@ -55,6 +55,14 @@ export class ConnectionManager {
   private known = new Map<string, Known>();
   /** Devices currently attached to the relay (so we only use it for targets that can hear us there). */
   private onRelay = new Set<string>();
+  /** Latest signaling session id seen joining, per device (to ignore leaves of older sessions). */
+  private sessions = new Map<string, string>();
+  /**
+   * Devices announced again (relay join, peer exchange) while we still had a mesh link to them: that device most likely
+   * restarted (a reloaded tab) and our link is stale. Once the stale link drops, we must reach it again even if we no
+   * longer listen on the relay, or neither side would ever offer.
+   */
+  private reannounced = new Set<string>();
   private links = new Map<string, RtcLink>();
   /** Failed or stalled link attempts per device, for retry backoff (reset when the peer connects). */
   private attempts = new Map<string, number>();
@@ -75,7 +83,8 @@ export class ConnectionManager {
       // The peer may simply have restarted: try to reach it again shortly (bounded by the link attempt itself).
       setTimeout(() => {
         const known = this.known.get(p.deviceId);
-        if (known && !this.stopped && this.onRelay.has(p.deviceId)) this.maybeConnect(known);
+        const back = this.onRelay.has(p.deviceId) || this.reannounced.delete(p.deviceId);
+        if (known && !this.stopped && back) this.maybeConnect(known);
       }, 1500);
     });
     o.mesh.onApp('pex', (from, body) => void this.onPex(from, body as { tickets: string[] }));
@@ -158,7 +167,7 @@ export class ConnectionManager {
   }
 
   private async onServerMessage(raw: string, ws?: WebSocketLike) {
-    let m: { t: string; nonce?: string; tickets?: string[]; ticket?: string; dev?: string; from?: string; fromTicket?: string; env?: string };
+    let m: { t: string; nonce?: string; tickets?: string[]; ticket?: string; dev?: string; sid?: string; from?: string; fromTicket?: string; env?: string };
     try {
       m = JSON.parse(raw);
     } catch {
@@ -179,8 +188,15 @@ export class ConnectionManager {
       }
     } else if (m.t === 'join' && m.ticket) {
       const k = await this.learn(m.ticket, true);
-      if (k) this.onRelay.add(k.claims.dev);
+      if (k) {
+        this.onRelay.add(k.claims.dev);
+        if (m.sid) this.sessions.set(k.claims.dev, m.sid);
+      }
     } else if (m.t === 'leave' && m.dev) {
+      // The leave of an older session of a device that already reconnected (quick reload): not a departure.
+      const latest = this.sessions.get(m.dev);
+      if (latest && m.sid && m.sid !== latest) return;
+      this.sessions.delete(m.dev);
       this.onRelay.delete(m.dev);
       if (!this.connected(m.dev)) {
         this.links.get(m.dev)?.close();
@@ -204,6 +220,10 @@ export class ConnectionManager {
     }
     if (claims.pid !== this.o.projectId || claims.dev === this.selfDev) return null;
     const k = { claims, raw };
+    // A linked device announced with another ticket than its link's: a new session of it (routine peer exchange repeats
+    // the ticket we already have).
+    const linked = this.o.mesh.peers.find((p) => p.deviceId === claims.dev);
+    if (linked && linked.ticket !== raw) this.reannounced.add(claims.dev);
     this.known.set(claims.dev, k);
     if (viaRelay) this.onRelay.add(claims.dev);
     this.maybeConnect(k);
@@ -315,6 +335,7 @@ export class ConnectionManager {
 
   private onPeerJoin(p: PeerInfo) {
     this.attempts.delete(p.deviceId);
+    this.reannounced.delete(p.deviceId);
     this.links.get(p.deviceId)?.close();
     this.links.delete(p.deviceId);
     this.known.set(p.deviceId, { claims: p.claims, raw: p.ticket });

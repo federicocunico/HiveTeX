@@ -51,7 +51,7 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /** Applies the minimal diff turning `ytext` into `next` as a single transaction (keeps remote cursors stable). */
-export function applyTextDiff(ytext: Y.Text, next: string) {
+export function applyTextDiff(ytext: Y.Text, next: string, origin: unknown = LOCAL_ORIGIN) {
   const cur = ytext.toString();
   if (cur === next) return;
   const ops = diff(cur, next);
@@ -64,7 +64,7 @@ export function applyTextDiff(ytext: Y.Text, next: string) {
         pos += text.length;
       } else ytext.delete(pos, text.length);
     }
-  }, LOCAL_ORIGIN);
+  }, origin);
 }
 
 /**
@@ -213,7 +213,7 @@ export class ProjectModel {
     return this.list().find((f) => f.id === id);
   }
 
-  createText(path: string, content = ''): string {
+  createText(path: string, content = '', origin: unknown = LOCAL_ORIGIN): string {
     assertSafe(path);
     const id = newId();
     this.root.transact(() => {
@@ -221,17 +221,20 @@ export class ProjectModel {
       m.set('path', path);
       m.set('kind', 'text');
       this.files.set(id, m);
-    }, LOCAL_ORIGIN);
+    }, origin);
     if (content) {
-      void this.getDoc(fileDocId(id)).then((d) => d.getText('t').insert(0, content));
+      void this.getDoc(fileDocId(id)).then((d) => d.transact(() => d.getText('t').insert(0, content), origin));
     }
     return id;
   }
 
   /** Creates a text file and waits until its content has been written. */
-  async createTextNow(path: string, content = ''): Promise<string> {
-    const id = this.createText(path, '');
-    if (content) (await this.getDoc(fileDocId(id))).getText('t').insert(0, content);
+  async createTextNow(path: string, content = '', origin: unknown = LOCAL_ORIGIN): Promise<string> {
+    const id = this.createText(path, '', origin);
+    if (content) {
+      const d = await this.getDoc(fileDocId(id));
+      d.transact(() => d.getText('t').insert(0, content), origin);
+    }
     return id;
   }
 
@@ -247,7 +250,7 @@ export class ProjectModel {
     return id;
   }
 
-  createBinary(path: string, hash: string, size: number): string {
+  createBinary(path: string, hash: string, size: number, origin: unknown = LOCAL_ORIGIN): string {
     assertSafe(path);
     const id = newId();
     this.root.transact(() => {
@@ -257,22 +260,22 @@ export class ProjectModel {
       m.set('hash', hash);
       m.set('size', size);
       this.files.set(id, m);
-    }, LOCAL_ORIGIN);
+    }, origin);
     return id;
   }
 
-  setBinary(id: string, hash: string, size: number) {
+  setBinary(id: string, hash: string, size: number, origin: unknown = LOCAL_ORIGIN) {
     this.root.transact(() => {
       const m = this.files.get(id);
       m?.set('hash', hash);
       m?.set('size', size);
-    }, LOCAL_ORIGIN);
+    }, origin);
   }
 
   /** Rename and move are the same operation: change the path. */
-  rename(id: string, newPath: string) {
+  rename(id: string, newPath: string, origin: unknown = LOCAL_ORIGIN) {
     assertSafe(newPath);
-    this.files.get(id)?.set('path', newPath);
+    this.root.transact(() => this.files.get(id)?.set('path', newPath), origin);
   }
 
   /** Moves a directory and everything under it. */
@@ -285,8 +288,8 @@ export class ProjectModel {
     }, LOCAL_ORIGIN);
   }
 
-  delete(id: string) {
-    this.files.delete(id);
+  delete(id: string, origin: unknown = LOCAL_ORIGIN) {
+    this.root.transact(() => this.files.delete(id), origin);
   }
 
   /**

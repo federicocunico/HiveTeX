@@ -25,6 +25,11 @@ async fn tex_compile(app: tauri::AppHandle, req: tex::CompileReq) -> Result<tex:
 #[tauri::command]
 async fn mirror_pick(app: tauri::AppHandle, title: String) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
+    #[cfg(feature = "test-picker")]
+    if let Some(path) = test_picker::next() {
+        app.state::<PickedFolders>().add(&path)?;
+        return Ok(Some(path.to_string_lossy().to_string()));
+    }
     let handle = app.clone();
     let picked = tauri::async_runtime::spawn_blocking(move || handle.dialog().file().set_title(title).blocking_pick_folder())
         .await
@@ -51,6 +56,14 @@ fn mirror_bind(
     state.bind(&id, std::path::Path::new(&dir), move |rel| {
         let _ = app.emit(&event, rel);
     })
+}
+
+/// Shows a bound folder in the system file manager (only folders already bound, never an arbitrary path).
+#[tauri::command]
+fn mirror_reveal(app: tauri::AppHandle, state: State<'_, MirrorState>, id: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.root_dir(&id)?;
+    app.opener().reveal_item_in_dir(dir).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -177,6 +190,7 @@ pub fn run() {
             mirror_pick,
             mirror_bind,
             mirror_unbind,
+            mirror_reveal,
             mirror_list,
             mirror_read,
             mirror_write,
@@ -198,6 +212,45 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running p2platex");
+}
+
+/// Desktop UI tests: the "picked" folder is `$P2PLATEX_TEST_PICK_DIR`, or the sub-folder named in its `.next-pick`
+/// file (consumed), so a test can choose a different folder for each pick. Only compiled with `--features test-picker`.
+#[cfg(feature = "test-picker")]
+mod test_picker {
+    use std::path::PathBuf;
+
+    pub fn next() -> Option<PathBuf> {
+        let base = PathBuf::from(std::env::var_os("P2PLATEX_TEST_PICK_DIR")?);
+        let next = base.join(".next-pick");
+        let dir = match std::fs::read_to_string(&next) {
+            Ok(name) => {
+                let _ = std::fs::remove_file(&next);
+                base.join(name.trim())
+            }
+            Err(_) => base,
+        };
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir)
+    }
+}
+
+#[cfg(test)]
+mod picker_tests {
+    /// The test picker must never be part of a default (release) build.
+    #[test]
+    fn test_picker_is_not_a_default_feature() {
+        let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+        assert!(manifest.contains("test-picker = []"));
+        for line in manifest.lines().filter(|l| l.trim_start().starts_with("default")) {
+            assert!(!line.contains("test-picker"), "test-picker must not be a default feature: {line}");
+        }
+        // The release workflow builds without `--features` (checked by the CI step that greps the binary).
+        let wf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../.github/workflows/desktop.yml")).unwrap();
+        for line in wf.lines().filter(|l| l.contains("tauri build") || l.contains("tauri-action")) {
+            assert!(!line.contains("test-picker"), "release build must not enable test-picker: {line}");
+        }
+    }
 }
 
 #[cfg(test)]

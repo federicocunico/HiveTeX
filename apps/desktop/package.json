@@ -6,7 +6,10 @@
     "tauri": "tauri",
     "build": "echo \"desktop: built via tauri build\"",
     "lint": "echo ok",
-    "test": "echo ok"
+    "test": "echo ok",
+    "e2e": "node e2e/run.mjs"
   },
-  "devDependencies": { "@tauri-apps/cli": "^2.8.0" }
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0"
+  }
 }

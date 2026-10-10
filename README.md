@@ -16,7 +16,7 @@ See `openspec/specs/` for the behavior specs and `openspec/changes/archive/` for
 
 - [Real-time performance](docs/performance.md) · [Importing Overleaf / arXiv / folders](docs/import.md) · [Deployment (free tier)](docs/deployment.md) · [Accounts & admin](docs/accounts.md) · [Permissions](docs/permissions.md)
 - [Wire protocol](docs/protocol.md) · [Compilation](docs/compilation.md) · [GitHub backup](docs/github-backup.md)
-- [Local AI tools (Claude Code, Codex, Cursor)](docs/local-ai-tools.md) · [Security review](docs/security.md) · [Local stack (Docker)](docs/local-stack.md)
+- [Projects in folders (open a clone, Changes view)](docs/folders.md) · [Local AI tools (Claude Code, Codex, Cursor)](docs/local-ai-tools.md) · [Security review](docs/security.md) · [Local stack (Docker)](docs/local-stack.md)
 - Specs: `openspec/specs/` · history (proposals, designs, tasks): `openspec/changes/archive/`
 
 ## Development
@@ -35,6 +35,7 @@ command is shown on the right.
 | `make up` / `make down` / `make reset` | `docker compose up -d --build --wait` … | full local stack with the production code path ([docs/local-stack.md](docs/local-stack.md)) |
 | `make test-stack` | | e2e suite against the Docker stack |
 | `make desktop-dev` / `make desktop-test` | `pnpm --filter @p2platex/desktop tauri dev` / `cargo test --lib` | desktop app (desktop tests compile real LaTeX if a TeX distribution is installed) |
+| `make desktop-e2e` | `node apps/desktop/e2e/run.mjs` | desktop UI tests over WebDriver (`tauri-driver`; see [docs/folders.md](docs/folders.md#desktop-ui-tests)) |
 | `make deploy-preview` / `make deploy-prod CONFIRM=1` | `npx vercel deploy [--prod]` | deploy to Vercel ([docs/deployment.md](docs/deployment.md)) |
 
 ## Hosting note

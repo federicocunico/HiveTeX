@@ -222,7 +222,7 @@
       <div class="row wrap" style="gap: 8px">
         <button class="primary" onclick={() => fileInput?.click()} data-testid="import-pick-files">Archive or files…</button>
         {#if isDesktop}
-          <button onclick={pickDesktopFolder}>Folder…</button>
+          <button onclick={pickDesktopFolder} data-testid="import-pick-folder">Folder…</button>
         {:else}
           <button onclick={() => folderInput?.click()} data-testid="import-pick-folder">Folder…</button>
         {/if}

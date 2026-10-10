@@ -13,9 +13,17 @@ import type { Deps } from '../deps.js';
 export interface SignalBackend {
   publish(channel: string, message: string): Promise<void>;
   subscribe(channel: string, cb: (message: string) => void): Promise<() => void>;
-  setPresence(projectId: string, deviceId: string, ticket: string, ttlSec: number): Promise<void>;
-  removePresence(projectId: string, deviceId: string): Promise<void>;
+  /** Presence values are `<session id>|<ticket>`: a device's newer session replaces the entry of its older one. */
+  setPresence(projectId: string, deviceId: string, value: string, ttlSec: number): Promise<void>;
+  /** Removes the entry only if it still belongs to session `sid` (compare-and-delete). True when removed. */
+  removePresence(projectId: string, deviceId: string, sid: string): Promise<boolean>;
   getPresence(projectId: string): Promise<Record<string, string>>;
+}
+
+/** Splits a presence value (`sid|ticket`; older entries are a bare ticket). */
+export function presenceTicket(value: string): string {
+  const i = value.indexOf('|');
+  return i >= 0 && !value.slice(0, i).includes('.') ? value.slice(i + 1) : value;
 }
 
 export class MemorySignalBackend implements SignalBackend {
@@ -34,13 +42,16 @@ export class MemorySignalBackend implements SignalBackend {
     this.subs.set(channel, s);
     return () => void s.delete(cb);
   }
-  async setPresence(p: string, d: string, ticket: string) {
+  async setPresence(p: string, d: string, value: string, _ttlSec?: number) {
     const m = this.presence.get(p) ?? new Map();
-    m.set(d, ticket);
+    m.set(d, value);
     this.presence.set(p, m);
   }
-  async removePresence(p: string, d: string) {
-    this.presence.get(p)?.delete(d);
+  async removePresence(p: string, d: string, sid: string) {
+    const m = this.presence.get(p);
+    if (!m?.get(d)?.startsWith(`${sid}|`)) return false;
+    m.delete(d);
+    return true;
   }
   async getPresence(p: string) {
     return Object.fromEntries(this.presence.get(p) ?? []);
@@ -70,19 +81,29 @@ export async function createUpstashSignalBackend(url: string, token: string): Pr
       await ready;
       return () => void sub.unsubscribe();
     },
-    async setPresence(projectId, deviceId, ticket, ttlSec) {
+    async setPresence(projectId, deviceId, value, ttlSec) {
       const key = `presence:${projectId}`;
-      await redis.hset(key, { [deviceId]: ticket });
+      await redis.hset(key, { [deviceId]: value });
       await redis.expire(key, ttlSec);
     },
-    async removePresence(projectId, deviceId) {
-      await redis.hdel(`presence:${projectId}`, deviceId);
+    async removePresence(projectId, deviceId, sid) {
+      // Atomic compare-and-delete: a closing old session must not remove the entry of the device's new session.
+      const removed = await redis.eval(REMOVE_IF_SESSION, [`presence:${projectId}`], [deviceId, `${sid}|`]);
+      return Number(removed) === 1;
     },
     async getPresence(projectId) {
       return (await redis.hgetall<Record<string, string>>(`presence:${projectId}`)) ?? {};
     },
   };
 }
+
+/** KEYS[1] presence hash; ARGV[1] device id; ARGV[2] "<sid>|" prefix the entry must still have. */
+export const REMOVE_IF_SESSION = `local v = redis.call('HGET', KEYS[1], ARGV[1])
+if v and string.sub(v, 1, string.len(ARGV[2])) == ARGV[2] then
+  redis.call('HDEL', KEYS[1], ARGV[1])
+  return 1
+end
+return 0`;
 
 export interface SocketLike {
   send(data: string): void;
@@ -105,7 +126,10 @@ export async function verifyServerTicket(deps: Deps, ticket: string): Promise<Ti
 /**
  * Drives one WebSocket. Returns handlers the transport adapter wires to the socket's events.
  * Protocol (JSON): server first sends {t:'challenge',nonce}; client {t:'auth',ticket,sig} | {t:'sig',to,env} | {t:'ping'};
- * server {t:'ready',tickets} | {t:'join',ticket} | {t:'leave',dev} | {t:'sig',from,fromTicket,env} | {t:'err',code}.
+ * server {t:'ready',tickets} | {t:'join',ticket,sid} | {t:'leave',dev,sid} | {t:'sig',from,fromTicket,env} | {t:'err',code}.
+ * Every socket is a session with a random id `sid`. When a device reconnects quickly (a page reload), the old session's
+ * cleanup may run after the new session joined: it then neither removes the new presence entry nor announces a leave,
+ * and clients ignore a leave whose sid is not the latest one they saw joining for that device.
  * `sig` is the device's Ed25519 signature of signalAuthMessage(pid, dev, nonce): presence tickets are visible to every
  * member, so the ticket alone must not be enough to appear (or disappear) as that device.
  */
@@ -120,6 +144,7 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     if (!closed) sock.send(JSON.stringify(o));
   };
   const nonce = randomBytes(32).toString('base64url');
+  const sid = randomBytes(12).toString('base64url');
   send({ t: 'challenge', nonce });
 
   const cleanup = async () => {
@@ -128,8 +153,9 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     if (expiry) clearTimeout(expiry);
     unsub?.();
     if (claims) {
-      await backend.removePresence(claims.pid, claims.dev).catch(() => {});
-      await backend.publish(`sig:${claims.pid}`, JSON.stringify({ t: 'leave', dev: claims.dev })).catch(() => {});
+      const removed = await backend.removePresence(claims.pid, claims.dev, sid).catch(() => false);
+      // A newer session of this device already took over: announcing a leave would drop its fresh links.
+      if (removed) await backend.publish(`sig:${claims.pid}`, JSON.stringify({ t: 'leave', dev: claims.dev, sid })).catch(() => {});
     }
   };
 
@@ -161,9 +187,9 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
       }
     });
     const presence = await backend.getPresence(c.pid);
-    await backend.setPresence(c.pid, c.dev, ticket, PRESENCE_TTL);
-    send({ t: 'ready', tickets: Object.entries(presence).filter(([d]) => d !== c.dev).map(([, t]) => t) });
-    await backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'join', dev: c.dev, ticket }));
+    await backend.setPresence(c.pid, c.dev, `${sid}|${ticket}`, PRESENCE_TTL);
+    send({ t: 'ready', tickets: Object.entries(presence).filter(([d]) => d !== c.dev).map(([, v]) => presenceTicket(v)) });
+    await backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'join', dev: c.dev, ticket, sid }));
   }
 
   return {
@@ -194,7 +220,7 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
           JSON.stringify({ t: 'sig', from: claims.dev, fromTicket: ticketStr, to: m.to, env: m.env }),
         );
       } else if (m.t === 'ping') {
-        await backend.setPresence(claims.pid, claims.dev, ticketStr, PRESENCE_TTL);
+        await backend.setPresence(claims.pid, claims.dev, `${sid}|${ticketStr}`, PRESENCE_TTL);
         send({ t: 'pong' });
       }
     },

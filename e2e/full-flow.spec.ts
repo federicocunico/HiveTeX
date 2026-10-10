@@ -72,20 +72,23 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
   await expect(otherPage.getByTestId('compiled-by')).toContainText(newLeaderName, { timeout: 30_000 });
   await expect(V.page.getByTestId('compiled-by')).toContainText(newLeaderName, { timeout: 30_000 });
 
-  // owner removes the editor; within the grace period the removed member is cut off
-  const ownerPage = leaderIsOwner ? await ctxO.newPage() : O.page;
-  if (leaderIsOwner) {
-    await ownerPage.addInitScript(() => {
+  // owner removes the editor; within the grace period the removed member is cut off. The tab that led was closed:
+  // reopen it on the same device (this also covers a quick re-join of the same device).
+  const reopen = async (ctx: typeof ctxO) => {
+    const page = await ctx.newPage();
+    await page.addInitScript(() => {
       localStorage.setItem('p2platex.test', '1');
       localStorage.setItem('p2platex.fakeEngine', '1');
       localStorage.setItem('p2platex.epochGraceMs', '4000');
     });
-    await ownerPage.goto('/#/');
-    await ownerPage.getByRole('link', { name: new RegExp(slug) }).click();
-    await expect(ownerPage.getByTestId('workspace')).toBeVisible();
-  }
-  const removed = leaderIsOwner ? otherPage : E.page; // the editor page that is still open
-  const removedName = leaderIsOwner ? E.username : E.username;
+    await page.goto('/#/');
+    await page.getByRole('link', { name: new RegExp(slug) }).click();
+    await expect(page.getByTestId('workspace')).toBeVisible();
+    return page;
+  };
+  const ownerPage = leaderIsOwner ? await reopen(ctxO) : O.page;
+  const removed = leaderIsOwner ? otherPage : await reopen(ctxE); // the editor's open page
+  const removedName = E.username;
   // the (re-opened) owner page must be linked to both members before the removal, so it can announce the new epoch
   await expect(ownerPage.getByTestId('peer-count')).toContainText('2 peers', { timeout: 60_000 });
   await expect(removed.getByTestId('peer-count')).not.toContainText('0 peers', { timeout: 30_000 });

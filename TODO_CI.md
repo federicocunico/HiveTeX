@@ -43,12 +43,14 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
       secret.
 
 ### Workflow hygiene
-- [ ] GitHub warns that `actions/checkout@v4`, `actions/setup-node@v4`, `actions/upload-artifact@v4` and
-      `pnpm/action-setup@v4` target the deprecated Node 20 runtime. Bump them to their Node 24 majors once you have
-      checked the release notes. Today this is a warning, not a failure.
-- [ ] Nightly or manual job for `make test-stack` (the Docker stack with production wiring). Not added on purpose: it
-      takes about 8 minutes, and `e2e/full-flow.spec.ts` is flaky on the stack until the known signaling issue below is
-      fixed.
+- [x] Actions moved to their Node 24 majors (`checkout@v5`, `setup-node@v5`, `pnpm/action-setup@v5`,
+      `upload-artifact@v6`; `rust-cache@v2` and `tauri-action@v0` already run on Node 24). Done in `local-folder-projects`.
+- [x] `make test-stack` runs nightly and on demand: `.github/workflows/stack-nightly.yml` (Actions → Stack (nightly) → Run
+      workflow). It became reliable once the signaling reconnect race below was fixed.
+- [x] Desktop UI tests: `Desktop / desktop-e2e` drives the real app over WebDriver (`tauri-driver`) on Linux (xvfb +
+      WebKitWebDriver) and Windows (msedgedriver matched to the runner's WebView2). Locally: `make desktop-e2e`.
+      The Windows leg is `continue-on-error` because hosted runners sometimes update WebView2 before the matching
+      driver is published; Linux gates the workflow. Revisit once a few weeks of runs show it stable.
 - [ ] Decide on the default branch name (`master` vs `main`). The workflows accept both, but docs and tooling assume
       `main`.
 
@@ -61,13 +63,20 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 - [x] `packages/sync` › `mirror.test.ts` flakes were two real races, fixed in `realtime-sync-and-desktop-fixes`: a file caught
       mid-rewrite was imported as "all deleted" (reordering a co-author's edit), and an in-flight write resurrected a file
       under its old name after a rename. The suite passes 24/24 under 3x parallel load.
-- [ ] Same-device reconnect race in signaling: after a page reload, the old session's delayed cleanup can drop the new
-      connection. It makes `e2e/full-flow.spec.ts` occasionally fail on line 90, rarely on the dev server and more often
-      on the Docker stack. Fix: per-connection session ids in the signaling protocol (see
-      `openspec/changes/archive/2026-10-09-project-import-and-dev-tooling/design.md`, D11).
+- [x] Same-device reconnect race in signaling (an old session's delayed cleanup dropped the reloaded device's new
+      connection): fixed with per-connection session ids (presence `sid|ticket`, compare-and-delete, `sid` on join/leave,
+      clients ignore stale leaves), plus a stale-link deadlock in `ConnectionManager` and a test bug when the editor
+      was the leader (see `local-folder-projects` design D9). `e2e/full-flow.spec.ts` passed 10 consecutive runs on the dev
+      server and 10 on the Docker stack.
 - [ ] The public SwiftLaTeX TeX file server (`texlive2.swiftlatex.com`) was answering HTTP 522 on 2026-10-09. CI is
       not affected because e2e uses the fake engine, but in-browser compilation in production depends on it. Consider
       self-hosting (`make up PROFILES=texlive`, see `docs/local-stack.md`).
+
+## Security-hardening tasks left open at archive time
+
+- [x] 4.2 (manual `make desktop-dev` check of "Link folder" + folder import through `mirror_pick`): now automated by
+      `make desktop-e2e` / `Desktop / desktop-e2e` (link a folder, open a marker folder, create from a folder, import a
+      folder, external edits).
 
 ## Bootstrap tasks left open at archive time
 
