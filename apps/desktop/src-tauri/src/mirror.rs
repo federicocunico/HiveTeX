@@ -150,6 +150,16 @@ impl MirrorState {
                     if let Some(rel) = rel_posix(&root_for_events, &p) {
                         on_change(rel);
                     }
+                    // A new folder: report what is already inside. A tool that creates a folder and writes a file into
+                    // it right away can be faster than the watch on the new folder (inotify), and that file's own event
+                    // is then never delivered.
+                    if matches!(ev.kind, notify::EventKind::Create(_)) && fs::symlink_metadata(&p).is_ok_and(|m| m.is_dir()) {
+                        let mut inside = Vec::new();
+                        walk(&root_for_events, &p, &mut inside);
+                        for f in inside {
+                            on_change(f.path);
+                        }
+                    }
                 }
             }
         })
@@ -392,5 +402,31 @@ mod tests {
         fs::write(d.join("new.tex"), "x").unwrap();
         let got = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("no event");
         assert_eq!(got, "new.tex");
+    }
+
+    #[test]
+    fn files_in_a_new_folder_are_reported_even_when_written_at_once() {
+        let d = tmp("watch-dir");
+        let st = MirrorState::default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        st.bind("p", &d, move |p| {
+            let _ = tx.lock().unwrap().send(p);
+        })
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        fs::create_dir_all(d.join("sections/deep")).unwrap();
+        fs::write(d.join("sections/deep/related.tex"), "x").unwrap();
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut seen = Vec::new();
+        while std::time::Instant::now() < end {
+            if let Ok(p) = rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                seen.push(p);
+            }
+            if seen.iter().any(|p| p == "sections/deep/related.tex") {
+                return;
+            }
+        }
+        panic!("file in a new folder never reported: {seen:?}");
     }
 }
