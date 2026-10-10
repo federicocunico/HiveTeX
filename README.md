@@ -24,70 +24,40 @@ See `openspec/specs/` for the behavior specs and `openspec/changes/archive/` for
 You need accounts on GitHub, [Vercel](https://vercel.com) (Hobby), and a Gmail address used only to send email. Everything
 here is free; Vercel Hobby is for non-commercial use. Run the commands from the repository root (Git Bash on Windows).
 
-1. **Install the tools.** Node 22 with pnpm (`corepack enable`), Git, GNU Make, and the GitHub CLI logged in
-   (`gh auth login`). Then install dependencies with `make install`.
+1. **Install the tools.** Node 22 with pnpm (`corepack enable`), Git, GNU Make and the [GitHub CLI](https://cli.github.com).
+   Then install dependencies with `make install`.
 
-2. **Create the Vercel project.** Run `npx vercel@latest link` and create a new project. Vercel reads `vercel.json`, so
-   keep the defaults. New projects use Fluid Compute, which the WebSocket signaling needs.
+2. **Get a Gmail App Password.** Create one at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   (2-step verification is required). The server uses it to send verification and password-reset emails.
 
-3. **Add the database and Redis.** In the Vercel dashboard, go to *Storage*, add **Neon** (Postgres) and **Upstash**
-   (Redis), and connect both to the project. They set `DATABASE_URL` and `KV_REST_API_URL` / `KV_REST_API_TOKEN` for you.
-
-4. **Generate and store the server secrets.** `make secrets` prints a fresh ticket-signing key pair and the exact
-   `vercel env add` commands. Run them. Nothing is written to disk.
-
-   ```bash
-   make secrets
-   ```
-
-5. **Set the app URL and email.** Create a Gmail [App Password](https://myaccount.google.com/apppasswords) (it needs
-   2-step verification), then set:
+3. **Run the setup.** It logs you in to GitHub and Vercel if needed, links the Vercel project, adds Neon (Postgres) and
+   Upstash (Redis), stores all server secrets, deploys (the database tables are created during the build), checks
+   `/api/health` and configures GitHub for desktop releases. It asks for your Gmail address, the App Password and the
+   username that becomes admin. For TURN it asks for optional Cloudflare keys; leave them empty to skip.
 
    ```bash
-   for env in production preview; do
-     printf %s 'https://<your-app>.vercel.app' | npx vercel@latest env add APP_ORIGIN $env
-     printf %s 'you.p2platex@gmail.com' | npx vercel@latest env add GMAIL_USER $env
-     printf %s '<16-char app password>'   | npx vercel@latest env add GMAIL_APP_PASSWORD $env
-   done
+   make setup              # preview first with: make setup DRY_RUN=1
    ```
 
-6. **Recommended: TURN for testers on different networks.** Without a relay, people behind strict NATs or corporate
-   firewalls may not connect. Create a free [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/)
-   key and add `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN` the same way.
+   To run it without questions, put the answers in a `.env.setup` file (git-ignored; the keys are listed at the end of
+   `.env.example`). Re-running is safe: existing secrets are kept, and the app is redeployed. Testers on different
+   networks connect more reliably with a free [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/)
+   key (`CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`).
 
-7. **Deploy and create the tables.**
+4. **Become admin.** Open the URL printed at the end, and register the username you gave as admin. It becomes the
+   platform admin automatically (only while no admin exists).
 
-   ```bash
-   make env-pull         # writes .env.local (git-ignored)
-   make migrate-prod     # creates the tables in Neon
-   make deploy-prod CONFIRM=1
-   ```
-
-   Open `https://<your-app>.vercel.app` and register your account. Then make yourself admin with
-   `make seed-admin ADMIN=<your-username>`.
-
-8. **Configure desktop releases on GitHub.** The updater key signs automatic updates. The variable makes the installers
-   use your server by default.
-
-   ```bash
-   gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/p2platex.key   # make secrets prints this line for you
-   gh variable set P2PLATEX_API_BASE --body https://<your-app>.vercel.app
-   ```
-
-   No key yet? See the end of `make secrets`. Optional: a dry run that only builds is under GitHub → *Actions* →
-   *Desktop* → *Run workflow*; the installers appear as artifacts of the run.
-
-9. **Tag the release.** The version must match the sources (`make version VERSION=0.1.0` changes it everywhere; commit
+5. **Tag the release.** The version must match the sources (`make version VERSION=0.1.1` changes it everywhere; commit
    the result). Then:
 
    ```bash
-   make release VERSION=0.1.0 CONFIRM=1   # pushes tag v0.1.0
+   make release VERSION=0.1.1 CONFIRM=1   # pushes tag v0.1.1
    ```
 
-   After about 30 minutes, a **draft** release "p2platex v0.1.0" has the Windows, macOS and Linux installers. Check it,
-   then press *Publish*. Installed apps get later releases from *Account → Check for updates* (signed with your key).
+   After about 30 minutes, a **draft** release has the Windows, macOS and Linux installers, already pointing at your
+   server. Check it, then press *Publish*. Installed apps get later releases from *Account → Check for updates*.
 
-10. **Invite testers.** Send them the web link, or the release page for the desktop app. First launch:
+6. **Invite testers.** Send them the web link, or the release page for the desktop app. First launch:
     - **Windows:** SmartScreen shows "Windows protected your PC": click *More info* → *Run anyway*.
     - **macOS:** open the `.dmg` and drag the app to Applications. If macOS blocks it, open *System Settings → Privacy &
       Security* and click *Open Anyway*.
@@ -99,8 +69,9 @@ here is free; Vercel Hobby is for non-commercial use. Run the commands from the 
     project*. Type together, compile, and try *Open folder…* with a git clone and an AI tool (see
     [docs/folders.md](docs/folders.md)).
 
-Trouble? Run `npx vercel@latest logs <your-app>.vercel.app` for server errors. [docs/deployment.md](docs/deployment.md)
-has the details: key rotation, the free-tier budget, and self-hosting with Docker instead of Vercel.
+Other commands: `make secrets` stores only the signing keys (`ROTATE=1` replaces the ticket keys). Run
+`npx vercel@latest logs <your-app>.vercel.app` for server errors. Manual setup, key rotation, the free-tier budget and
+self-hosting with Docker are in [docs/deployment.md](docs/deployment.md).
 
 ## Development
 Requires Node 22, pnpm 10, Rust (desktop only), Docker (local stack only) and GNU Make. On Windows, run `make` from

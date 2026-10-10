@@ -1,8 +1,8 @@
-import { eq, ilike, or } from 'drizzle-orm';
+import { and, eq, ilike, or, sql } from 'drizzle-orm';
 import { type Context, Hono } from 'hono';
 import * as v from 'valibot';
 import { schema } from '../db/client.js';
-import type { Env } from '../deps.js';
+import type { Deps, Env } from '../deps.js';
 import { AppError } from '../errors.js';
 import { rateLimit } from '../middleware.js';
 import { parseBody, randomId, randomToken } from '../util.js';
@@ -46,6 +46,20 @@ const weak = () => new AppError(422, 'weak_password', 'This password appears in 
 
 // A constant-work dummy hash so unknown users cost the same as wrong passwords.
 let dummyHash: Promise<string> | undefined;
+
+/**
+ * First-admin bootstrap (BOOTSTRAP_ADMIN): promotes the designated user only while the platform has no admin at all.
+ * One conditional UPDATE, so concurrent sign-ins cannot create two admins. Returns whether the user is now admin.
+ */
+async function maybeBootstrapAdmin(deps: Deps, userId: string, usernameLc: string): Promise<boolean> {
+  if (!deps.config.bootstrapAdmin || deps.config.bootstrapAdmin !== usernameLc) return false;
+  const promoted = await deps.db
+    .update(schema.users)
+    .set({ isAdmin: true })
+    .where(and(eq(schema.users.id, userId), sql`not exists (select 1 from ${schema.users} where ${schema.users.isAdmin})`))
+    .returning({ id: schema.users.id });
+  return promoted.length > 0;
+}
 
 function publicUser(u: typeof schema.users.$inferSelect) {
   return { id: u.id, username: u.username, email: u.email, emailVerified: !!u.emailVerifiedAt, isAdmin: u.isAdmin };
@@ -93,10 +107,11 @@ accountRoutes.post('/register', rateLimit('register', 10, 3600), async (c) => {
   });
   if (deps.background) deps.background(mail);
   else await mail;
+  const isAdmin = await maybeBootstrapAdmin(deps, id, body.username);
   const token = await createSession(deps, id, body.kind);
   const bearer = attachSession(c, token, body.kind);
   return c.json(
-    { user: { id, username: body.username, email: body.email, emailVerified: false, isAdmin: false }, ...(bearer ? { token: bearer } : {}) },
+    { user: { id, username: body.username, email: body.email, emailVerified: false, isAdmin }, ...(bearer ? { token: bearer } : {}) },
     201,
   );
 });
@@ -130,6 +145,7 @@ accountRoutes.post('/login', rateLimit('login', 30, 900), async (c) => {
   }
   await deps.limiter.reset(`loginfail:${user.id}`);
   await deps.db.update(schema.users).set({ failedLogins: 0, lockedUntil: null }).where(eq(schema.users.id, user.id));
+  if (!user.isAdmin && (await maybeBootstrapAdmin(deps, user.id, user.usernameLc))) user.isAdmin = true;
   const token = await createSession(deps, user.id, body.kind);
   const bearer = attachSession(c, token, body.kind);
   return c.json({ user: publicUser(user), ...(bearer ? { token: bearer } : {}) });

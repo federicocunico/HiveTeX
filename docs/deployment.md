@@ -1,6 +1,7 @@
 # Deploying the control plane (free)
 
-The short version is the README section **Release v0.1 and test with others**; this page has the details.
+The short version is `make setup` (README section **Release v0.1 and test with others**); this page has the details
+and the manual route.
 
 Everything runs on free tiers; **Vercel Hobby is for non-commercial use**.
 
@@ -19,34 +20,45 @@ Airtable and Dropbox were evaluated and rejected as primary stores (rate limits,
 
 ## 2. Secrets
 
-`make secrets` (`node scripts/gen-secrets.mjs`) prints a fresh key pair plus the `vercel env add` and `gh secret set`
-commands. The one-liner below does the same by hand:
+`make setup` (or only the keys: `make secrets`) generates and stores everything. Existing ticket keys are kept;
+`ROTATE=1 make secrets` replaces them (then redeploy). Nobody is signed out, but existing membership tickets stop
+verifying until each client fetches a new one, so peers may reconnect briefly.
+For a manual setup, `node scripts/gen-secrets.mjs` prints a fresh pair: set `TICKET_SIGNING_JWK`, `TICKET_PUBLIC_JWKS`
+and `TICKET_KID=k1` for production and preview (`vercel env add NAME production`, value on stdin).
 
-```bash
-# ticket signing key (Ed25519) – generate once
-node -e "const {generateKeyPairSync}=require('crypto');const k=generateKeyPairSync('ed25519');
-const priv=k.privateKey.export({format:'jwk'}),pub=k.publicKey.export({format:'jwk'});
-console.log('TICKET_SIGNING_JWK='+JSON.stringify(priv));
-console.log('TICKET_PUBLIC_JWKS='+JSON.stringify([{kid:'k1',jwk:{...pub,alg:'EdDSA',use:'sig',kid:'k1'}}]));"
-```
+For a zero-downtime rotation, add the new public key to `TICKET_PUBLIC_JWKS` next to the old one, switch `TICKET_KID`, and
+remove the old public key after 15 minutes.
 
-Set `TICKET_SIGNING_JWK`, `TICKET_PUBLIC_JWKS`, `TICKET_KID=k1`, `APP_ORIGIN=https://<your-domain>` (see `.env.example`).
-Rotate by adding a second key to `TICKET_PUBLIC_JWKS`, switching `TICKET_KID`, and removing the old public key after 15 minutes.
+Other settings:
+- `GMAIL_USER`, `GMAIL_APP_PASSWORD` (or `SMTP_*`). Required: the server refuses to start without mail.
+- `BOOTSTRAP_ADMIN`: the username that becomes the first platform admin when it registers or signs in. It has no effect
+  once an admin exists.
+- `APP_ORIGIN`: optional on Vercel. Production deployments default to the project's production domain
+  (`VERCEL_PROJECT_PRODUCTION_URL`).
+- `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`: optional TURN relay.
 
 ## 3. First deploy
 
+`make setup` does all of this; the manual equivalent is:
+
 ```bash
-npx vercel@latest link                # once per checkout (creates .vercel/project.json)
-make env-pull                         # vercel env pull .env.local
-make migrate-prod                     # applies drizzle migrations to Neon using .env.local
-make deploy-preview                   # vercel deploy  -> prints the preview URL
-make seed-admin ADMIN=<username>      # after registering that account
-make deploy-prod CONFIRM=1            # runs `make check`, then vercel deploy --prod
+npx vercel@latest link                       # once per checkout (creates .vercel/project.json)
+npx vercel@latest integration add neon -m region=iad1
+npx vercel@latest integration add upstash/upstash-kv -m primaryRegion=iad1
+# set the variables from section 2 for production and preview, then:
+make deploy-prod CONFIRM=1                   # runs `make check`, then vercel deploy --prod
 ```
 
-The Make targets need no global Vercel CLI (they use `npx vercel@latest`). Without Make, run the commands in the
-comments directly. Before deploying, `make up` lets you try the same server code locally against emulators
-([local-stack.md](local-stack.md)).
+- **Migrations run in the Vercel build** (`vercel.json` `buildCommand` runs `pnpm --filter @p2platex/server migrate`
+  first), so every deploy brings the schema up to date, and a failing migration fails the deploy. Preview deployments
+  use the same database here, so migrations must stay additive.
+- **Sensitive variables cannot be read back.** The Marketplace marks `DATABASE_URL` and the `KV_*` values sensitive, so
+  `make env-pull` gets placeholders for them. That is why migrations run inside Vercel. `make migrate-prod` and
+  `make seed-admin` only work when you have readable credentials (self-hosting, or a database URL copied from the Neon
+  console).
+
+The Make targets need no global Vercel CLI (they use `npx vercel@latest`). `make up` runs the same server code locally
+against emulators ([local-stack.md](local-stack.md)).
 
 ## 4. Free-tier budget (design D9)
 

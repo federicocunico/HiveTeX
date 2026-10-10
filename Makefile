@@ -24,7 +24,7 @@ HINT_git    := install Git: https://git-scm.com/downloads
 
 .PHONY: help install dev build lint typecheck test size e2e bench check audit clean \
         desktop-dev desktop-test desktop-e2e desktop-build \
-        up down ps logs reset migrate-local test-stack secrets version release \
+        up down ps logs reset migrate-local test-stack setup secrets version release \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
         require-vercel-link
 
@@ -119,8 +119,8 @@ test-stack: require-docker require-pnpm ## Run the e2e suite against the stack (
 
 ## ---------- Vercel (control plane + web; see docs/deployment.md) ----------
 
-env-pull: require-npx require-vercel-link ## Pull the linked project's env vars into .env.local
-	$(VERCEL) env pull .env.local
+env-pull: require-npx require-vercel-link ## Pull the production env vars into .env.local (sensitive values come back masked)
+	$(VERCEL) env pull .env.local --environment=production
 
 deploy-preview: require-npx require-vercel-link ## Deploy a preview and print its URL
 	$(VERCEL) deploy
@@ -145,8 +145,11 @@ seed-admin: require-pnpm ## Make ADMIN=<username> a platform admin in the .env.l
 
 ## ---------- Release (desktop installers on GitHub; see README "Release v0.1") ----------
 
-secrets: require-node ## Print fresh server secrets and the vercel/gh commands to store them (writes no files)
-	node scripts/gen-secrets.mjs
+setup: require-node ## Set up the whole deployment: Vercel project, Neon/Upstash, secrets, deploy, GitHub (re-runnable; DRY_RUN=1 previews)
+	node scripts/setup.mjs
+
+secrets: require-node ## Store ticket keys in Vercel (kept if present; ROTATE=1 replaces) and the updater key in GitHub
+	node scripts/setup.mjs --only=secrets
 
 version: require-node ## Set the version everywhere: make version VERSION=0.1.0
 	@test -n "$(VERSION)" || { echo "Usage: make version VERSION=x.y.z"; exit 1; }
