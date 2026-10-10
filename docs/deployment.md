@@ -73,10 +73,12 @@ dashboards during the first weeks.
   Linux (AppImage, deb) installers, plus the signed `latest.json` used by *Account → Check for updates*.
 - **Secret and variable.** The job needs the `TAURI_SIGNING_PRIVATE_KEY` repository secret, and refuses a tag whose
   version differs from `tauri.conf.json` (fix it with `make version VERSION=X.Y.Z`). The variable
-  `HIVETEX_API_BASE` sets the server the installers use by default.
+  `HIVETEX_API_BASE` overrides the default server baked into the installers (`https://hivetex.vercel.app`, built into the app);
+  set it for forks or on-premise builds.
 - **Dry run.** *Actions → Desktop → Run workflow* builds the same installers as workflow artifacts, without a release
   and without needing the key.
 - **Local builds.** `make desktop-build` builds installers on the current machine (needs Rust).
-- **Choosing a server.** Testers can change the server on the sign-in screen, or later in *Account*.
+- **Choosing a server.** Desktop builds use their default server until the user picks another on the sign-in screen or
+  in *Account* (for an on-premise deployment, say). *Use the default server* switches back.
 - **Optional paid signing.** Set the `APPLE_*` secrets (Developer ID + notarization) to replace ad-hoc signing on
   macOS. Windows Authenticode signing is not wired yet, so SmartScreen asks once.

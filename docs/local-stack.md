@@ -2,7 +2,7 @@
 
 `make up` runs the whole control plane on your machine with the **same code path as production**: the API uses the
 Neon HTTP driver, the Upstash REST client and an SMTP mailer, just as on Vercel. They point at local emulators
-instead of the real services. Use it to catch bugs that the lightweight dev server (`make dev`, embedded PGlite +
+instead of the real services. Use it to catch bugs that the lightweight dev server (`make dev-local`, embedded PGlite +
 in-memory signaling) cannot show. Examples are HTTP-driver quirks, pub/sub timing and email delivery.
 
 No real credential is needed. The defaults in `docker/.env.stack` are development values and are **not secrets**.
@@ -40,7 +40,7 @@ No real credential is needed. The defaults in `docker/.env.stack` are developmen
 
 Host ports can be changed with environment variables: `WEB_PORT`, `API_PORT`, `PG_PORT`, `REDIS_PORT`,
 `UPSTASH_PORT`, `NEON_PROXY_PORT`, `MAILPIT_UI_PORT`, `MAILPIT_SMTP_PORT` and `TEXLIVE_PORT`. The API is published on
-3001, not 3000, so it never collides with `make dev` / `make e2e`. Playwright would silently reuse anything already
+3001, not 3000, so it never collides with `make dev-local` / `make e2e`. Playwright would silently reuse anything already
 listening on :3000.
 
 ## How the overrides work
@@ -73,6 +73,6 @@ Users can also set the server per device in *Account → TeX package server*.
 - **Peers don't connect after an API restart**: the ephemeral ticket key changed. Reload the browser tabs.
 - **Windows: slow builds or file watching**: keep the repository on an NTFS drive (not a network share) and give Docker
   Desktop at least 4 GB of RAM. `make up` does not bind-mount sources, except the small Upstash shim.
-- **Everything is slower than `make dev`**: expected. Every query is an HTTP round trip through the Neon proxy, as in
+- **Everything is slower than `make dev-local`**: expected. Every query is an HTTP round trip through the Neon proxy, as in
   production.
 - **Start from scratch**: run `make reset && make up`.

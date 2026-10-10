@@ -19,6 +19,24 @@ score = engineBase (native 100 | in-browser 25) × performance × power (mains 1
 
 Owners/editors can switch **"Let this device compile for the others"** off in *Project settings*.
 
+## Compiler preference (per device)
+
+Each device chooses how it takes part. The choice is in **Account → Compiler**, or in the **Compiler** menu of a
+project's status bar, applies to every project, and takes effect at once:
+
+| Mode | Compiles here | Can lead (compile for others) | PDF shown |
+|---|---|---|---|
+| **Automatic** (default) | when it is the best connected device | yes, unless *Let this device compile for the others* is off (Project settings) | the leader's |
+| **Use peers** | never; no LaTeX needed, the in-browser compiler is not downloaded | no | the leader's |
+| **This device only** | after every edit (and *Compile here*) | no | this device's own |
+
+- With **Use peers**, someone in the project must be able to compile. When nobody can, the status bar shows *no peer can
+  compile right now*: switch to *Automatic* (with LaTeX installed, or the in-browser compiler on the web), or ask a
+  co-author with LaTeX to open the project.
+- **This device only** is for authors who want their own build (a different TeX distribution, or no shared builds).
+  Their results are not sent to anyone, and the rest of the project keeps its leader.
+- A desktop without LaTeX in *Automatic* mode simply relies on peers, and says so.
+
 ## Pipeline
 
 1. After edits settle (1.2 s debounce, 5 s max wait) the leader snapshots the project, compiles incrementally and publishes

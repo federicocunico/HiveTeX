@@ -82,7 +82,8 @@ command is shown on the right.
 |---|---|---|
 | `make` | | list all targets |
 | `make install` | `pnpm install` | install dependencies |
-| `make dev` | `pnpm turbo run dev --filter=@hivetex/server --filter=@hivetex/web` | API on :3000 (embedded Postgres, console mailer) + web on :1420 |
+| `make dev` | `HIVETEX_SERVER=https://hivetex.vercel.app pnpm --filter @hivetex/desktop tauri dev` | desktop app with hot reload against the hosted server (`SERVER=https://…` for another one). It uses real accounts: use `make dev-local` for throwaway testing |
+| `make dev-local` | `pnpm turbo run dev --filter=@hivetex/server --filter=@hivetex/web` | everything local: API on :3000 (embedded Postgres, console mailer) + web on :1420 |
 | `make test` | `pnpm turbo run test` | unit + integration tests of every package |
 | `make e2e` | `pnpm exec playwright test` | end-to-end tests (starts a local API with an embedded database) |
 | `make check` | build, lint, svelte-check, tests, bundle budget, e2e | what CI runs |

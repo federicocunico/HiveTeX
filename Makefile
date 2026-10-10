@@ -22,7 +22,7 @@ HINT_npx    := install Node 22: https://nodejs.org
 HINT_node   := install Node 22: https://nodejs.org
 HINT_git    := install Git: https://git-scm.com/downloads
 
-.PHONY: help install dev build lint typecheck test size e2e bench check audit clean \
+.PHONY: help install dev dev-local build lint typecheck test size e2e bench check audit clean \
         desktop-dev desktop-test desktop-e2e desktop-build \
         up down ps logs reset migrate-local test-stack setup secrets version release \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
@@ -39,8 +39,13 @@ help: ## Show this help
 install: require-pnpm ## Install all workspace dependencies (pnpm install)
 	$(PNPM) install
 
-dev: require-pnpm ## Run the API (embedded DB, :3000) and web app (:1420) with hot reload
-	$(PNPM) turbo run dev --filter=@hivetex/server --filter=@hivetex/web
+SERVER ?= https://hivetex.vercel.app
+
+dev: require-pnpm require-cargo ## Desktop app with hot reload against the hosted server (SERVER=https://... for another one)
+	HIVETEX_SERVER=$(SERVER) $(PNPM) --filter @hivetex/desktop tauri dev
+
+dev-local: require-pnpm ## Everything local: API (embedded DB, :3000) + web UI (:1420) with hot reload
+	HIVETEX_SERVER=http://localhost:3000 $(PNPM) turbo run dev --filter=@hivetex/server --filter=@hivetex/web
 
 build: require-pnpm ## Build / type-check every package (turbo build)
 	$(PNPM) turbo run build
@@ -75,8 +80,7 @@ clean: ## Remove build outputs and test artifacts (keeps node_modules and local 
 
 ## ---------- Desktop (Tauri, runs on the host) ----------
 
-desktop-dev: require-pnpm require-cargo ## Run the desktop app in dev mode
-	$(PNPM) --filter @hivetex/desktop tauri dev
+desktop-dev: dev ## Same as `make dev`
 
 desktop-test: require-cargo ## Rust tests of the desktop shell
 	cd apps/desktop/src-tauri && cargo test --lib && cargo build --examples

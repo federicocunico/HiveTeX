@@ -10,6 +10,7 @@
   import PdfView from '../components/PdfView.svelte';
   import { ApiError, api, isDesktop } from '../lib/api.js';
   import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
+  import { COMPILE_MODES, type CompileMode } from '../lib/compile-mode.js';
   import { auth } from '../lib/auth.svelte.js';
   import { type ProjectIndex, buildIndex, emptyIndex } from '../lib/latex.js';
   import { go } from '../lib/router.svelte.js';
@@ -506,9 +507,23 @@
     <div class="statusbar" data-testid="statusbar">
       <span data-testid="peer-count">{s.peers.length} peer{s.peers.length === 1 ? '' : 's'} online{s.peers.length ? `: ${s.peers.map((p) => p.uname).join(', ')}` : ''}</span>
       <span>·</span>
-      <span data-testid="leader">compiler: {s.leaderName ?? 'none available'}</span>
+      <label class="compiler" title={COMPILE_MODES.find((m) => m.id === s.compileMode)?.hint}>Compiler:
+        <select value={s.compileMode} onchange={(e) => void s.setCompileMode((e.currentTarget as HTMLSelectElement).value as CompileMode)} data-testid="compile-mode">
+          {#each COMPILE_MODES as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
+        </select>
+      </label>
+      <span>·</span>
+      {#if s.compileMode === 'local'}
+        <span data-testid="leader">compiles here only</span>
+      {:else}
+        <span data-testid="leader">compiler: {s.leaderName ?? 'none available'}</span>
+      {/if}
+      {#if s.compiledBy}<span data-testid="compiled-by-status" class="muted">· PDF by {s.compiledBy}</span>{/if}
       <span>·</span>
       <span>{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}</span>
+      {#if s.compileMode === 'peers' && !s.leaderName}
+        <span class="pill warn" role="status" data-testid="no-peer-compiler" title="Switch to Automatic (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">no peer can compile right now</span>
+      {/if}
       {#if s.offline || s.paused}<span class="pill warn" data-testid="offline-pill">offline: editing locally, will merge when reconnected</span>{/if}
       <button class="small ghost" onclick={() => s.setPaused(!s.paused)} data-testid="pause-sync">{s.paused ? 'Resume sync' : 'Work offline'}</button>
       {#if s.noPeerOnline && !s.offline}<span class="pill">no collaborator online</span>{/if}
@@ -559,6 +574,10 @@
 {/if}
 
 <style>
+  .compiler select {
+    font: inherit;
+    padding: 0 2px;
+  }
   .location {
     position: relative;
     display: inline-flex;

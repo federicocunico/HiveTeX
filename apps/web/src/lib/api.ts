@@ -2,10 +2,40 @@
 
 export const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-/** Web: same origin as the page. Desktop: absolute URL of the hosted control plane (configurable). */
+/** The server desktop builds use unless the build or the user chooses another one. */
+export const DEFAULT_SERVER = 'https://hivetex.vercel.app';
+
+/**
+ * Which control plane to talk to ('' = the page's own origin):
+ * web: always its own origin; desktop: the user's choice, else (under `make dev`) the dev server's proxy, else the
+ * build's server (forks / on-premise builds), else the built-in default.
+ */
+export function resolveServer(o: { desktop: boolean; stored: string | null; dev: boolean; buildDefault: string | undefined }): string {
+  if (!o.desktop) return '';
+  if (o.stored) return o.stored.replace(/\/$/, '');
+  if (o.dev) return '';
+  return (o.buildDefault || DEFAULT_SERVER).replace(/\/$/, '');
+}
+
+/** The server this build falls back to when the user has not chosen one ('' under `make dev`: the dev proxy). */
+export function defaultServer(): string {
+  return resolveServer({ desktop: isDesktop, stored: null, dev: import.meta.env.DEV, buildDefault: import.meta.env.VITE_API_BASE });
+}
+
+/** Web: same origin as the page. Desktop: absolute URL of the control plane (see resolveServer). */
 export function apiBase(): string {
-  const stored = safeStorage('serverUrl');
-  return (stored ?? import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+  return resolveServer({ desktop: isDesktop, stored: safeStorage('serverUrl'), dev: import.meta.env.DEV, buildDefault: import.meta.env.VITE_API_BASE });
+}
+
+/** Desktop: forgets the user's choice, so the build's default server is used again (after a reload). */
+export function useDefaultServer() {
+  safeStorage('serverUrl', null);
+}
+
+/** Human-readable server for the settings ('' means the dev proxy or the page's own origin). */
+export function serverLabel(base = apiBase()): string {
+  if (base) return base;
+  return import.meta.env.DEV ? `${import.meta.env.VITE_DEV_PROXY_TARGET || 'local'} (through the dev server)` : location.origin;
 }
 
 export function wsBase(): string {

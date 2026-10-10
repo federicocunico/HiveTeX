@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { api, apiBase, isDesktop, safeStorage, setServerUrl } from '../lib/api.js';
+  import { api, apiBase, defaultServer, isDesktop, parseServerUrl, safeStorage, serverLabel, setServerUrl, useDefaultServer } from '../lib/api.js';
   import { auth, logoutAll } from '../lib/auth.svelte.js';
   import { go } from '../lib/router.svelte.js';
   import { texliveEndpoint } from '../lib/wasm-engine.js';
+  import { COMPILE_MODES, COMPILE_MODE_KEY, type CompileMode, readCompileMode } from '../lib/compile-mode.js';
+
+  let compileMode = $state<CompileMode>(readCompileMode());
+  function saveCompileMode(mode: CompileMode) {
+    compileMode = mode;
+    safeStorage(COMPILE_MODE_KEY, mode);
+  }
 
   let current = $state('');
   let next = $state('');
@@ -57,9 +64,8 @@
     e.preventDefault();
     error = info = '';
     try {
-      if (isDesktop) {
-        setServerUrl(serverUrl);
-      }
+      // Only an actual change becomes a custom server; the default stays the default (and follows future builds).
+      if (isDesktop && serverUrl.trim() && parseServerUrl(serverUrl) !== apiBase()) setServerUrl(serverUrl);
       if (texUrl.trim()) {
         const t = new URL(texUrl.trim());
         if (t.protocol !== 'https:' && t.hostname !== 'localhost') throw new Error('The TeX server URL must use https://');
@@ -87,12 +93,26 @@
     <button class="primary" type="submit">Change password</button>
   </form>
 
+  <div class="card" style="max-width: 420px; margin-top: 16px" data-testid="compiler-settings">
+    <h2>Compiler</h2>
+    <p class="muted" style="margin-top: 0">How this device takes part in building PDFs, for every project.</p>
+    {#each COMPILE_MODES as m (m.id)}
+      <label class="row" style="align-items: flex-start; gap: 8px; margin-bottom: 6px">
+        <input type="radio" name="compile-mode" value={m.id} checked={compileMode === m.id} onchange={() => saveCompileMode(m.id)} />
+        <span><strong>{m.label}</strong><br /><small class="muted">{m.hint}</small></span>
+      </label>
+    {/each}
+  </div>
+
   <form class="card" onsubmit={saveConnection} style="max-width: 420px; margin-top: 16px">
     <h2>Connections</h2>
     {#if isDesktop}
-      <label class="field">HiveTeX server <small>the hosted control plane (accounts, project lookup, connection setup)</small>
-        <input type="text" bind:value={serverUrl} placeholder="https://your-app.vercel.app" />
+      <label class="field">HiveTeX server <small>accounts, project lookup and connection setup; your documents never go there</small>
+        <input type="text" bind:value={serverUrl} placeholder={serverLabel(defaultServer())} data-testid="account-server" />
       </label>
+      {#if safeStorage('serverUrl')}
+        <p class="muted" style="margin-top: -6px"><button type="button" class="small" onclick={() => (useDefaultServer(), location.reload())} data-testid="account-server-default">Use the default server ({serverLabel(defaultServer())})</button></p>
+      {/if}
     {/if}
     <label class="field">TeX package server <small>used by the in-browser compiler only; leave empty for the default</small>
       <input type="text" bind:value={texUrl} placeholder="https://texlive.example.org/" />

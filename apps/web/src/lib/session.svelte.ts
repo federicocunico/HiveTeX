@@ -37,6 +37,7 @@ import { detectEngine, detectMain } from './import/detect.js';
 import type { ApplyChoices, ApplyResult, ImportPlan } from './import/plan.js';
 import type { ImportBundle } from './import/sources.js';
 import { getGithubToken } from './github.js';
+import { COMPILE_MODE_KEY, type CompileMode, policyFor, readCompileMode } from './compile-mode.js';
 import { folderPermission, webFs } from './fs-access.js';
 import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
 import { ensureRegistered } from './keys.js';
@@ -196,6 +197,7 @@ export class ProjectSession {
       this.stale = true;
       this.scheduleSnapshot();
       this.scheduleStaleCheck();
+      this.scheduleLocalCompile();
     });
     void this.refreshTicketLoop();
     // Persist pending edits when the tab is hidden or closed (writes are normally batched every 250 ms).
@@ -272,9 +274,17 @@ export class ProjectSession {
 
   // ---- compile wiring ----
 
-  private async setupCompile() {
+  /** This device's compiler preference (Settings → Compiler); applies to every project. */
+  compileMode = $state<CompileMode>(readCompileMode());
+  private policy() {
+    return policyFor(this.compileMode, localStorage.getItem('hivetex.compileForOthers') !== '0');
+  }
+
+  /** Detects the compiler available on this device (native TeX on desktop, the in-browser engine on the web). */
+  private async loadEngine(): Promise<{ kind: 'native' | 'wasm' | 'none'; supports: ('pdflatex' | 'xelatex' | 'lualatex')[] }> {
     let kind: 'native' | 'wasm' | 'none' = 'none';
     let supports: ('pdflatex' | 'xelatex' | 'lualatex')[] = [];
+    this.engineNote = '';
     if (isDesktop) {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
@@ -283,7 +293,7 @@ export class ProjectSession {
           this.engine = native;
           kind = 'native';
           supports = native.supports;
-        } else this.engineNote = 'No TeX installation found. Install TeX Live, MiKTeX or MacTeX to compile on this device.';
+        } else this.engineNote = 'No LaTeX installed here: peers will compile for you. To compile on this device, install TeX Live, MiKTeX or MacTeX.';
       } catch (e) {
         this.engineNote = `Native compiler unavailable: ${e instanceof Error ? e.message : String(e)}`;
       }
@@ -297,11 +307,19 @@ export class ProjectSession {
       } else this.engineNote = 'In-browser compilation needs a TeX package server, which is not reachable. Another collaborator running the desktop app (with TeX installed) will compile for everyone, or set a server in Settings.';
     }
     this.engineKind = kind;
+    return { kind, supports };
+  }
+
+  private async setupCompile() {
+    let kind: 'native' | 'wasm' | 'none' = 'none';
+    let supports: ('pdflatex' | 'xelatex' | 'lualatex')[] = [];
+    const policy = this.policy();
+    if (policy.loadEngine) ({ kind, supports } = await this.loadEngine());
+    else this.engineNote = 'Using peers: this device does not compile.';
 
     const power: 'mains' | 'battery' = 'mains';
     const batteryPct = 100;
 
-    const noOptOut = localStorage.getItem('hivetex.compileForOthers') !== '0';
     this.election = new Election(
       this.mesh,
       {
@@ -313,7 +331,7 @@ export class ProjectSession {
         power,
         batteryPct,
         load: 0,
-        optOut: !noOptOut,
+        optOut: policy.optOut,
       },
       { engine: () => (String(this.model.settings.get('engine') ?? 'pdflatex') as 'pdflatex'), selfRole: () => this.role },
     );
@@ -367,6 +385,8 @@ export class ProjectSession {
   }
 
   private async onCompileChange() {
+    // "This device only": the PDF shown is always this device's own.
+    if (!this.policy().acceptRemote) return;
     const r = this.client.latest;
     if (r) {
       this.result = r;
@@ -421,7 +441,35 @@ export class ProjectSession {
 
   setCompileForOthers(on: boolean) {
     localStorage.setItem('hivetex.compileForOthers', on ? '1' : '0');
-    this.election.update({ optOut: !on });
+    this.election.update({ optOut: this.policy().optOut });
+  }
+
+  /** Switches this device's compiler preference; takes effect at once (election eligibility, engine, local compiles). */
+  async setCompileMode(mode: CompileMode) {
+    this.compileMode = mode;
+    try {
+      localStorage.setItem(COMPILE_MODE_KEY, mode);
+    } catch {
+      /* storage unavailable: applies to this session only */
+    }
+    const policy = this.policy();
+    if (policy.loadEngine && !this.engine) {
+      const { kind, supports } = await this.loadEngine();
+      this.election.update({ engine: kind, supports });
+    }
+    if (!policy.loadEngine) this.engineNote = 'Using peers: this device does not compile.';
+    else if (this.engine && this.engineNote.startsWith('Using peers')) this.engineNote = '';
+    this.election.update({ optOut: policy.optOut });
+    if (policy.autoLocal) this.scheduleLocalCompile(0);
+    else void this.onCompileChange(); // back to the leader's results
+  }
+
+  private localTimer: ReturnType<typeof setTimeout> | undefined;
+  /** "This device only": compile here once edits settle. */
+  private scheduleLocalCompile(delay = 1500) {
+    if (!this.policy().autoLocal || !this.engine) return;
+    if (this.localTimer) clearTimeout(this.localTimer);
+    this.localTimer = setTimeout(() => void this.compileLocal().catch(() => {}), delay);
   }
 
   // ---- tickets & connectivity ----
@@ -714,6 +762,7 @@ export class ProjectSession {
     this.manager?.stop();
     this.backup?.stop();
     clearTimeout(this.dedupeTimer);
+    clearTimeout(this.localTimer);
     this.monitor?.stop();
     this.election?.stop();
     this.mesh?.destroy();
