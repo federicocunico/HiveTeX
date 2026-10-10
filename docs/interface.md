@@ -22,10 +22,10 @@ password protected, kept in a folder on this device, or backed up to GitHub.
 | Area | What it does |
 |---|---|
 | Header | Back to your projects, the project ID and your role, who is online, **Share**, **Recompile** (with *Compile on this device only* in its menu), **Download PDF**, and **More actions** (import, download the project, history, focus mode, the tour, settings). |
-| Rail | Switches the side panel: **Files**, **Outline**, **Search**, **Changes** (with a count of co-authors' changes you have not seen), **History**, **People** and **GitHub backup**. Click the open panel's icon again to hide it. The gear opens project settings. |
+| Rail | Switches the side panel: **Files**, **Outline**, **Search**, **Changes** (with a count of co-authors' changes you have not seen), **History**, **People**, **Sync** and **GitHub backup**. Click the open panel's icon again to hide it. The gear opens project settings. |
 | Editor | The LaTeX source. Above it, the formatting toolbar inserts headings, bold and italic, lists, inline math and equations, symbols, figures, tables, citations and cross-references, and each button's tooltip shows the LaTeX it writes. Below it, **Problems** lists compile errors and warnings; common ones come with a plain-language explanation and, for a missing package, an *Add package* button. |
 | PDF | The compiled document with zoom and page navigation. *Up to date* or *Outdated: N edits since the last compile* says whether it shows your latest edits; *compiled by* names the device that built it. Double-click the PDF to jump to the source line; Ctrl+Alt+J jumps from the source to the PDF. |
-| Status bar | Whether your changes are synced (or kept offline), how many co-authors are online, which device compiles for everyone, your compile mode, and the cursor position. |
+| Status bar | Whether your changes are synced (with the time of the last sync, or a percentage while files are still arriving), or kept offline; how many co-authors are online (and how many are still connecting); which device compiles for everyone, your compile mode, and the cursor position. |
 
 Right-click a file or the **Files** panel (or press Shift+F10 on a focused file) for its actions: open, rename or
 move, delete, set as main document, download and, in the desktop app, **Open folder**, **Open in terminal** (for Claude
@@ -47,6 +47,22 @@ at any step; *Take the tour* in **More actions** shows it again.
   keeps their cursor in view. Typing, scrolling or picking another file stops following.
 - **Share** shows the project ID with **Copy invitation**, a short text with the ID and how to join (never the
   password; send that separately). Owners also set the password, the role new members get, and each member's role.
+
+### Sync
+
+Joining a project can take a while: the app first finds your co-authors, then receives the file list, then the contents.
+The status bar and the **Sync** panel say where you are, in words:
+
+- **Connecting to a co-author...**: someone is online but the connection is still being set up. They are listed as
+  *connecting* in **People**. The app keeps retrying on its own.
+- **Syncing 40%: 4 of 10 files**: the file list has arrived; files not yet received are shown dimmed in the file tree
+  and listed first in the Sync panel.
+- **All changes synced** with a time: every file is on this device. This is never shown while files are missing.
+
+The Sync panel lists every file with its state and shows who is editing it right now, in their color. **Sync now**
+retries the connection to co-authors who are online, asks every co-author again for every file and downloads what is
+missing; it tells you what it did. A notification appears when everything has arrived, or when nothing has progressed
+for a minute while files are still missing.
 
 ## Command palette
 

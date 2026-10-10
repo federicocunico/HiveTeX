@@ -14,6 +14,7 @@ import {
 import type { Role, TicketClaims, TrustedKey } from '@hivetex/protocol';
 import {
   BlobManager,
+  type Candidate,
   ChangeLog,
   type ChangeSet,
   ConnectionManager,
@@ -28,6 +29,8 @@ import {
   type WebSocketLike,
   tauriRtcFactory,
   sha256Hex,
+  SyncTracker,
+  type SyncSnapshot,
 } from '@hivetex/sync';
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
@@ -39,6 +42,8 @@ import { detectEngine, detectMain } from './import/detect.js';
 import type { ApplyChoices, ApplyResult, ImportPlan } from './import/plan.js';
 import type { ImportBundle } from './import/sources.js';
 import { getGithubToken } from './github.js';
+import { toast } from '../ui/toast.svelte.js';
+import { syncEventText, syncNowMessage } from './sync-view.js';
 import { type PresentPerson, peopleFromAwareness, presenceColor } from './presence.js';
 import { COMPILE_MODE_KEY, type CompileMode, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
 import { folderPermission, webFs } from './fs-access.js';
@@ -115,6 +120,13 @@ export class ProjectSession {
   private ticket = '';
   private ticketTimer: ReturnType<typeof setTimeout> | null = null;
   private manager: ConnectionManager | null = null;
+  private tracker!: SyncTracker;
+  /** How far the join / sync is (stage, per-file state, percent, last sync). Null before the first computation. */
+  syncStatus = $state<SyncSnapshot | null>(null);
+  /** Co-authors that are online (seen by the signaling relay or announced by a peer) but not connected yet. */
+  connecting = $state<Candidate[]>([]);
+  syncingNow = $state(false);
+  syncNowResult = $state('');
   private trusted: TrustedKey[] = [];
   store!: IndexedDbPersistence;
   private disposed = false;
@@ -178,6 +190,17 @@ export class ProjectSession {
       if (this.ticketEpoch() < e) void this.refreshTicketLoop();
     });
     this.mesh.onPeerLeave(() => this.refreshPeers());
+    this.tracker = new SyncTracker({
+      mesh: this.mesh,
+      model: this.model,
+      store: this.store,
+      blobs: this.blobs,
+      connecting: () => this.connecting.length,
+      offline: () => this.offline || this.paused,
+    });
+    this.tracker.onChange((snap) => (this.syncStatus = snap));
+    this.tracker.onEvent((e) => toast(syncEventText(e, this.tracker.snapshot), e === 'complete' ? 'ok' : 'info', e === 'complete' ? 4000 : 10_000));
+    this.tracker.start();
     this.mesh.awareness.setLocalStateField('user', { name: this.user.username, ...colorFor(this.user.username) });
     this.mesh.awareness.on('change', () => this.refreshPresence());
     this.refreshPresence();
@@ -676,9 +699,11 @@ export class ProjectSession {
   private mirrorFs: { dispose(): unknown } | null = null;
   setPaused(p: boolean) {
     this.paused = p;
+    this.tracker?.touch();
     if (p) {
       this.manager?.stop();
       this.manager = null;
+      this.connecting = [];
       for (const peer of this.mesh.peers) peer.conn.close();
     } else this.startManager();
   }
@@ -706,7 +731,40 @@ export class ProjectSession {
       rtcFactory,
       getIceServers: async () => (await api<{ iceServers: unknown[] }>('POST', '/turn', { projectId: this.project.id })).iceServers,
     });
+    this.manager.onState(() => {
+      this.connecting = this.manager?.candidates() ?? [];
+      this.tracker?.touch();
+    });
     this.manager.start();
+  }
+
+  /**
+   * "Sync now": retry the connection to co-authors that are online, ask every connected peer again for every file and
+   * fetch what is missing. Returns the message shown to the user.
+   */
+  async syncNow(): Promise<string> {
+    if (this.syncingNow) return this.syncNowResult;
+    this.syncingNow = true;
+    try {
+      if (this.paused || this.offline) {
+        this.syncNowResult = 'Offline: edits are kept on this device and sync when you reconnect.';
+        return this.syncNowResult;
+      }
+      this.manager?.reconnectNow();
+      await this.mesh.resync();
+      const r = await this.tracker.fetchAll();
+      const snap = await this.tracker.refresh();
+      this.syncNowResult = syncNowMessage(snap, r);
+      toast(this.syncNowResult, 'info', 6000);
+      return this.syncNowResult;
+    } finally {
+      this.syncingNow = false;
+    }
+  }
+
+  /** For diagnosing a slow join: when each stage of reaching each co-author device happened. */
+  syncDiagnostics() {
+    return { status: this.syncStatus, candidates: this.manager?.candidates() ?? [], stages: this.manager?.diagnostics() ?? {} };
   }
 
   private refreshPeers() {
@@ -949,6 +1007,7 @@ export class ProjectSession {
     if (this.ticketTimer) clearTimeout(this.ticketTimer);
     await this.unbindFolder(false);
     this.manager?.stop();
+    this.tracker?.stop();
     this.backup?.stop();
     clearTimeout(this.dedupeTimer);
     clearTimeout(this.localTimer);

@@ -50,7 +50,7 @@ interface Dev {
   dev: string;
 }
 
-async function makeDevice(client: Client, pid: string, name: string, extra: { linkTimeoutMs?: number } = {}): Promise<Dev> {
+async function makeDevice(client: Client, pid: string, name: string, extra: { linkTimeoutMs?: number; maxBackoffMs?: number } = {}): Promise<Dev> {
   const keys = await generateDeviceKeys();
   const dev = (await client.post('/devices', { ed25519Pub: keys.edPub, x25519Pub: keys.xPub, label: name })).json.deviceId as string;
   const ticket = (await client.post(`/projects/${pid}/ticket`, { deviceId: dev })).json.ticket as string;
@@ -136,6 +136,43 @@ describe('P2P bootstrap and content privacy (5.3, 6.9)', () => {
     await waitFor(() => devs.every((d) => d.mesh.peers.length === 2), 15_000).catch((e) => {
       throw new Error(`mesh incomplete: ${JSON.stringify(devs.map((d) => ({ n: d.name, peers: d.mesh.peers.length })))} ${e}`);
     });
+  }, 30_000);
+
+  it('keeps retrying past 8 failed attempts, reports the candidate meanwhile, and records stage timestamps', async () => {
+    const { owner, pid, join } = await setupProject('retry-forever-1');
+    const bob = await join('bob');
+    const uid = (await env.db.select().from(schema.users)).find((u) => u.username === 'bob')?.id;
+    await owner.patch(`/projects/${pid}/members/${uid}`, { role: 'editor' });
+    rtc.stallNext = 12; // more stalled attempts than the old cap of 8
+    const opts = { linkTimeoutMs: 60, maxBackoffMs: 60 };
+    const devs = [await makeDevice(owner, pid, 'a', opts), await makeDevice(bob, pid, 'b', opts)];
+    let sawCandidate = false;
+    for (const d of devs) d.mgr.onState(() => { sawCandidate ||= d.mgr.candidates().length > 0; });
+    for (const d of devs) d.mgr.start();
+    await waitFor(() => devs.every((d) => d.mesh.peers.length === 1), 20_000);
+    expect(sawCandidate).toBe(true);
+    const [a, b] = devs as [Dev, Dev];
+    const st = a.mgr.diagnostics()[b.dev];
+    expect(st?.relaySeenAt).toBeTypeOf('number');
+    expect(st?.linkUpAt).toBeTypeOf('number');
+    expect(devs.every((d) => d.mgr.candidates().length === 0)).toBe(true);
+  }, 30_000);
+
+  it('reconnectNow resets backoff and reaches a device that is online but not connected', async () => {
+    const { owner, pid, join } = await setupProject('reconnect-now-1');
+    const bob = await join('bob');
+    const uid = (await env.db.select().from(schema.users)).find((u) => u.username === 'bob')?.id;
+    await owner.patch(`/projects/${pid}/members/${uid}`, { role: 'editor' });
+    rtc.stallNext = 3;
+    const opts = { linkTimeoutMs: 100_000, maxBackoffMs: 100_000 }; // would not retry on its own within the test
+    const devs = [await makeDevice(owner, pid, 'a', opts), await makeDevice(bob, pid, 'b', opts)];
+    for (const d of devs) d.mgr.start();
+    await sleep(300);
+    expect(devs.some((d) => d.mesh.peers.length > 0)).toBe(false);
+    expect(devs.some((d) => d.mgr.candidates().length > 0)).toBe(true);
+    rtc.stallNext = 0;
+    for (const d of devs) d.mgr.reconnectNow();
+    await waitFor(() => devs.every((d) => d.mesh.peers.length === 1), 10_000);
   }, 30_000);
 
   it('keeps document text, file names and blobs off the control plane', async () => {

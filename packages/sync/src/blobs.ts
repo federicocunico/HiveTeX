@@ -84,6 +84,39 @@ export class BlobManager {
     mesh.onPeerLeave((peer) => this.peerHas.delete(peer.deviceId));
   }
 
+  private storedCbs = new Set<() => void>();
+  /** Fires when a blob has been fetched and stored. */
+  onStored(cb: () => void) {
+    this.storedCbs.add(cb);
+  }
+
+  /** Hashes held on this device. */
+  async held(): Promise<Set<string>> {
+    return new Set(await this.store.listBlobs());
+  }
+
+  /**
+   * Fetches the given blobs from peers with bounded concurrency; a blob nobody has right now is skipped (counted as
+   * failed) so one missing file does not hold up the rest.
+   */
+  async fetchMissing(hashes: string[], concurrency = 2, timeoutMs = 20_000): Promise<{ fetched: number; failed: number }> {
+    const queue = [...new Set(hashes)];
+    let fetched = 0;
+    let failed = 0;
+    const worker = async () => {
+      for (let h = queue.shift(); h; h = queue.shift()) {
+        try {
+          await this.fetch(h, timeoutMs);
+          fetched++;
+        } catch {
+          failed++;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+    return { fetched, failed };
+  }
+
   private async announceTo(peer: PeerInfo) {
     const hashes = await this.store.listBlobs();
     if (hashes.length) await this.mesh.sendTo(peer.deviceId, MsgType.BLOB_HAVE, jsonBytes({ hashes }), true);
@@ -207,6 +240,7 @@ export class BlobManager {
         if ((await sha256Hex(data)) === hash) {
           await this.store.putBlob(hash, data);
           this.mesh.broadcast(MsgType.BLOB_HAVE, jsonBytes({ hashes: [hash] }), true);
+          for (const cb of this.storedCbs) cb();
           return data;
         }
         // Corrupt: isolate the culprit by retrying each contributor alone, banning those that fail alone.

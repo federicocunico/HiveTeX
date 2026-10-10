@@ -6,7 +6,7 @@ import { safeStorage } from './api.js';
  */
 export const LAYOUT_KEY = 'hivetex.layout';
 
-export const PANELS = ['files', 'outline', 'search', 'changes', 'history', 'people', 'backup'] as const;
+export const PANELS = ['files', 'outline', 'search', 'changes', 'history', 'people', 'sync', 'backup'] as const;
 export type Panel = (typeof PANELS)[number];
 
 export interface Layout {

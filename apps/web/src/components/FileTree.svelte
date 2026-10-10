@@ -23,6 +23,7 @@
     onSetMain,
     headerExtra,
     presence = {},
+    pending = new Set<string>(),
     folderActions,
   }: {
     files: FileEntry[];
@@ -41,6 +42,8 @@
     headerExtra?: Snippet;
     /** Co-authors with each file open: path → [{ name, color }]. */
     presence?: Record<string, Array<{ name: string; color: string }>>;
+    /** Paths of files whose content has not arrived on this device yet. */
+    pending?: Set<string>;
     /** Items about the project's folder for the context menu (Open folder, Open in terminal...); `path` = the item, or null. */
     folderActions?: (path: string | null) => MenuItem[];
   } = $props();
@@ -253,7 +256,8 @@
             onblur={() => (renaming = null)}
           />
         {:else}
-          <span class="nm" title={c.path}>{c.name}</span>
+          <span class="nm" class:pending={!isDir(c) && pending.has(c.path)} title={!isDir(c) && pending.has(c.path) ? `${c.path} (not received yet)` : c.path}>{c.name}</span>
+          {#if !isDir(c) && pending.has(c.path)}<span class="sr-only">(not received yet)</span><span class="pend" aria-hidden="true" data-testid="pending-mark">…</span>{/if}
           {#if c.path === mainPath}<span class="main-badge" data-testid="main-badge" data-tip="Main document: compiling starts here">Main</span>{/if}
         {/if}
         {#each presence[c.path] ?? [] as p (p.name)}<span class="pdot" style:background={p.color} data-tip="{p.name} is here" data-testid="presence-dot"><span class="sr-only">{p.name} is here</span></span>{/each}
@@ -413,6 +417,14 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+  }
+  .nm.pending {
+    opacity: 0.55;
+    font-style: italic;
+  }
+  .pend {
+    flex: none;
+    color: var(--muted);
   }
   .pdot {
     flex: none;

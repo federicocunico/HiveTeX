@@ -30,6 +30,30 @@ export interface ManagerOptions {
   idleCloseMs?: number;
   /** A link that has not produced a transport within this time is abandoned and retried. Default 20 s. */
   linkTimeoutMs?: number;
+  /** Upper bound of the retry backoff towards a device that is online but not connected. Default 30 s. */
+  maxBackoffMs?: number;
+}
+
+/** An online co-author device we know of but are not linked to (yet). */
+export interface Candidate {
+  dev: string;
+  uname: string;
+  /** Failed or stalled link attempts since the last connection. */
+  attempts: number;
+  /** A link attempt is in progress right now. */
+  linking: boolean;
+  lastError: string | null;
+  /** Visible on the signaling relay (as opposed to only announced by a peer). */
+  onRelay: boolean;
+}
+
+/** When each stage of reaching a device happened (epoch ms), for diagnosing slow joins. */
+export interface DeviceStages {
+  firstSeenAt: number;
+  relaySeenAt?: number;
+  firstAttemptAt?: number;
+  linkUpAt?: number;
+  attempts: number;
 }
 
 const WS_OPEN = 1;
@@ -66,6 +90,11 @@ export class ConnectionManager {
   private links = new Map<string, RtcLink>();
   /** Failed or stalled link attempts per device, for retry backoff (reset when the peer connects). */
   private attempts = new Map<string, number>();
+  private lastErrors = new Map<string, string>();
+  /** Devices that left the relay (and are not linked): not retried until they are announced again. */
+  private gone = new Set<string>();
+  private stages = new Map<string, DeviceStages>();
+  private stateCbs = new Set<() => void>();
   private iceServers: Promise<unknown[]> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private rotateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,6 +109,7 @@ export class ConnectionManager {
     o.mesh.onPeerJoin((p) => this.onPeerJoin(p));
     o.mesh.onPeerLeave((p) => {
       this.evaluate();
+      this.emitState();
       // The peer may simply have restarted: try to reach it again shortly (bounded by the link attempt itself).
       setTimeout(() => {
         const known = this.known.get(p.deviceId);
@@ -93,6 +123,66 @@ export class ConnectionManager {
 
   get socketOpen() {
     return this.ws?.readyState === WS_OPEN;
+  }
+
+  /** Fires when the set of reachable-but-unconnected devices or their attempt state changes. */
+  onState(cb: () => void) {
+    this.stateCbs.add(cb);
+  }
+  private emitState() {
+    for (const cb of this.stateCbs) cb();
+  }
+
+  /** Online co-author devices we are not connected to yet, with the state of our attempts to reach them. */
+  candidates(): Candidate[] {
+    const out: Candidate[] = [];
+    for (const [dev, k] of this.known) {
+      if (this.connected(dev) || this.gone.has(dev)) continue;
+      out.push({
+        dev,
+        uname: k.claims.uname,
+        attempts: this.attempts.get(dev) ?? 0,
+        linking: this.links.has(dev),
+        lastError: this.lastErrors.get(dev) ?? null,
+        onRelay: this.onRelay.has(dev),
+      });
+    }
+    return out;
+  }
+
+  /** Timestamps of the stages reached per device (relay seen, first attempt, link up), for diagnostics. */
+  diagnostics(): Record<string, DeviceStages> {
+    return Object.fromEntries(this.stages);
+  }
+
+  /**
+   * "Sync now": forget failed-attempt backoff, abandon links that may be stalled, reopen the relay socket if needed and
+   * try every known device again. Only the device with the lower id offers, so against a higher-id device this
+   * resets our side and relies on its own (uncapped) retries to offer.
+   */
+  reconnectNow() {
+    if (this.stopped) return;
+    this.attempts.clear();
+    this.lastErrors.clear();
+    for (const [dev, l] of this.links) {
+      l.close();
+      this.links.delete(dev);
+    }
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.backoff = 1000;
+    this.evaluate();
+    for (const k of this.known.values()) if (!this.gone.has(k.claims.dev)) this.maybeConnect(k);
+    this.emitState();
+  }
+
+  private stage(dev: string): DeviceStages {
+    let st = this.stages.get(dev);
+    if (!st) {
+      st = { firstSeenAt: Date.now(), attempts: 0 };
+      this.stages.set(dev, st);
+    }
+    return st;
   }
 
   start() {
@@ -201,6 +291,10 @@ export class ConnectionManager {
       if (!this.connected(m.dev)) {
         this.links.get(m.dev)?.close();
         this.links.delete(m.dev);
+        this.gone.add(m.dev);
+        this.attempts.delete(m.dev);
+        this.lastErrors.delete(m.dev);
+        this.emitState();
       }
     }
     else if (m.t === 'sig' && m.fromTicket && m.env) {
@@ -225,8 +319,14 @@ export class ConnectionManager {
     const linked = this.o.mesh.peers.find((p) => p.deviceId === claims.dev);
     if (linked && linked.ticket !== raw) this.reannounced.add(claims.dev);
     this.known.set(claims.dev, k);
-    if (viaRelay) this.onRelay.add(claims.dev);
+    this.gone.delete(claims.dev);
+    const st = this.stage(claims.dev);
+    if (viaRelay) {
+      this.onRelay.add(claims.dev);
+      st.relaySeenAt ??= Date.now();
+    }
     this.maybeConnect(k);
+    this.emitState();
     return k;
   }
 
@@ -250,8 +350,10 @@ export class ConnectionManager {
       if (this.links.get(dev) !== link) return;
       link.close();
       this.links.delete(dev);
+      this.lastErrors.set(dev, 'connection attempt timed out');
       this.retryLater(dev);
     }, this.o.linkTimeoutMs ?? 20_000);
+    this.stage(dev).firstAttemptAt ??= Date.now();
     const link = new RtcLink({
       factory: this.o.rtcFactory,
       iceServers: ice,
@@ -262,26 +364,34 @@ export class ConnectionManager {
         this.links.delete(dev);
         this.o.mesh.addTransport(t).catch(() => this.retryLater(dev));
       },
-      onFail: () => {
+      onFail: (why) => {
         clearTimeout(timer);
         if (this.links.get(dev) === link) this.links.delete(dev);
+        this.lastErrors.set(dev, why);
         this.retryLater(dev);
       },
     });
     this.links.set(dev, link);
+    this.emitState();
     return link;
   }
 
-  /** Tries a device again with exponential backoff (1 s, 2 s, 4 s ... capped at 30 s, at most 8 attempts). */
+  /**
+   * Tries a device again with exponential backoff (1 s, 2 s, 4 s ... capped at 30 s). There is no attempt limit: a
+   * device that is still online must be reached without the user doing anything. Retrying stops when the device leaves
+   * the relay (see `gone`) or the manager stops.
+   */
   private retryLater(dev: string) {
     if (this.stopped) return;
     const n = (this.attempts.get(dev) ?? 0) + 1;
-    if (n > 8) return;
     this.attempts.set(dev, n);
-    const base = Math.min(30_000, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** n : 1000 * 2 ** (n - 1));
+    this.stage(dev).attempts = n;
+    this.emitState();
+    const cap = this.o.maxBackoffMs ?? 30_000;
+    const base = Math.min(cap, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** Math.min(n, 20) : 1000 * 2 ** Math.min(n - 1, 20));
     setTimeout(() => {
       const k = this.known.get(dev);
-      if (k && !this.stopped && !this.connected(dev) && !this.links.has(dev)) this.maybeConnect(k);
+      if (k && !this.stopped && !this.gone.has(dev) && !this.connected(dev) && !this.links.has(dev)) this.maybeConnect(k);
     }, base);
   }
 
@@ -341,6 +451,10 @@ export class ConnectionManager {
 
   private onPeerJoin(p: PeerInfo) {
     this.attempts.delete(p.deviceId);
+    this.lastErrors.delete(p.deviceId);
+    this.gone.delete(p.deviceId);
+    this.stage(p.deviceId).linkUpAt = Date.now();
+    this.emitState();
     this.reannounced.delete(p.deviceId);
     this.links.get(p.deviceId)?.close();
     this.links.delete(p.deviceId);
