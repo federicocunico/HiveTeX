@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { NativeEngine } from '../src/index.js';
 
-const exe = fileURLToPath(new URL('../../../apps/desktop/src-tauri/target/debug/tex_cli.exe', import.meta.url));
+const exe = fileURLToPath(new URL('../../../apps/desktop/src-tauri/target/debug/examples/tex_cli.exe', import.meta.url));
 const exeUnix = exe.replace(/\.exe$/, '');
 const bin = existsSync(exe) ? exe : existsSync(exeUnix) ? exeUnix : null;
 

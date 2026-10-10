@@ -8,7 +8,7 @@ import { type BridgeEvent, tauriRtcFactory } from '../src/tauri-rtc.js';
 import type { PeerTransport } from '../src/transport.js';
 import { Net } from '../src/testkit.js';
 
-const base = fileURLToPath(new URL('../../../apps/desktop/src-tauri/target/debug/rtc_cli', import.meta.url));
+const base = fileURLToPath(new URL('../../../apps/desktop/src-tauri/target/debug/examples/rtc_cli', import.meta.url));
 const bin = existsSync(`${base}.exe`) ? `${base}.exe` : existsSync(base) ? base : null;
 
 let child: ChildProcessWithoutNullStreams | null = null;

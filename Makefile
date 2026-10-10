@@ -79,7 +79,7 @@ desktop-dev: require-pnpm require-cargo ## Run the desktop app in dev mode
 	$(PNPM) --filter @p2platex/desktop tauri dev
 
 desktop-test: require-cargo ## Rust tests of the desktop shell
-	cd apps/desktop/src-tauri && cargo test --lib
+	cd apps/desktop/src-tauri && cargo test --lib && cargo build --examples
 
 desktop-e2e: require-pnpm require-cargo ## Desktop UI tests: debug app (test-picker) + tauri-driver + WebDriver (see docs/folders.md)
 	$(PNPM) --filter @p2platex/desktop e2e
