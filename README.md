@@ -79,6 +79,11 @@ details.
 
    ![Account → Compiler in the browser](docs/images/compiler-settings.png)
 
+5. **Use Claude Code (or another AI tool):** in the desktop app, right-click the **Files** panel → **Open in
+   terminal** and run `claude`. A project kept in the app first gets its own folder in `Documents/HiveTeX`.
+   Everything the tool changes there (edits, new files, deletes) shows up in HiveTeX at once and reaches your
+   co-authors.
+
 More: [the interface and shortcuts](docs/interface.md) · [importing](docs/import.md) ·
 [projects in folders](docs/folders.md) · [local AI tools](docs/local-ai-tools.md) ·
 [GitHub backup](docs/github-backup.md) · [permissions](docs/permissions.md).

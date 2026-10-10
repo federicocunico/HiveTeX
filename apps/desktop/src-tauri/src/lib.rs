@@ -5,6 +5,7 @@ pub mod probe;
 pub mod rtc;
 pub mod secrets;
 pub mod tex;
+pub mod terminal;
 pub mod texcache;
 pub mod tinytex;
 
@@ -130,12 +131,77 @@ fn mirror_bind(
     })
 }
 
-/// Shows a bound folder in the system file manager (only folders already bound, never an arbitrary path).
+/// Desktop UI tests (test-picker builds): folders and terminals are not really opened; what would have been opened is
+/// appended to `<test pick dir>/.opened` so a test can check it. Returns true when the request was recorded.
+fn record_open_for_tests(_what: &str, _path: &std::path::Path) -> bool {
+    #[cfg(feature = "test-picker")]
+    if let Some(base) = test_picker::base() {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(base.join(".opened")) {
+            let _ = writeln!(f, "{_what} {}", _path.display());
+        }
+        return true;
+    }
+    false
+}
+
+/// Shows a bound folder, or a file in it (`rel`), selected in the system file manager. Only bound folders, never an
+/// arbitrary path; `rel` must stay inside the folder.
 #[tauri::command]
-fn mirror_reveal(app: tauri::AppHandle, state: State<'_, MirrorState>, id: String) -> Result<(), String> {
+fn mirror_reveal(app: tauri::AppHandle, state: State<'_, MirrorState>, id: String, rel: Option<String>) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     let dir = state.root_dir(&id)?;
-    app.opener().reveal_item_in_dir(dir).map_err(|e| e.to_string())
+    let target = match rel.as_deref() {
+        Some(r) if !r.is_empty() => mirror::resolve_inside(&dir, r)?,
+        _ => dir,
+    };
+    if record_open_for_tests("reveal", &target) {
+        return Ok(());
+    }
+    app.opener().reveal_item_in_dir(target).map_err(|e| e.to_string())
+}
+
+/// Opens a bound folder itself in the system file manager.
+#[tauri::command]
+fn mirror_open(app: tauri::AppHandle, state: State<'_, MirrorState>, id: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.root_dir(&id)?;
+    if record_open_for_tests("folder", &dir) {
+        return Ok(());
+    }
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Opens the system terminal in a bound folder (ready for `claude`, `codex`...). Without a known terminal, the folder
+/// opens instead and the error says why.
+#[tauri::command]
+fn mirror_open_terminal(app: tauri::AppHandle, state: State<'_, MirrorState>, id: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.root_dir(&id)?;
+    if record_open_for_tests("terminal", &dir) {
+        return Ok(());
+    }
+    terminal::open(&dir).inspect_err(|_| {
+        let _ = app.opener().open_path(dir.to_string_lossy(), None::<&str>);
+    })
+}
+
+/// Creates (or reuses) `<Documents>/HiveTeX/<slug>` for a project kept in the app, at the member's request, and records
+/// it as a folder the user chose. The path is built here, never taken from the page (see mirror::default_project_folder).
+#[tauri::command]
+fn mirror_default_folder(app: tauri::AppHandle, picked: State<'_, PickedFolders>, slug: String, project_id: String) -> Result<String, String> {
+    #[cfg(feature = "test-picker")]
+    let test_docs = test_picker::base();
+    #[cfg(not(feature = "test-picker"))]
+    let test_docs: Option<std::path::PathBuf> = None;
+    let docs = match test_docs {
+        Some(d) => d,
+        None => app.path().document_dir().or_else(|_| app.path().home_dir()).map_err(|e| e.to_string())?,
+    };
+    let dir = mirror::default_project_folder(&docs, &slug, &project_id)?;
+    picked.add(&dir)?;
+    // the plain path (not the canonical \? form on Windows): it is shown and copied; binding compares canonically
+    Ok(dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -476,6 +542,9 @@ pub fn run() {
             mirror_bind,
             mirror_unbind,
             mirror_reveal,
+            mirror_open,
+            mirror_open_terminal,
+            mirror_default_folder,
             mirror_list,
             mirror_read,
             mirror_write,
@@ -509,11 +578,15 @@ pub fn run() {
 mod test_picker {
     use std::path::PathBuf;
 
-    pub fn next() -> Option<PathBuf> {
-        // `--test-pick-dir <dir>` (WebDriver drivers forward app arguments, not always the environment) or the variable.
+    /// `--test-pick-dir <dir>` (WebDriver drivers forward app arguments, not always the environment) or the variable.
+    pub fn base() -> Option<PathBuf> {
         let mut args = std::env::args_os().skip_while(|a| a != "--test-pick-dir");
         let from_args = args.nth(1);
-        let base = PathBuf::from(from_args.or_else(|| std::env::var_os("HIVETEX_TEST_PICK_DIR"))?);
+        Some(PathBuf::from(from_args.or_else(|| std::env::var_os("HIVETEX_TEST_PICK_DIR"))?))
+    }
+
+    pub fn next() -> Option<PathBuf> {
+        let base = base()?;
         let next = base.join(".next-pick");
         let dir = match std::fs::read_to_string(&next) {
             Ok(name) => {

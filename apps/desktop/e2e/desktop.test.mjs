@@ -301,3 +301,65 @@ test('the web app pairs with the desktop app (confirmed here), compiles through 
   const after = await fetch(`${base}/compile`, { method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${token}` }, body: '{}' });
   assert.equal(after.status, 401);
 });
+
+test('right-click Files > Open folder puts a project kept in the app in Documents/HiveTeX, and disk changes show up live', { timeout: 300_000 }, async () => {
+  await home();
+  const slug = uniq('ctx-');
+  await (await byTestId('new-project-btn')).click();
+  await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
+  await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
+  await (await b.$("//button[normalize-space()='Create project']")).click();
+  await byTestId('workspace');
+  await filesPanel();
+  await (await b.$('button[aria-label="New file"]')).click();
+  await (await byTestId('new-name')).setValue('main.tex');
+  await (await byTestId('new-name')).type(Keys.Enter);
+  await until(() => treeHas('main.tex'), 'main.tex created');
+  assert.match(await fullText('location-btn'), /In the app/);
+
+  // right-click a file: the menu offers the folder actions
+  const menuFor = async (name) => {
+    await treeHas(name);
+    await b.execute((n) => {
+      const el = document.querySelector(`[data-e2e-hit="${n}"]`);
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 8 }));
+    }, name);
+    return byTestId('files-menu');
+  };
+  await menuFor('main.tex');
+  for (const id of ['ctx-open-folder', 'ctx-terminal', 'ctx-copy-path', 'ctx-reveal']) assert.ok(await b.find(`[data-testid="${id}"]`), id);
+  // test builds record what would have been opened instead of opening it
+  const opened = join(pickBase, '.opened');
+  writeFileSync(opened, '');
+  const openedLine = (kind) => readFileSync(opened, 'utf8').split('\n').find((l) => l.startsWith(`${kind} `) && l.includes('HiveTeX') && l.endsWith(slug));
+
+  // Open folder: the project is put in <Documents>/HiveTeX/<slug>, and that folder opens
+  await (await byTestId('ctx-open-folder')).click();
+  const folder = join('HiveTeX', slug);
+  await until(() => readDisk(folder, 'main.tex') !== null, 'project files written to Documents/HiveTeX/<slug>');
+  await until(() => openedLine('folder'), 'the folder was opened');
+  await until(async () => {
+    await filesPanel();
+    return (await fullText('location-btn')).includes(slug);
+  }, 'the project now lives in that folder');
+  assert.match(readDisk(folder, '.hivetex.json') ?? '', new RegExp(slug));
+
+  // an AI tool adds a file and edits another on disk: both show up in the app at once
+  writeDisk(folder, 'sections/related.tex', 'Related work, written by an AI tool.\n');
+  await until(() => treeHas('related.tex'), 'file created on disk appears in the tree');
+  await (await treeHas('main.tex')).click();
+  await show('Editor');
+  writeDisk(folder, 'main.tex', '\documentclass{article}\n\begin{document}\nRewritten on disk.\n\end{document}\n');
+  await until(async () => (await editorText()).includes('Rewritten on disk.'), 'disk edit visible in the editor');
+
+  // Open in terminal and Copy folder path use the same folder (no second one is created)
+  await menuFor('main.tex');
+  await (await byTestId('ctx-terminal')).click();
+  await until(() => openedLine('terminal'), 'terminal opened in the folder');
+  await menuFor('main.tex');
+  await (await byTestId('ctx-copy-path')).click();
+  const dir = join(pickBase, 'HiveTeX', slug);
+  await until(async () => (await b.execute(() => document.body.innerText)).includes(`Copied ${dir}`), 'path copied');
+  assert.equal(readDisk(join('HiveTeX', `${slug}-2`), 'main.tex'), null, 'no second folder');
+});

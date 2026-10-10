@@ -220,9 +220,95 @@ impl MirrorState {
     }
 }
 
+/// The project a folder's marker (`.hivetex.json`) names, if any.
+fn marker_project(dir: &Path) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(dir.join(".hivetex.json")).ok()?).ok()?;
+    v.get("project")?.get("id")?.as_str().map(str::to_string)
+}
+
+/// The folder HiveTeX creates for a project kept in the app, at the member's request: `<documents>/HiveTeX/<slug>`.
+/// An existing folder is used only when it is empty or already this project's (its marker); otherwise `<slug>-2`,
+/// `-3`, … The slug is reduced to `[a-z0-9_-]`, so the result is always a direct child of `<documents>/HiveTeX`.
+pub fn default_project_folder(documents: &Path, slug: &str, project_id: &str) -> Result<PathBuf, String> {
+    let clean: String = slug.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    let clean = clean.trim_matches('-');
+    if clean.is_empty() || clean.len() > 64 {
+        return Err("invalid project ID".into());
+    }
+    let root = documents.join("HiveTeX");
+    fs::create_dir_all(&root).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
+    for n in 1..=99 {
+        let dir = root.join(if n == 1 { clean.to_string() } else { format!("{clean}-{n}") });
+        match fs::symlink_metadata(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+                return Ok(dir);
+            }
+            Ok(m) if m.is_dir() => {
+                let empty = fs::read_dir(&dir).map(|mut d| d.next().is_none()).unwrap_or(false);
+                if empty || marker_project(&dir).as_deref() == Some(project_id) {
+                    return Ok(dir);
+                }
+            }
+            // a file, a symlink or an unreadable entry: never reused
+            _ => {}
+        }
+    }
+    Err(format!("no free folder name for {clean} in {}", root.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_or_revealing_needs_a_bound_folder_and_stays_inside_it() {
+        let state = MirrorState::default();
+        assert!(state.root_dir("not-bound").is_err());
+        let d = tmp("reveal");
+        state.bind("p", &d, |_| {}).unwrap();
+        let root = state.root_dir("p").unwrap();
+        assert!(resolve_inside(&root, "main.tex").is_ok());
+        assert!(resolve_inside(&root, "../outside.tex").is_err());
+        state.unbind("p");
+        assert!(state.root_dir("p").is_err());
+    }
+
+    #[test]
+    fn default_folder_is_created_reused_only_when_empty_or_ours_and_otherwise_numbered() {
+        let docs = tmp("docs");
+        let root = docs.join("HiveTeX");
+        // fresh
+        let a = default_project_folder(&docs, "thesis-2026", "p1").unwrap();
+        assert_eq!(a, root.join("thesis-2026"));
+        assert!(a.is_dir());
+        // empty: reused
+        assert_eq!(default_project_folder(&docs, "thesis-2026", "p1").unwrap(), a);
+        // our own marker: reused
+        fs::write(a.join(".hivetex.json"), r#"{"project":{"id":"p1","slug":"thesis-2026"}}"#).unwrap();
+        fs::write(a.join("main.tex"), "x").unwrap();
+        assert_eq!(default_project_folder(&docs, "thesis-2026", "p1").unwrap(), a);
+        // another project's marker: next name, existing folder untouched
+        let b = default_project_folder(&docs, "thesis-2026", "p2").unwrap();
+        assert_eq!(b, root.join("thesis-2026-2"));
+        assert_eq!(fs::read_to_string(a.join("main.tex")).unwrap(), "x");
+        // unrelated files (no marker)
+        let c = docs.join("HiveTeX").join("notes");
+        fs::create_dir_all(&c).unwrap();
+        fs::write(c.join("todo.txt"), "mine").unwrap();
+        assert_eq!(default_project_folder(&docs, "notes", "p3").unwrap(), root.join("notes-2"));
+        // a file with the name
+        fs::write(root.join("paper"), "file").unwrap();
+        assert_eq!(default_project_folder(&docs, "paper", "p4").unwrap(), root.join("paper-2"));
+        // hostile slugs stay inside HiveTeX
+        for (slug, want) in [("../x", "x"), ("a/b", "ab"), (r"..\..\c", "c"), ("UP", "up")] {
+            let d = default_project_folder(&docs, slug, "p5").unwrap();
+            assert_eq!(d.parent().unwrap(), root, "{slug}");
+            assert_eq!(d.file_name().unwrap().to_string_lossy(), want, "{slug}");
+        }
+        assert!(default_project_folder(&docs, "../..", "p6").is_err());
+        assert!(default_project_folder(&docs, "", "p6").is_err());
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("p2p-mirror-rs-{name}-{}", std::process::id()));

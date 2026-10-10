@@ -199,3 +199,41 @@ test('the status bar and PDF bar speak plainly', async ({ browser }) => {
   await expect(p.getByTestId('stale-badge')).toContainText(/Outdated: \d+ edits? since the last compile/);
   await o.ctx.close();
 });
+
+test('a selection is highlighted on every line it covers, including the line with the cursor (both themes)', async ({ browser }) => {
+  const o = await owner(browser);
+  const p = o.page;
+  await addFile(p, 'sel.tex');
+  await p.getByRole('treeitem', { name: 'sel.tex' }).click();
+  await replaceEditorText(p, 'line one\nline two\nline three\nline four\nline five\nline six\nline seven\n');
+  for (const scheme of ['light', 'dark'] as const) {
+    await p.emulateMedia({ colorScheme: scheme });
+    // from the start of line 3 to the end of line 6, as a mouse drag or Shift+Down would select
+    await p.locator('.cm-line', { hasText: 'line three' }).click({ position: { x: 1, y: 5 } });
+    await p.keyboard.press('Home');
+    for (let i = 0; i < 3; i++) await p.keyboard.press('Shift+ArrowDown');
+    await p.keyboard.press('Shift+End');
+    await expect(p.locator('.cm-activeLine')).toHaveCount(0);
+    // the selection layer is drawn after a measure frame: wait for it
+    await expect
+      .poll(() =>
+        p.evaluate(() => {
+      const boxes = [...document.querySelectorAll('.cm-selectionBackground')].map((e) => e.getBoundingClientRect());
+      const lines = [...document.querySelectorAll('.cm-line')].filter((l) => /line (three|four|five|six)/.test(l.textContent ?? ''));
+      return lines.map((l) => {
+        const r = l.getBoundingClientRect();
+        const y = r.top + r.height / 2;
+        const hit = boxes.some((b) => b.top <= y && b.bottom >= y && b.width > 4);
+        // the line itself must not paint over the selection layer
+        const bg = getComputedStyle(l).backgroundColor;
+        return hit && (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent');
+      });
+    }),
+      )
+      .toEqual([true, true, true, true]);
+    // nothing selected: the current line is tinted again
+    await p.keyboard.press('ArrowRight');
+    await expect(p.locator('.cm-activeLine')).toHaveCount(1);
+  }
+  await o.ctx.close();
+});

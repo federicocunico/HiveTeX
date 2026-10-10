@@ -27,6 +27,11 @@ password protected, kept in a folder on this device, or backed up to GitHub.
 | PDF | The compiled document with zoom and page navigation. *Up to date* or *Outdated: N edits since the last compile* says whether it shows your latest edits; *compiled by* names the device that built it. Double-click the PDF to jump to the source line; Ctrl+Alt+J jumps from the source to the PDF. |
 | Status bar | Whether your changes are synced (or kept offline), how many co-authors are online, which device compiles for everyone, your compile mode, and the cursor position. |
 
+Right-click a file or the **Files** panel (or press Shift+F10 on a focused file) for its actions: open, rename or
+move, delete, set as main document, download and, in the desktop app, **Open folder**, **Open in terminal** (for Claude
+Code, Codex and other tools), **Copy folder path** and **Show in file manager**. See
+[Projects in folders](folders.md#right-click-in-the-files-panel-open-the-folder-or-a-terminal).
+
 Drag the dividers (or focus one and use the arrow keys) to resize the side panel and the editor/PDF split. Hide the
 PDF with its panel button or Ctrl+Alt+P. **Focus mode** (Ctrl+Shift+F) hides everything except the editor and PDF.
 Panel sizes, the open panel, PDF visibility and zoom are remembered on this device; *Reset layout* restores the
@@ -90,3 +95,4 @@ Editor keys:
 | Select next occurrence | Mod+D |
 | Undo / redo | Mod+Z / Mod+Shift+Z |
 | Show completions | Ctrl+Space |
+| File actions (in the Files panel) | Shift+F10 or the context-menu key |

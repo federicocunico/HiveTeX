@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { FileEntry } from '@hivetex/sync';
-  import type { Snippet } from 'svelte';
+  import { type Snippet, tick } from 'svelte';
   import { type LooseItem, itemsFromDrop, itemsFromFiles } from '../lib/import/sources.js';
   import { ChevronDown, ChevronRight, Download, FileCode, FileImage, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Pencil, Star, Trash, Upload } from '../ui/icons.js';
+  import ContextMenu from '../ui/ContextMenu.svelte';
   import Icon from '../ui/Icon.svelte';
+  import type { MenuItem } from '../ui/Menu.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import PanelHead from './workspace/PanelHead.svelte';
 
@@ -21,6 +23,7 @@
     onSetMain,
     headerExtra,
     presence = {},
+    folderActions,
   }: {
     files: FileEntry[];
     activeId: string | null;
@@ -38,6 +41,8 @@
     headerExtra?: Snippet;
     /** Co-authors with each file open: path → [{ name, color }]. */
     presence?: Record<string, Array<{ name: string; color: string }>>;
+    /** Items about the project's folder for the context menu (Open folder, Open in terminal...); `path` = the item, or null. */
+    folderActions?: (path: string | null) => MenuItem[];
   } = $props();
 
   interface Node {
@@ -140,6 +145,59 @@
     return /\.(tex|bib|sty|cls|bst|txt|md)$/i.test(n.name) ? FileText : FileCode;
   }
 
+  /** Context menu: on a file, a folder or (node null) the panel's empty area. */
+  let menu = $state<null | { x: number; y: number; node: Node | null; from: HTMLElement | null }>(null);
+
+  function openMenu(e: MouseEvent | KeyboardEvent, node: Node | null) {
+    // text fields keep the browser's own menu (copy, paste)
+    if ((e.target as HTMLElement | null)?.closest?.('input, textarea')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const from = e.currentTarget as HTMLElement;
+    if (e instanceof MouseEvent && e.type === 'contextmenu' && (e.clientX || e.clientY)) menu = { x: e.clientX, y: e.clientY, node, from };
+    else {
+      const r = (from.querySelector('.node') ?? from).getBoundingClientRect();
+      menu = { x: r.left + 24, y: r.bottom, node, from };
+    }
+  }
+
+  async function askDelete(n: Node) {
+    confirmDelete = n.path;
+    await tick();
+    document.querySelector<HTMLElement>('[data-testid="confirm-delete"]')?.focus();
+  }
+
+  function menuItems(n: Node | null): MenuItem[] {
+    const items: MenuItem[] = [];
+    const f = n?.entry ?? null;
+    if (n && !isDir(n) && f) {
+      items.push({ label: 'Open', icon: FileText, onSelect: () => onOpen(f), testid: 'ctx-open' });
+      if (canWrite && f.path.endsWith('.tex') && f.path !== mainPath) items.push({ label: 'Set as main document', icon: Star, onSelect: () => onSetMain(f), testid: 'ctx-main' });
+      if (canWrite) {
+        items.push({ label: 'Rename or move', icon: Pencil, onSelect: () => startRename(f.path), testid: 'ctx-rename' });
+        items.push({ label: 'Delete', icon: Trash, danger: true, onSelect: () => void askDelete(n), testid: 'ctx-delete' });
+      }
+      items.push({ label: 'Download', icon: Download, onSelect: () => onDownload(f), testid: 'ctx-download' });
+    } else if (n) {
+      if (canWrite) {
+        items.push({ label: 'New file here', icon: FilePlus, onSelect: () => { adding = { kind: 'file', dir: n.path }; addName = ''; }, testid: 'ctx-new-file' });
+        items.push({ label: 'Upload here', icon: Upload, onSelect: () => { uploadDir = n.path; fileInput.click(); }, testid: 'ctx-upload' });
+        if (f) {
+          items.push({ label: 'Rename or move', icon: Pencil, onSelect: () => startRename(f.path), testid: 'ctx-rename' });
+          items.push({ label: 'Delete', icon: Trash, danger: true, onSelect: () => void askDelete(n), testid: 'ctx-delete' });
+        }
+      }
+    } else if (canWrite) {
+      items.push({ label: 'New file', icon: FilePlus, onSelect: () => startAdd('file'), testid: 'ctx-new-file' });
+      items.push({ label: 'New folder', icon: FolderPlus, onSelect: () => startAdd('folder'), testid: 'ctx-new-folder' });
+      items.push({ label: 'Upload files', icon: Upload, onSelect: () => { uploadDir = ''; fileInput.click(); }, testid: 'ctx-upload' });
+    }
+    const extra = folderActions?.(n?.path ?? null) ?? [];
+    if (extra.length && items.length) items.push('separator');
+    items.push(...extra);
+    return items;
+  }
+
   /** Arrow-key navigation between visible tree items (WAI-ARIA tree). */
   function onTreeKey(e: KeyboardEvent, n: Node) {
     const items = [...((e.currentTarget as HTMLElement).closest('[role="tree"]')?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])];
@@ -160,9 +218,11 @@
       aria-selected={c.entry?.id === activeId}
       aria-expanded={isDir(c) ? !collapsed.has(c.path) : undefined}
       tabindex="0"
+      oncontextmenu={(e) => openMenu(e, c)}
       onkeydown={(e) => {
         if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter') isDir(c) ? toggle(c.path) : c.entry && onOpen(c.entry);
+        if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) openMenu(e, c);
+        else if (e.key === 'Enter') isDir(c) ? toggle(c.path) : c.entry && onOpen(c.entry);
         else onTreeKey(e, c);
       }}
     >
@@ -170,6 +230,7 @@
         class="node"
         data-dir={isDir(c) ? c.path : c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''}
         class:active={c.entry?.id === activeId}
+        class:confirming={confirmDelete === c.path}
         style:padding-left="{6 + depth * 14}px"
         role="presentation"
         onclick={() => (isDir(c) ? toggle(c.path) : c.entry && onOpen(c.entry))}
@@ -210,7 +271,7 @@
             {#if c.entry}
               <IconButton icon={Pencil} size={24} label={`Rename ${c.name}`} tip="Rename or move" onclick={(e) => { e.stopPropagation(); renaming = c.path; renameTo = c.path; }} />
               {#if confirmDelete === c.path}
-                <button type="button" class="confirm" onclick={(e) => { e.stopPropagation(); c.entry && onDelete(c.entry); confirmDelete = null; }}>Delete?</button>
+                <button type="button" class="confirm" data-testid="confirm-delete" onblur={() => (confirmDelete = null)} onclick={(e) => { e.stopPropagation(); c.entry && onDelete(c.entry); confirmDelete = null; }}>Delete?</button>
               {:else}
                 <IconButton icon={Trash} size={24} label={`Delete ${c.name}`} tip="Delete" onclick={(e) => { e.stopPropagation(); confirmDelete = c.path; }} />
               {/if}
@@ -240,6 +301,7 @@
   ondragover={(e) => { if (canWrite) { e.preventDefault(); dragging = true; } }}
   ondragleave={() => (dragging = false)}
   ondrop={onDrop}
+  oncontextmenu={(e) => openMenu(e, null)}
 >
   <PanelHead title="Files">
     {#if canWrite}
@@ -270,6 +332,12 @@
     </div>
   {/if}
   <ul role="tree" aria-label="Files" class="tree">{@render branch(tree, 0)}</ul>
+  {#if menu}
+    {@const items = menuItems(menu.node)}
+    {#if items.length}
+      <ContextMenu label={menu.node ? `Actions for ${menu.node.name}` : 'File actions'} {items} x={menu.x} y={menu.y} returnFocus={menu.from} testid="files-menu" onClose={() => (menu = null)} />
+    {/if}
+  {/if}
   {#if files.length === 0}
     <p class="empty">{canWrite ? 'This project is empty. Create a file, or drop files and folders here.' : 'This project is empty.'}</p>
   {/if}
@@ -358,6 +426,7 @@
     flex: none;
   }
   .node:hover .acts,
+  .node.confirming .acts,
   .node:focus-within .acts,
   li:focus-visible > .node .acts {
     display: flex;

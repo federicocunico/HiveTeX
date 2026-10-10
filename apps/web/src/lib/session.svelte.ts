@@ -31,6 +31,7 @@ import {
 } from '@hivetex/sync';
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
+import { type FolderAction, type FolderDeps, runFolderAction } from './project-folder.js';
 import { HelperEngine, type PairResult, helperToken, pairWithDesktop, probeHelper } from './helper-engine.js';
 import { applyImport, planFor } from './import/apply.js';
 import { classify } from './import/classify.js';
@@ -872,6 +873,26 @@ export class ProjectSession {
       if (engine && !this.model.settings.get('engine')) this.model.settings.set('engine', engine);
     }, LOCAL_ORIGIN);
     return main;
+  }
+
+  /**
+   * Desktop: Open folder / Open in terminal / Copy folder path / Show in file manager. A project kept in the app first
+   * gets its own folder in Documents/HiveTeX (see project-folder.ts).
+   */
+  async folderAction(action: FolderAction, onCreating?: (path: string) => void) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return runFolderAction(
+      {
+        projectId: this.project.id,
+        slug: this.project.slug,
+        boundPath: () => (this.mirrorDir && this.location.kind === 'folder' ? (this.location.desktopPath ?? null) : null),
+        bind: (path) => this.bindFolder({ desktopPath: path }),
+        invoke: invoke as FolderDeps['invoke'],
+        copy: (text) => navigator.clipboard.writeText(text),
+        ...(onCreating ? { onCreating } : {}),
+      },
+      action,
+    );
   }
 
   /** Desktop: opens the bound folder in the system file manager. */

@@ -5,7 +5,8 @@
   import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from '@codemirror/lint';
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
   import { Compartment, EditorState, Prec } from '@codemirror/state';
-  import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
+  import { EditorView, drawSelection, keymap, lineNumbers } from '@codemirror/view';
+  import { activeLineWhenNoSelection } from '../lib/active-line.js';
   import type { Diagnostic } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
   import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
@@ -171,7 +172,7 @@
           keymapMode.of([]),
           lineNumbers(),
           drawSelection(),
-          highlightActiveLine(),
+          activeLineWhenNoSelection(),
           indentOnInput(),
           bracketMatching(),
           closeBrackets(),

@@ -35,6 +35,35 @@ they become the project's files). Then **Create project**.
 What gets imported follows the mirror rules: `.git/`, `.claude/`, `.cursor/`, `.vscode/`, `node_modules/`, LaTeX build
 files and `.hivetexignore` patterns stay out. Files larger than 50 MB are skipped with a notice.
 
+## Right-click in the Files panel: open the folder or a terminal
+
+Right-click a file, a folder or the empty part of the **Files** panel (or press Shift+F10 or the context-menu key on a
+focused file). Besides the file actions (open, rename or move, delete, set as main document, download, new file,
+upload), the desktop app offers:
+
+- **Open folder:** opens the project's folder in the file manager.
+- **Open in terminal:** opens a terminal in the folder, ready for `claude`, `codex` or any tool. It uses Windows
+  Terminal (or a Command Prompt window) on Windows, Terminal on macOS, and on Linux the first of
+  `x-terminal-emulator`, GNOME Terminal, Konsole, Xfce Terminal, kitty, Alacritty or xterm. Without any of them, the
+  folder opens instead.
+- **Copy folder path:** for pasting into a tool or a terminal you already have open.
+- **Show in file manager:** shows the file you right-clicked, selected.
+
+A project still kept **in the app** gets its own folder the first time you use one of these:
+`Documents/HiveTeX/<project ID>` (on Linux, your XDG Documents folder). The project's files are written there and the
+project uses that folder from then on, exactly as if you had chosen it with *Use a folder…*. If that folder already
+exists and holds something else, `<project ID>-2` (then `-3`...) is used, and the existing folder is never touched.
+
+From then on, everything a tool does in the folder shows up in HiveTeX at once and reaches your co-authors: edits, new
+files, deletes and renames. Their edits are written to the folder within a second.
+
+> If Documents is synced by OneDrive, iCloud Drive or similar, the project folder is synced by that service too,
+> including LaTeX build files a tool may leave there (HiveTeX itself ignores them). Use *Use another folder…* to keep
+> the project elsewhere.
+
+In the web app, browsers cannot open a file manager or a terminal: the menu offers **Use a folder…** instead (Chrome,
+Edge and other Chromium browsers).
+
 ## The Location menu
 
 In a project, the button at the bottom of the **Files** panel (**In the folder …** or **In the app**) shows where the

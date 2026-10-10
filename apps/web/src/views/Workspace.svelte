@@ -64,8 +64,12 @@
     FilePlus,
     Files,
     FileText,
+    Copy,
+    FolderInput,
     FolderOpen,
     FolderPlus,
+    FolderSearch,
+    SquareTerminal,
     Help,
     History,
     Keyboard,
@@ -85,6 +89,7 @@
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import type { FolderAction } from '../lib/project-folder.js';
   import Splitter from '../ui/Splitter.svelte';
   import { toast } from '../ui/toast.svelte.js';
   import { takePendingImport, takePendingTemplate } from './Projects.svelte';
@@ -418,6 +423,30 @@
       toast(`Project files are now in the folder "${session.mirrorDir}"`);
     } catch (e) {
       toast(`Could not use that folder: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    }
+  }
+
+  /** Files context menu: the project's folder (desktop), or linking one (web). */
+  function folderActions(path: string | null): MenuItem[] {
+    if (!session) return [];
+    if (!isDesktop) return canUseFolders && !session.mirrorDir ? [{ label: 'Use a folder…', icon: FolderInput, onSelect: () => void linkFolder(), testid: 'ctx-use-folder' }] : [];
+    const items: MenuItem[] = [
+      { label: 'Open folder', icon: FolderOpen, onSelect: () => void folderAction({ kind: 'open' }), testid: 'ctx-open-folder' },
+      { label: 'Open in terminal', icon: SquareTerminal, onSelect: () => void folderAction({ kind: 'terminal' }), testid: 'ctx-terminal' },
+      { label: 'Copy folder path', icon: Copy, onSelect: () => void folderAction({ kind: 'copy' }), testid: 'ctx-copy-path' },
+    ];
+    if (path) items.push({ label: 'Show in file manager', icon: FolderSearch, onSelect: () => void folderAction({ kind: 'reveal', path }), testid: 'ctx-reveal' });
+    return items;
+  }
+
+  async function folderAction(action: FolderAction) {
+    if (!session) return;
+    try {
+      const r = await session.folderAction(action, (path) => toast(`Putting the project in the folder ${path}…`, 'info'));
+      if (r.created) toast(`Project files are now in ${r.path}. Edits there sync with everyone.`);
+      if (action.kind === 'copy') toast(`Copied ${r.path}`);
+    } catch (e) {
+      toast(`${action.kind === 'terminal' ? 'Could not open a terminal' : 'Could not use the project folder'}: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   }
 
@@ -826,6 +855,7 @@
                   onDownload={downloadFile}
                   onSetMain={setMain}
                   presence={presenceByFile}
+                  {folderActions}
                 >
                   {#snippet headerExtra()}
                     {#if s.canWrite}<IconButton icon={FolderOpen} size={28} label="Import…" tip="Import a .zip, a folder or files" data-testid="import-btn" onclick={() => (importRequest = { kind: 'pick' })} />{/if}

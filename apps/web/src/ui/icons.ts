@@ -72,3 +72,6 @@ export { default as WifiOff } from '@lucide/svelte/icons/wifi-off';
 export { default as X } from '@lucide/svelte/icons/x';
 export { default as ZoomIn } from '@lucide/svelte/icons/zoom-in';
 export { default as ZoomOut } from '@lucide/svelte/icons/zoom-out';
+export { default as FolderInput } from '@lucide/svelte/icons/folder-input';
+export { default as FolderSearch } from '@lucide/svelte/icons/folder-search';
+export { default as SquareTerminal } from '@lucide/svelte/icons/square-terminal';
