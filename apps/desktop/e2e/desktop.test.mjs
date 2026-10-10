@@ -213,7 +213,7 @@ test('link a folder to a project, then open that folder again from the projects 
   await home();
   pickNext(dir);
   await (await byTestId('open-folder')).click();
-  await until(async () => (await textOf('project-slug')) === slug, 'project opened from marker');
+  await until(async () => (await fullText('project-slug')) === slug, 'project opened from marker');
   await showFiles();
   await until(async () => {
     await filesPanel();
@@ -245,7 +245,7 @@ test('without any TeX installed, the first compile sets up the quick compiler an
   // builds stay local: the PDF is this device's own
   await show('PDF');
   await showPdf();
-  await until(async () => (await textOf('compiled-by')).includes('(this device)'), 'local PDF from the quick compiler', 300_000);
+  await until(async () => (await fullText('compiled-by')).includes('(this device)'), 'local PDF from the quick compiler', 300_000);
   assert.match(await textOf('compiler-state'), /builds stay on this device/);
 });
 
