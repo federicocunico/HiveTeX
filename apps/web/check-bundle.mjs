@@ -21,4 +21,28 @@ for (const f of readdirSync(join(dist, 'assets'))) {
     ok = false;
   }
 }
+
+// The deployed CSP (vercel.json) must allow what the build needs: the dev server and e2e run without it.
+const vercel = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
+const csp = vercel.headers.flatMap((h) => h.headers).find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
+const directive = (name) => (csp.split(';').map((d) => d.trim().split(/\s+/)).find((d) => d[0] === name) ?? []).slice(1);
+const fontSrc = directive('font-src').length ? directive('font-src') : directive('default-src');
+for (const f of readdirSync(join(dist, 'assets'))) {
+  if (!f.endsWith('.css')) continue;
+  if (/url\(\s*["']?data:font\//.test(readFileSync(join(dist, 'assets', f), 'utf8')) && !fontSrc.includes('data:')) {
+    console.error(`${f} embeds a font as a data: URI, which the deployed CSP blocks (font-src)`);
+    ok = false;
+  }
+}
+const helperPorts = readFileSync(new URL('./src/lib/helper-engine.ts', import.meta.url), 'utf8').match(/const PORTS = \[([^\]]+)\]/)?.[1].split(',').map((p) => p.trim()) ?? [];
+for (const port of helperPorts) {
+  if (!directive('connect-src').includes(`http://127.0.0.1:${port}`)) {
+    console.error(`the deployed CSP (connect-src) does not allow the desktop helper on http://127.0.0.1:${port}`);
+    ok = false;
+  }
+}
+if (!helperPorts.length) {
+  console.error('could not read the desktop helper ports from helper-engine.ts');
+  ok = false;
+}
 if (!ok) process.exit(1);

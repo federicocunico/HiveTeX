@@ -33,6 +33,8 @@ export default defineConfig({
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 700,
+    // Fonts stay files: the deployed CSP (vercel.json) allows fonts from 'self' only, never data: URIs.
+    assetsInlineLimit: (file: string) => (/\.(woff2?|ttf|otf)$/.test(file) ? false : undefined),
     rollupOptions: {
       output: {
         manualChunks(id) {

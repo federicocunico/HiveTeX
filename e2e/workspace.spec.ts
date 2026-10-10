@@ -149,6 +149,20 @@ test('a toast still showing never covers the buttons of a dialog opened after it
   await o.ctx.close();
 });
 
+test('in a narrow PDF pane, "compiled by" moves to its own line instead of being squeezed out', async ({ browser }) => {
+  const o = await owner(browser, { width: 1100, height: 700 });
+  const p = o.page;
+  await addFile(p, 'main.tex');
+  await p.getByRole('treeitem', { name: 'main.tex' }).click();
+  await p.getByRole('button', { name: 'Recompile' }).click();
+  const by = p.getByTestId('compiled-by');
+  await expect(by).toBeVisible({ timeout: 30_000 });
+  // the whole "compiled by <name> (this device)" fits, and the zoom controls stay on the bar too
+  expect(await by.evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.clientWidth > 0)).toBe(true);
+  await expect(p.getByRole('button', { name: 'Zoom in' })).toBeVisible();
+  await o.ctx.close();
+});
+
 test('a failing compile is listed under Problems, and Go to line moves the cursor there', async ({ browser }) => {
   const o = await owner(browser);
   const p = o.page;

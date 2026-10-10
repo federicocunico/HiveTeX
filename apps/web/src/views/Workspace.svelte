@@ -384,6 +384,8 @@
 
   let showLocation = $state(false);
   const canUseFolders = isDesktop || folderAccessSupported();
+  /** The folder's own name: the end of a path is what identifies it, and the side panel is too narrow for the rest. */
+  const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
   // Web: compile with the HiveTeX desktop app running on this computer (it asks the user to allow it).
   let pairing = $state(false);
@@ -834,8 +836,8 @@
                     {#if s.folderPending}
                       <button type="button" class="small primary" onclick={allowFolder} data-testid="allow-folder" data-tip={`Let the app read and write "${s.location.kind === 'folder' ? s.location.label : ''}" again`}>Allow access to “{s.location.kind === 'folder' ? s.location.label : ''}”</button>
                     {/if}
-                    <button type="button" class="loc-btn" onclick={() => (showLocation = !showLocation)} aria-expanded={showLocation} aria-haspopup="menu" data-testid="location-btn" data-tip="Where this project's files live on this device">
-                      <Icon icon={FolderOpen} size={14} /><span class="loc-label">{s.mirrorDir ? `In the folder ${s.mirrorDir}` : 'In the app'}</span><Icon icon={ChevronDown} size={14} />
+                    <button type="button" class="loc-btn" onclick={() => (showLocation = !showLocation)} aria-expanded={showLocation} aria-haspopup="menu" data-testid="location-btn" data-tip={s.mirrorDir ? `Files are in ${s.mirrorDir}` : "Where this project's files live on this device"}>
+                      <Icon icon={FolderOpen} size={14} /><span class="loc-label">{s.mirrorDir ? `In the folder ${folderName(s.mirrorDir)}` : 'In the app'}</span><Icon icon={ChevronDown} size={14} />
                     </button>
                     {#if showLocation}
                       <div class="location-menu" role="menu" data-testid="location-menu">

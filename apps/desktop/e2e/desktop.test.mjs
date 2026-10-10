@@ -53,6 +53,7 @@ async function until(fn, msg, ms = 15_000) {
  * WebDriver "element text" differs between WebView2 and WebKitGTK, textContent does not.
  */
 async function treeHas(name) {
+  if (!(await b.execute(() => !!document.querySelector('aside.side')))) await filesPanel();
   const found = await b.execute((n) => {
     for (const el of document.querySelectorAll('[role="treeitem"]')) {
       const own = el.cloneNode(true);
@@ -67,7 +68,37 @@ async function treeHas(name) {
   }, name);
   return found ? b.find(`[data-e2e-hit="${name}"]`) : null;
 }
+/**
+ * Under 1100 px (the CI runners' screens) the workspace is narrow: the side panel is an overlay opened from the rail,
+ * and the editor and the PDF take turns. These make the files panel / a view visible in both layouts.
+ */
+async function filesPanel() {
+  const open = await b.execute(() => !!document.querySelector('aside.side [data-testid="location-btn"]'));
+  if (!open) await (await byTestId('rail-files')).click();
+  await byTestId('location-btn');
+}
+async function show(view) {
+  await b.execute((v) => {
+    for (const btn of document.querySelectorAll('.ws.narrow [aria-label="Show"] button')) if (btn.textContent.trim() === v) btn.click();
+  }, view);
+}
+/** Text of an element even where the narrow layout hides its label. */
+const fullText = (id) => b.execute((i) => document.querySelector(`[data-testid="${i}"]`)?.textContent ?? '', id);
 const editorText = async () => (await b.$('.cm-content')).getText();
+const present = (sel) => b.execute((s) => !!document.querySelector(s), sel);
+
+/**
+ * Under 1100 px (CI screens are 1024 × 768) the workspace is in its narrow layout: the side panel stays closed until
+ * a rail button opens it, and editor and PDF take turns. These open what a test needs, in either layout.
+ */
+async function showFiles() {
+  if (!(await present('[data-testid="file-tree"]'))) await (await byTestId('rail-files')).click();
+  await byTestId('file-tree');
+}
+async function showPdf() {
+  if (!(await present('[data-testid="pdf-pane"]'))) await (await b.$("//div[@aria-label='Show']//button[normalize-space()='PDF']")).click();
+  await byTestId('pdf-pane');
+}
 const PROJECTS_H1 = "//h1[normalize-space()='Your projects']";
 
 async function home() {
@@ -82,7 +113,10 @@ before(async () => {
     browserName: 'wry',
     'tauri:options': { application: process.env.HIVETEX_APP, args: ['--test-pick-dir', pickBase, '--ignore-system-tex'] },
   });
-  await until(async () => (await b.execute(() => document.readyState)) === 'complete', 'app loaded');
+  await until(async () => (await b.execute(() => document.readyState === 'complete' && !!document.getElementById('app') && location.protocol !== 'about:')) === true, 'app loaded');
+  // HIVETEX_WINDOW=1024x768 reproduces a CI screen (the narrow workspace layout) on a larger one
+  const [width, height] = (process.env.HIVETEX_WINDOW ?? '').split('x').map(Number);
+  if (width && height) await b.cmd('POST', '/window/rect', { width, height });
   await b.execute(() => {
     localStorage.setItem('hivetex.test', '1');
     localStorage.setItem('hivetex.fakeEngine', '1');
@@ -117,12 +151,15 @@ test('create a project from a cloned folder: the tree comes from disk and edits 
   await (await byTestId('from-folder-slug')).setValue(slug);
   await (await byTestId('from-folder-password')).setValue(PROJECT_PW);
   await (await byTestId('from-folder-create')).click();
+  await byTestId('workspace');
+  await showFiles();
   await until(() => treeHas('intro.tex'), 'imported tree');
   assert.equal(await treeHas('HEAD'), null, 'tool folders are not imported');
   assert.match(readDisk(dir, '.hivetex.json') ?? '', new RegExp(slug));
 
   // an external tool edits the file on disk -> visible in the app
   await (await treeHas('intro.tex')).click();
+  await show('Editor');
   await until(async () => (await editorText()).includes('Intro from the clone.'), 'file opened');
   writeDisk(dir, 'sections/intro.tex', 'Intro rewritten by an AI tool.\n');
   await until(async () => (await editorText()).includes('rewritten by an AI tool'), 'external edit visible');
@@ -148,30 +185,40 @@ test('link a folder to a project, then open that folder again from the projects 
 
   const dir = uniq('linked-');
   pickNext(dir);
+  await showFiles();
+  await filesPanel();
   await (await byTestId('location-btn')).click();
   await (await byTestId('link-folder')).click();
-  await until(async () => (await textOf('location-btn')).includes(dir), 'folder in use');
+  await until(async () => (await fullText('location-btn')).includes(dir), 'folder in use');
   await until(() => JSON.parse(readDisk(dir, '.hivetex.json') ?? '{}').project?.slug === slug, 'marker written');
 
   // import a folder of sources into the project (also through the confined picker)
   const src = uniq('src-');
   writeDisk(src, 'figs/plot.tex', '% a figure\n');
   pickNext(src);
+  await filesPanel();
   await (await byTestId('import-btn')).click();
   await (await byTestId('import-pick-folder')).click();
   await (await byTestId('import-confirm')).click();
   await (await byTestId('import-done')).click();
+  await showFiles();
   await until(() => treeHas('plot.tex'), 'imported file in tree');
   await until(() => readDisk(dir, 'figs/plot.tex') !== null, 'imported file mirrored to the folder');
 
   // stop using it here, then open the folder: its marker names the project
+  await showFiles();
+  await filesPanel();
   await (await byTestId('location-btn')).click();
   await (await byTestId('unlink-folder')).click();
   await home();
   pickNext(dir);
   await (await byTestId('open-folder')).click();
   await until(async () => (await textOf('project-slug')) === slug, 'project opened from marker');
-  await until(async () => (await textOf('location-btn')).includes(dir), 'folder bound again');
+  await showFiles();
+  await until(async () => {
+    await filesPanel();
+    return (await fullText('location-btn')).includes(dir);
+  }, 'folder bound again');
 });
 
 test('without any TeX installed, the first compile sets up the quick compiler and builds on this device', { timeout: 600_000 }, async () => {
@@ -184,15 +231,20 @@ test('without any TeX installed, the first compile sets up the quick compiler an
   await byTestId('workspace');
   // the compiler is set up (download with progress) without any installation step
   await until(async () => /quick compiler/.test(await textOf('compiler-state')), 'quick compiler ready', 300_000);
+  await showFiles();
+  await filesPanel();
   await (await b.$('button[aria-label="New file"]')).click();
   await (await byTestId('new-name')).setValue('main.tex');
   await (await byTestId('new-name')).type(Keys.Enter);
   await until(() => treeHas('main.tex'), 'main.tex created');
   await (await treeHas('main.tex')).click();
+  await show('Editor');
   const editor = await b.$('.cm-content');
   await editor.click();
   await editor.type(String.raw`\documentclass{article}` + '\n' + String.raw`\begin{document}` + '\nQuick compiler works.\n' + String.raw`\end{document}` + '\n');
   // builds stay local: the PDF is this device's own
+  await show('PDF');
+  await showPdf();
   await until(async () => (await textOf('compiled-by')).includes('(this device)'), 'local PDF from the quick compiler', 300_000);
   assert.match(await textOf('compiler-state'), /builds stay on this device/);
 });

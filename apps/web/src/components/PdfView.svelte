@@ -191,6 +191,7 @@
     display: flex;
     flex-direction: column;
     background: var(--pdf-desk);
+    container-type: inline-size;
   }
   .pdf-bar {
     flex: none;
@@ -215,6 +216,18 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--text-xs);
+  }
+  /* In a narrow pane, who compiled the PDF moves to its own line instead of being squeezed to nothing. */
+  @container (max-width: 560px) {
+    .pdf-bar {
+      flex-wrap: wrap;
+      row-gap: 0;
+    }
+    .by {
+      order: 1;
+      flex-basis: 100%;
+      margin: 0 0 6px;
+    }
   }
   .dot {
     width: 7px;

@@ -41,7 +41,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install miktex --no-progress -y
+          # The Chocolatey feed is sometimes briefly unavailable (503): retry before failing the job.
+          for ($i = 1; $i -le 4; $i++) {
+            choco install miktex --no-progress -y
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($i -eq 4) { exit 1 }
+            Start-Sleep -Seconds (30 * $i)
+          }
           $bin = "C:\Program Files\MiKTeX\miktex\bin\x64"
           $env:PATH = "$bin;$env:PATH"
           # A fresh MiKTeX refuses to run until its package database exists, and it must be allowed to fetch
@@ -129,8 +135,9 @@ jobs:
       - name: Desktop UI tests (Linux, virtual display)
         if: runner.os == 'Linux'
         # The app keeps device keys in the OS keychain (Secret Service): give it an unlocked keyring on a session bus.
+        # A 1440x900 screen gives the wide workspace (xvfb defaults to 640x480); the Windows runner (1024x768) covers the narrow one.
         run: |
-          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && xvfb-run -a pnpm --filter @hivetex/desktop e2e'
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && xvfb-run -a -s "-screen 0 1440x900x24" pnpm --filter @hivetex/desktop e2e'
       - name: Desktop UI tests (Windows)
         if: runner.os == 'Windows'
         run: pnpm --filter @hivetex/desktop e2e
