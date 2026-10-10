@@ -53,11 +53,11 @@ async function ask(question, { secret = false, optional = false } = {}) {
   return answer.trim();
 }
 
-/** A value from env / .env.setup, else a prompt. `explicit` tells whether the maintainer passed it (then it overwrites). */
+/** A value from env / .env.setup, else a prompt. */
 async function input(name, question, opts = {}) {
   const v = given(name);
-  if (v) return { value: v, explicit: true };
-  return { value: await ask(question, opts), explicit: false };
+  if (v) return { value: v };
+  return { value: await ask(question, opts) };
 }
 
 // ---------- command runners (no shell: values are never interpreted, secrets go through stdin) ----------
@@ -162,7 +162,7 @@ function setEnv(existing, name, value, { overwrite = false, secret = true } = {}
       continue;
     }
     change(`${present ? 'replace' : 'set'} ${name} (${t})${secret ? '' : ` = ${value}`}`);
-    if (!dryRun) vercel(['env', 'add', name, t, ...(present ? ['--force'] : [])], { input: value, capture: true });
+    if (!dryRun) vercel(['env', 'add', name, t, '--yes', ...(present ? ['--force'] : [])], { input: value, capture: true });
   }
 }
 
@@ -179,13 +179,19 @@ async function serverSettings({ ticketsOnly = false } = {}) {
   }
   if (ticketsOnly) return;
 
-  const missing = (n) => TARGETS.some((t) => !existing[t].has(n));
+  // Production is what `make setup` deploys, so only it decides whether a value is missing. Preview gets the value
+  // too whenever one is at hand; a sensitive value already stored in production cannot be read back to copy it.
+  const missing = (n) => !existing.production.has(n);
   const needed = [];
   const want = async (name, question, opts = {}) => {
-    if (!missing(name) && !given(name)) return note(`${name}: kept`);
-    const { value, explicit } = await input(name, question, opts);
+    if (!missing(name) && !given(name)) {
+      if (!existing.preview.has(name)) note(`${name} (preview): not set; give it in .env.setup to copy it to preview deployments`);
+      return note(`${name}: kept`);
+    }
+    const { value } = await input(name, question, opts);
     if (!value) return opts.optional ? note(`${name}: skipped`) : needed.push(name);
-    setEnv(existing, name, value, { overwrite: explicit, secret: opts.secret !== false });
+    // A value given now (env, .env.setup or typed) applies to production and preview alike, so they never diverge.
+    setEnv(existing, name, value, { overwrite: true, secret: opts.secret !== false });
   };
   await want('GMAIL_USER', 'Gmail address that sends account emails', { secret: false });
   await want('GMAIL_APP_PASSWORD', 'Its App Password (https://myaccount.google.com/apppasswords)', { secret: true });

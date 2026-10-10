@@ -10,7 +10,7 @@
 
 - [x] 2.1 `scripts/setup.mjs` with the steps of design D1, inputs from env / `.env.setup` / prompts, `--only=secrets`, `ROTATE=1`; verify on the real `hivetex` project: dry run detects storage as present and lists the missing settings; `make secrets` stores the ticket keys (values checked to arrive intact) and a re-run keeps them
 - [x] 2.2 `make setup`, `make secrets` (runs instead of printing), `env-pull` from production; `.env.example` lists the setup inputs; verify a second `make setup` keeps existing keys and needs no input
-- [ ] 2.3 First real `make setup` on `hivetex` with the maintainer's Gmail App Password: deploy succeeds (migrations in the build), `/api/health` is 200, the admin bootstrap works on registration
+- [x] 2.3 First real `make setup` on `hivetex` with the maintainer's Gmail App Password: deploy succeeds (migrations in the build), `/api/health` is 200, the admin bootstrap works on registration
 
 ## 3. Docs
 

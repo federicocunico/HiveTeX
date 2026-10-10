@@ -1,0 +1,16 @@
+# Not needed to build or run the web app + API on Vercel (the CLI does not read .gitignore).
+apps/desktop/src-tauri
+**/target
+apps/desktop/src-tauri/gen
+**/node_modules
+**/dist
+**/.turbo
+.turbo
+test-results
+playwright-report
+**/.data
+*.tsbuildinfo
+.env*
+!.env.example
+.vercel
+*.log

@@ -2,6 +2,7 @@
   "name": "p2platex",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@10.34.6",
   "engines": {
@@ -17,6 +18,7 @@
     "@axe-core/playwright": "^4.13.0",
     "@biomejs/biome": "^2.2.0",
     "@playwright/test": "^1.64.0",
+    "esbuild": "^0.25.12",
     "fflate": "^0.8.3",
     "turbo": "^2.5.0",
     "typescript": "^5.9.0",

@@ -94,10 +94,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # windows-2022: on windows-2025 WebView2 (>= 133) never opens the DevTools port msedgedriver needs
+        # (https://github.com/actions/runner-images/issues/14738). Kept non-blocking until it has proven stable.
+        os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
-    # WebView2/msedgedriver pairing on hosted Windows runners can lag behind; Linux is the gating platform (TODO_CI.md).
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    continue-on-error: ${{ startsWith(matrix.os, 'windows') }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
