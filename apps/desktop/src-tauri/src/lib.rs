@@ -221,7 +221,10 @@ mod test_picker {
     use std::path::PathBuf;
 
     pub fn next() -> Option<PathBuf> {
-        let base = PathBuf::from(std::env::var_os("P2PLATEX_TEST_PICK_DIR")?);
+        // `--test-pick-dir <dir>` (WebDriver drivers forward app arguments, not always the environment) or the variable.
+        let mut args = std::env::args_os().skip_while(|a| a != "--test-pick-dir");
+        let from_args = args.nth(1);
+        let base = PathBuf::from(from_args.or_else(|| std::env::var_os("P2PLATEX_TEST_PICK_DIR"))?);
         let next = base.join(".next-pick");
         let dir = match std::fs::read_to_string(&next) {
             Ok(name) => {

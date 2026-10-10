@@ -68,6 +68,12 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
       clients ignore stale leaves), plus a stale-link deadlock in `ConnectionManager` and a test bug when the editor
       was the leader (see `local-folder-projects` design D9). `e2e/full-flow.spec.ts` passed 10 consecutive runs on the dev
       server and 10 on the Docker stack.
+- [ ] `e2e/realtime.spec.ts` (seven browsers on the 2-vCPU runner) sometimes never reaches a full mesh: pages stay at
+      "3 peers online" for the whole 2-minute wait, which looks like the mesh splitting into two clusters that never
+      merge. It failed all 3 attempts on `9dd66b0` (a docs-only commit) and needed a retry on `03e1c40`; it passes
+      locally. Suspects: the cluster gatekeepers' relay sockets (both must stay open and see each other's `join`), and
+      the 8-attempt cap in `ConnectionManager.retryLater`, after which a device is never retried. Next step: log
+      `ConnectionManager.stats` and `onRelay` per page in the test's failure output.
 - [ ] The public SwiftLaTeX TeX file server (`texlive2.swiftlatex.com`) was answering HTTP 522 on 2026-10-09. CI is
       not affected because e2e uses the fake engine, but in-browser compilation in production depends on it. Consider
       self-hosting (`make up PROFILES=texlive`, see `docs/local-stack.md`).

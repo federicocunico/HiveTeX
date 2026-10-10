@@ -44,7 +44,9 @@ async function until(fn, msg, ms = 15_000) {
     }
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error(`timed out: ${msg} (last: ${last})`);
+  // what the user would see (notices, errors) makes CI failures readable
+  const page = await b.execute(() => document.body.innerText).catch(() => '');
+  throw new Error(`timed out: ${msg} (last: ${last})\n--- page ---\n${String(page).slice(0, 2000)}`);
 }
 async function treeHas(name) {
   for (const it of await b.findAll('[role="treeitem"]')) {
@@ -67,7 +69,7 @@ async function home() {
 before(async () => {
   b = await Session.create(`http://127.0.0.1:${process.env.P2PLATEX_DRIVER_PORT ?? 4446}`, {
     browserName: 'wry',
-    'tauri:options': { application: process.env.P2PLATEX_APP },
+    'tauri:options': { application: process.env.P2PLATEX_APP, args: ['--test-pick-dir', pickBase] },
   });
   await until(async () => (await b.execute(() => document.readyState)) === 'complete', 'app loaded');
   await b.execute(() => {
