@@ -12,3 +12,6 @@ playwright-report
 *.tsbuildinfo
 .env.local
 !docker/.env.stack
+
+.vercel
+.env*

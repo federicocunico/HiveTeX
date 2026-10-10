@@ -39,7 +39,7 @@
 
 ## 5. Release
 
-- [ ] 5.1 Set the `TAURI_SIGNING_PRIVATE_KEY` repository secret from `~/.tauri/p2platex.key`, then push tag `v0.1.0`;
+- [x] 5.1 Set the `TAURI_SIGNING_PRIVATE_KEY` repository secret from `~/.tauri/p2platex.key`, then push tag `v0.1.0`;
   verify a draft release "p2platex v0.1.0" exists with installers for all three platforms, plus `latest.json` and
   `.sig` files.
-- [ ] 5.2 `make check`, CI and Desktop green on the final commit.
+- [x] 5.2 `make check`, CI and Desktop green on the final commit.

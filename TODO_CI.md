@@ -23,15 +23,14 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 ## Still missing (needs you: accounts, secrets or decisions)
 
 ### Secrets and variables (Settings → Secrets and variables → Actions)
-- [ ] `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Required by the `release` job (tags `v*`) to sign
-      updater artifacts. Generate the key with `pnpm --filter @p2platex/desktop tauri signer generate`. The **public**
-      key in `apps/desktop/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) must match it; replace the committed
-      one if you generate a new pair.
+- [x] `TAURI_SIGNING_PRIVATE_KEY` is set from `~/.tauri/p2platex.key` (empty password, matches the committed public key).
+      Keep a backup of that file: without it, installed apps cannot verify future updates.
 - [ ] Optional macOS signing/notarization: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
-      `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Without them, installers are unsigned and Gatekeeper warns.
+      `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Without them, builds are ad-hoc signed: macOS asks once
+      (*Open Anyway*).
 - [ ] Optional Windows code signing (not wired yet). Without it, SmartScreen warns on first install.
-- [ ] Repository variable `P2PLATEX_API_BASE` (the deployed control-plane URL). Release builds bake it in as
-      `VITE_API_BASE`.
+- [ ] Repository variable `P2PLATEX_API_BASE` (the deployed control-plane URL), once the server is deployed. Release
+      builds bake it in as `VITE_API_BASE`; v0.1.0 was built without it, so testers set the server on the sign-in screen.
 
 ### Deployment (no workflow exists yet)
 - [ ] Link the repo to Vercel (`npx vercel@latest link`, or import it in the Vercel dashboard). The Git integration then
@@ -62,7 +61,9 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 ### Unverified until the workflows run on GitHub
 - [x] `Desktop / rust-tests` on macOS (BasicTeX) and Ubuntu (TeX Live) pass, including real LaTeX compilation.
 - [x] `Desktop / rust-tests` on Windows (MiKTeX via Chocolatey) pass after the MiKTeX setup fix, and `Desktop / e2e-sync` passes.
-- [ ] `Desktop / release` on a `v*` tag: needs the signing secrets above.
+- [x] `Desktop / build` on tag `v0.1.0`: draft release with Windows, macOS (universal) and Linux installers and a signed
+      `latest.json`. One Windows upload failed with "other side closed" (transient; the repository was renamed
+      meanwhile) and passed on re-run.
 
 ### Known product issues that affect CI stability
 - [x] `packages/sync` › `mirror.test.ts` flakes were two real races, fixed in `realtime-sync-and-desktop-fixes`: a file caught
@@ -99,7 +100,7 @@ need accounts, secrets or time that CI cannot provide:
 - [ ] 3.4: send a manual smoke email through Gmail SMTP with real credentials (the code and the test double are done).
 - [ ] 8.5: real in-browser compile with SwiftLaTeX in Playwright. The public TeX server returned HTTP 522; e2e uses the fake
       engine. Persisting downloaded packages in Cache Storage is also still open.
-- [ ] 9.5: signed release builds via tag `v*` (needs the signing secrets above).
+- [x] 9.5: signed release builds via tag `v*` (v0.1.0, see above).
 - [ ] 10.7: check the GitHub App setup in `docs/github-backup.md` against a freshly created App.
 - [ ] 11.1: full e2e on a Vercel preview (2 web clients + 1 desktop).
 - [ ] 11.3: measure free-tier usage over a 1-week beta.
