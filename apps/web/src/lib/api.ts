@@ -13,6 +13,30 @@ export function wsBase(): string {
   return base.replace(/^http/, 'ws');
 }
 
+/**
+ * Validates a server address typed by the user and returns its origin: `https://` only (plain `http://` is allowed for
+ * `localhost` during development). Throws a readable error otherwise.
+ */
+export function parseServerUrl(input: string): string {
+  let u: URL;
+  try {
+    u = new URL(input.trim().includes('://') ? input.trim() : `https://${input.trim()}`);
+  } catch {
+    throw new Error('Enter a server address like https://your-app.vercel.app');
+  }
+  const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) throw new Error('The server address must start with https://');
+  if (!u.hostname) throw new Error('Enter a server address like https://your-app.vercel.app');
+  return u.origin;
+}
+
+/** Desktop: remembers the server this device talks to (takes effect after a reload). */
+export function setServerUrl(input: string): string {
+  const origin = parseServerUrl(input);
+  safeStorage('serverUrl', origin);
+  return origin;
+}
+
 export function safeStorage(key: string, value?: string | null): string | null {
   try {
     if (value === undefined) return localStorage.getItem(key);

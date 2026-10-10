@@ -90,6 +90,8 @@ before(async () => {
     location.reload();
   });
   await b.$("//label[contains(., 'Repeat password')]", 30_000);
+  // the server is shown (and changeable) before signing in
+  assert.equal(await (await byTestId('server-current')).getText(), 'http://localhost:3000');
   const username = uniq('desk');
   await (await b.$("//label[contains(., 'Username')]//input")).setValue(username);
   await (await b.$("//label[contains(., 'Email')]//input")).setValue(`${username}@example.com`);

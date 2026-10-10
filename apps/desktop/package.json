@@ -1,7 +1,7 @@
 {
   "name": "@p2platex/desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "scripts": {
     "tauri": "tauri",
     "build": "echo \"desktop: built via tauri build\"",

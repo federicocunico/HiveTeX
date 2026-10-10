@@ -1,5 +1,7 @@
 # Deploying the control plane (free)
 
+The short version is the README section **Release v0.1 and test with others**; this page has the details.
+
 Everything runs on free tiers; **Vercel Hobby is for non-commercial use**.
 
 ## 1. Services
@@ -8,7 +10,7 @@ Everything runs on free tiers; **Vercel Hobby is for non-commercial use**.
 |---|---|---|
 | Hosting + API | **Vercel Hobby** (Fluid Compute, Node.js) | one project: static `apps/web/dist` + `/api/*` function |
 | Durable data (accounts, projects, memberships) | **Neon Postgres** (Vercel Marketplace) | sets `DATABASE_URL` |
-| Rate limits, signaling pub/sub, one-time hand-offs | **Upstash Redis** (Vercel Marketplace) | sets `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+| Rate limits, signaling pub/sub, one-time hand-offs | **Upstash Redis** (Vercel Marketplace) | sets `KV_REST_API_URL`, `KV_REST_API_TOKEN` (the server also accepts `UPSTASH_REDIS_REST_URL` / `_TOKEN`) |
 | Recovery email | **Gmail SMTP** with an App Password | `GMAIL_USER`, `GMAIL_APP_PASSWORD` |
 | NAT relay (optional) | **Cloudflare Realtime TURN** free tier | `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` |
 | GitHub backup (optional) | GitHub App | see `docs/github-backup.md` |
@@ -16,6 +18,9 @@ Everything runs on free tiers; **Vercel Hobby is for non-commercial use**.
 Airtable and Dropbox were evaluated and rejected as primary stores (rate limits, no unique constraints/transactions, not databases).
 
 ## 2. Secrets
+
+`make secrets` (`node scripts/gen-secrets.mjs`) prints a fresh key pair plus the `vercel env add` and `gh secret set`
+commands. The one-liner below does the same by hand:
 
 ```bash
 # ticket signing key (Ed25519) – generate once
@@ -51,5 +56,15 @@ dashboards during the first weeks.
 
 ## 5. Desktop
 
-Build installers with `make desktop-build` (`pnpm --filter @p2platex/desktop tauri build`, needs Rust). Point the app at your deployment in
-*Settings → Server URL* (or set `VITE_API_BASE` at build time).
+- **Releases are built on GitHub.** Pushing tag `vX.Y.Z` (`make release VERSION=X.Y.Z CONFIRM=1`) runs the *Desktop*
+  workflow's `build` job. It makes a draft release with Windows (exe, msi), macOS (universal dmg, ad-hoc signed) and
+  Linux (AppImage, deb) installers, plus the signed `latest.json` used by *Account → Check for updates*.
+- **Secret and variable.** The job needs the `TAURI_SIGNING_PRIVATE_KEY` repository secret, and refuses a tag whose
+  version differs from `tauri.conf.json` (fix it with `make version VERSION=X.Y.Z`). The variable
+  `P2PLATEX_API_BASE` sets the server the installers use by default.
+- **Dry run.** *Actions → Desktop → Run workflow* builds the same installers as workflow artifacts, without a release
+  and without needing the key.
+- **Local builds.** `make desktop-build` builds installers on the current machine (needs Rust).
+- **Choosing a server.** Testers can change the server on the sign-in screen, or later in *Account*.
+- **Optional paid signing.** Set the `APPLE_*` secrets (Developer ID + notarization) to replace ad-hoc signing on
+  macOS. Windows Authenticode signing is not wired yet, so SmartScreen asks once.

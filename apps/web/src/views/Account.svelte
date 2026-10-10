@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, apiBase, isDesktop, safeStorage } from '../lib/api.js';
+  import { api, apiBase, isDesktop, safeStorage, setServerUrl } from '../lib/api.js';
   import { auth, logoutAll } from '../lib/auth.svelte.js';
   import { go } from '../lib/router.svelte.js';
   import { texliveEndpoint } from '../lib/wasm-engine.js';
@@ -58,9 +58,7 @@
     error = info = '';
     try {
       if (isDesktop) {
-        const u = new URL(serverUrl);
-        if (u.protocol !== 'https:' && u.hostname !== 'localhost') throw new Error('The server URL must use https://');
-        safeStorage('serverUrl', u.origin);
+        setServerUrl(serverUrl);
       }
       if (texUrl.trim()) {
         const t = new URL(texUrl.trim());

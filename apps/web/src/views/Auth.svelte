@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ApiError, api } from '../lib/api.js';
+  import ServerChoice from '../components/ServerChoice.svelte';
+  import { ApiError, api, isDesktop } from '../lib/api.js';
   import { login, register } from '../lib/auth.svelte.js';
   import { go, route } from '../lib/router.svelte.js';
 
@@ -62,7 +63,11 @@
 </script>
 
 <div class="center">
-  <form class="card narrow" onsubmit={submit}>
+  <div class="narrow">
+  {#if isDesktop && (mode === 'login' || mode === 'register')}
+    <div class="card" style="margin-bottom: 12px; padding-bottom: 4px"><ServerChoice /></div>
+  {/if}
+  <form class="card" onsubmit={submit}>
     <h1>
       {#if mode === 'login'}Sign in{:else if mode === 'register'}Create account{:else if mode === 'forgot'}Reset password{:else if mode === 'reset'}Choose a new password{:else}Verify email{/if}
     </h1>
@@ -119,4 +124,5 @@
       {/if}
     </p>
   </form>
+  </div>
 </div>

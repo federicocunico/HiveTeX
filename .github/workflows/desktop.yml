@@ -1,5 +1,6 @@
 name: Desktop
 on:
+  workflow_dispatch:
   push:
     branches: [main, master]
     tags: ["v*"]
@@ -133,9 +134,11 @@ jobs:
         if: runner.os == 'Windows'
         run: pnpm --filter @p2platex/desktop e2e
 
-  # Tagged releases: signed installers + auto-update manifest (latest.json) on GitHub Releases.
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  # Desktop installers for Windows (exe/msi), macOS (universal dmg) and Linux (AppImage/deb).
+  # - Tag v* -> draft GitHub Release with installers and the signed auto-update manifest (latest.json).
+  # - Manual run (Actions -> Desktop -> Run workflow) -> the same installers as workflow artifacts, no release.
+  build:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: rust-tests
     permissions:
       contents: write
@@ -143,46 +146,104 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          # Pinned images: a change of the *-latest defaults must not silently break a release.
+          - os: windows-2025
             args: ""
-          - os: macos-latest
+          - os: macos-15
             args: "--target universal-apple-darwin"
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             args: ""
     runs-on: ${{ matrix.os }}
+    env:
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with: { node-version: 22, cache: pnpm }
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-      - uses: Swatinem/rust-cache@v2
-        with: { workspaces: apps/desktop/src-tauri }
-      - name: Linux system libraries
-        if: runner.os == 'Linux'
+      - name: Tag matches the version in the sources
+        if: env.IS_TAG == 'true'
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config
-      - run: pnpm install --frozen-lockfile
-      - uses: tauri-apps/tauri-action@v0
+          v=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match version $v in tauri.conf.json (run: make version VERSION=x.y.z)"; exit 1
+          fi
+      - name: Updater signing key present (releases)
+        if: env.IS_TAG == 'true' && env.HAS_UPDATER_KEY != 'true'
+        shell: bash
+        run: |
+          echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY repository secret (gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/p2platex.key)"; exit 1
+      - name: Build options
+        shell: bash
+        run: |
+          extra=""
+          # Without the key a manual run still builds, just without update signatures.
+          if [ "$HAS_UPDATER_KEY" != "true" ]; then
+            echo '{"bundle":{"createUpdaterArtifacts":false}}' > "$RUNNER_TEMP/no-updater.json"
+            extra="--config $RUNNER_TEMP/no-updater.json"
+          fi
+          echo "TAURI_ARGS=${{ matrix.args }} $extra" >> "$GITHUB_ENV"
+          # Optional paid code signing: export only what is configured (an empty identity would override ad-hoc signing).
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!k}" ] && echo "$k=${!k}" >> "$GITHUB_ENV" || true
+          done
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signing key: `pnpm --filter @p2platex/desktop tauri signer generate`; the public key is in tauri.conf.json.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Optional OS code signing (without these, installers are unsigned and show SmartScreen/Gatekeeper warnings).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: apps/desktop/src-tauri }
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config libfuse2
+          # linuxdeploy's bundled strip cannot read Ubuntu 24.04's .relr.dyn sections, and linuxdeploy (itself an
+          # AppImage) is run extracted instead of through FUSE.
+          echo "NO_STRIP=true" >> "$GITHUB_ENV"
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+      - run: pnpm install --frozen-lockfile
+      - name: Build and release (tag)
+        if: env.IS_TAG == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Default server baked into the installers (testers can change it on the sign-in screen).
           VITE_API_BASE: ${{ vars.P2PLATEX_API_BASE }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "p2platex ${{ github.ref_name }}"
+          releaseBody: "Installers for Windows, macOS and Linux. See the README section \"Release v0.1 and test with others\" for first-launch notes."
           releaseDraft: true
-          args: ${{ matrix.args }}
+          args: ${{ env.TAURI_ARGS }}
+      - name: Build only (manual run)
+        if: env.IS_TAG != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_API_BASE: ${{ vars.P2PLATEX_API_BASE }}
+        with:
+          projectPath: apps/desktop
+          args: ${{ env.TAURI_ARGS }}
+      - name: Upload installers (manual run)
+        if: env.IS_TAG != 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: p2platex-${{ matrix.os }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/
+            apps/desktop/src-tauri/target/*/release/bundle/
+          if-no-files-found: error
+          retention-days: 14

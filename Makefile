@@ -19,10 +19,12 @@ HINT_pnpm   := install Node 22 and run: corepack enable  (https://pnpm.io/instal
 HINT_docker := install Docker Desktop (Windows/macOS) or Docker Engine + Compose v2 (Linux): https://docs.docker.com/get-docker/
 HINT_cargo  := install Rust: https://rustup.rs
 HINT_npx    := install Node 22: https://nodejs.org
+HINT_node   := install Node 22: https://nodejs.org
+HINT_git    := install Git: https://git-scm.com/downloads
 
 .PHONY: help install dev build lint typecheck test size e2e bench check audit clean \
         desktop-dev desktop-test desktop-e2e desktop-build \
-        up down ps logs reset migrate-local test-stack \
+        up down ps logs reset migrate-local test-stack secrets version release \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
         require-vercel-link
 
@@ -140,6 +142,27 @@ seed-admin: require-pnpm ## Make ADMIN=<username> a platform admin in the .env.l
 	@test -n "$(ADMIN)" || { echo "Usage: make seed-admin ADMIN=<username>"; exit 1; }
 	@test -f .env.local || { echo ".env.local not found: run 'make env-pull' first."; exit 1; }
 	cd server && node --env-file=../.env.local --import tsx scripts/seed-admin.ts $(ADMIN)
+
+## ---------- Release (desktop installers on GitHub; see README "Release v0.1") ----------
+
+secrets: require-node ## Print fresh server secrets and the vercel/gh commands to store them (writes no files)
+	node scripts/gen-secrets.mjs
+
+version: require-node ## Set the version everywhere: make version VERSION=0.1.0
+	@test -n "$(VERSION)" || { echo "Usage: make version VERSION=x.y.z"; exit 1; }
+	node scripts/set-version.mjs $(VERSION)
+
+release: require-git require-node ## Tag and push vVERSION, which builds a draft GitHub Release (needs CONFIRM=1)
+	@test -n "$(VERSION)" || { echo "Usage: make release VERSION=x.y.z CONFIRM=1"; exit 1; }
+	@v=$$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version"); \
+	if [ "$$v" != "$(VERSION)" ]; then echo "Sources are at $$v, not $(VERSION): run 'make version VERSION=$(VERSION)' and commit first."; exit 1; fi
+	@test -z "$$(git status --porcelain)" || { echo "Commit or stash your changes first (the tag must match a pushed commit)."; exit 1; }
+	@if [ "$(CONFIRM)" != "1" ]; then \
+		echo "This would run:"; echo "  git tag v$(VERSION) && git push origin HEAD v$(VERSION)"; \
+		echo "Re-run with CONFIRM=1 to do it."; exit 1; \
+	fi
+	git tag v$(VERSION)
+	git push origin HEAD v$(VERSION)
 
 # ---------- Helpers ----------
 

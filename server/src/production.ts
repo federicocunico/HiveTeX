@@ -7,10 +7,13 @@ import { createUpstashLimiter } from './ratelimit.js';
 import { createUpstashSignalBackend } from './signal/hub.js';
 import { cloudflareTurn } from './signal/turn.js';
 
-function need(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env var ${name}`);
-  return v;
+/** The first set variable among `names` (aliases, e.g. the names a Vercel Marketplace integration uses). */
+function need(...names: string[]): string {
+  for (const n of names) {
+    const v = process.env[n];
+    if (v) return v;
+  }
+  throw new Error(`Missing env var ${names.join(' (or ')}${names.length > 1 ? ')' : ''}`);
 }
 
 /** What differs between hosting platforms (Vercel Functions vs a plain Node server). */
@@ -21,8 +24,9 @@ export type PlatformDeps = Pick<Deps, 'upgradeWebSocket' | 'background'>;
  * stack runs this same code against emulators via NEON_HTTP_ENDPOINT / Upstash URL / SMTP_HOST (see docs/local-stack.md).
  */
 export async function productionDepsWith(platform: PlatformDeps): Promise<Deps> {
-  const redisUrl = need('UPSTASH_REDIS_REST_URL');
-  const redisToken = need('UPSTASH_REDIS_REST_TOKEN');
+  // The Vercel Marketplace Upstash integration sets KV_REST_API_*; a manual setup usually uses UPSTASH_REDIS_REST_*.
+  const redisUrl = need('UPSTASH_REDIS_REST_URL', 'KV_REST_API_URL');
+  const redisToken = need('UPSTASH_REDIS_REST_TOKEN', 'KV_REST_API_TOKEN');
   const turnKey = process.env.CF_TURN_KEY_ID;
   const turnToken = process.env.CF_TURN_API_TOKEN;
   const smtp = smtpFromEnv();

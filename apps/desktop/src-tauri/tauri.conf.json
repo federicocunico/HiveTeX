@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "p2platex",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "identifier": "app.p2platex.desktop",
   "build": {
     "beforeDevCommand": "npx pnpm@10 --filter @p2platex/web dev",
@@ -31,13 +31,16 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "signingIdentity": "-"
+    }
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5MEJCOUQ1QkIyOTgxMzUKUldRMWdTbTcxYmtMaWZVeWhRWmxzblJ2VUp0L0ZwQkVIQ2JRTmVuY0l0M2NyNDZ6NEtWZ2V5Ly8K",
       "endpoints": [
-        "https://github.com/p2platex/p2platex/releases/latest/download/latest.json"
+        "https://github.com/federicocunico/p2platex/releases/latest/download/latest.json"
       ]
     }
   }

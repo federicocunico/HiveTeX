@@ -10,7 +10,7 @@
 
   onMount(loadMe);
 
-  const sourceUrl = (import.meta.env.VITE_SOURCE_URL as string | undefined) ?? 'https://github.com/p2platex/p2platex';
+  const sourceUrl = (import.meta.env.VITE_SOURCE_URL as string | undefined) ?? 'https://github.com/federicocunico/p2platex';
   const publicRoutes = ['/login', '/register', '/forgot', '/reset', '/verify'];
 
   // A GitHub authorization that lands here signed out continues after sign-in (same tab only).
