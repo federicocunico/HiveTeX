@@ -20,8 +20,8 @@
 
 ## 3. Full LaTeX (TinyTeX)
 
-- [ ] 3.1 Install/remove and detection (D4); verify Rust tests (detection order) and a manual install on Windows
-- [ ] 3.2 On-demand packages via tlmgr for the managed flavor only, loop guard, events; verify Rust tests with a fake
+- [x] 3.1 Install/remove and detection (D4); verify Rust tests (detection order) and a manual install on Windows
+- [x] 3.2 On-demand packages via tlmgr for the managed flavor only, loop guard, events; verify Rust tests with a fake
   tlmgr and a manual `\usepackage{tikz-cd}` build
 
 ## 4. Local compile helper

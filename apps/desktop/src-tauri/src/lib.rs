@@ -5,6 +5,7 @@ pub mod rtc;
 pub mod secrets;
 pub mod tex;
 pub mod texcache;
+pub mod tinytex;
 
 use mirror::{Listed, MirrorState, PickedFolders};
 use tauri::{Emitter, Manager, State};

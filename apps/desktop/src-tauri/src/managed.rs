@@ -382,3 +382,32 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod real_tests {
+    /// Real install of the pinned TinyTeX for this platform, then a compile with it (recorder-verified, shareable).
+    /// Run with: HIVETEX_REAL_TINYTEX=1 cargo test --lib real_tinytex -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_tinytex_installs_and_compiles() {
+        if std::env::var_os("HIVETEX_REAL_TINYTEX").is_none() {
+            return;
+        }
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let root = std::env::temp_dir().join("hivetex-real-tinytex");
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let a = super::asset("tinytex").expect("TinyTeX available for this platform");
+        if super::status(&root, "tinytex").is_none() {
+            let got = rt.block_on(super::install(&reqwest::Client::new(), &root, a, &|r, t| {
+                if r % (16 << 20) < 65536 {
+                    eprintln!("downloaded {} / {} MB", r >> 20, t >> 20);
+                }
+            }));
+            eprintln!("install: {got:?}");
+            got.unwrap();
+        }
+        let info = crate::tex::detect_with(None, Some(&root)).expect("managed TinyTeX detected");
+        eprintln!("detected: {} {:?} verified={}", info.flavor, info.supports, info.verified_reads);
+        assert!(info.flavor.starts_with("tinytex") && info.verified_reads);
+    }
+}

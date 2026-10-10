@@ -181,4 +181,9 @@ shared PDFs. Therefore:
 
   DNS rebinding cannot read responses, because of the Origin and token checks.
 - **Pinned releases need bumping:** a scheduled CI job checks that the URLs resolve and the checksums still match.
+- **TinyTeX's package repository is unsigned** (`tlnet.yihui.org`; tlmgr says "not verified: pubkey missing"), so package integrity relies on HTTPS. Verified behaviour on Windows (2026-10-10):
+  - a fresh TinyTeX v2026.10 needs `tlmgr update --self` before installing; the update finishes in a background
+    process, so installs retry briefly;
+  - after installing, latexmk must be forced (`-g`), because no source changed;
+  - a document using tikz-cd triggers two rounds (tikz-cd, then pgf) and then builds.
 - **Disk use:** Tectonic ~30 MB plus packages; TinyTeX ~250 MB unpacked. Both are visible and removable.

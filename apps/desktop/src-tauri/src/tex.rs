@@ -455,58 +455,81 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
     let installer = if info.flavor == "miktex" { Some("--enable-installer") } else { None };
 
     let (mut success, mut timed_out) = (false, false);
-    if info.has_latexmk {
-        let Some(latexmk) = exe("latexmk") else {
-            resp.log = "! latexmk not found".into();
-            return resp;
-        };
-        let mut cmd = base_command(latexmk, &dir);
-        cmd.arg(match req.engine.as_str() {
-            "xelatex" => "-xelatex",
-            "lualatex" => "-lualatex",
-            _ => "-pdf",
-        })
-        // -norc: ignore every latexmkrc (system, user and the project's own); all options come from here.
-        .args(["-norc", "-recorder", "-interaction=nonstopmode", "-synctex=1", "-latexoption=-no-shell-escape"]);
-        if let Some(i) = installer {
-            cmd.arg(format!("-latexoption={i}"));
-        }
-        cmd.arg(&main_name);
-        match run_limited(cmd, timeout, mem) {
-            Ok((s, t)) => (success, timed_out) = (s, t),
-            Err(e) => resp.log = format!("! cannot start latexmk: {e}"),
-        }
-    } else {
-        // Fallback without latexmk: engine, bibtex when needed, then two more passes.
-        let run_engine = |dir: &Path| {
-            let mut c = base_command(engine_exe.clone(), dir);
-            c.args(["-recorder", "-interaction=nonstopmode", "-synctex=1", "-no-shell-escape"]);
+    // Managed TinyTeX: install the packages a failed build was missing, then build again (tinytex.rs).
+    let managed_tinytex = info.flavor.starts_with("tinytex");
+    let mut tried: Vec<String> = Vec::new();
+    for round in 0..=crate::tinytex::MAX_ROUNDS {
+        if info.has_latexmk {
+            let Some(latexmk) = exe("latexmk") else {
+                resp.log = "! latexmk not found".into();
+                return resp;
+            };
+            let mut cmd = base_command(latexmk, &dir);
+            cmd.arg(match req.engine.as_str() {
+                "xelatex" => "-xelatex",
+                "lualatex" => "-lualatex",
+                _ => "-pdf",
+            })
+            // -norc: ignore every latexmkrc (system, user and the project's own); all options come from here.
+            .args(["-norc", "-recorder", "-interaction=nonstopmode", "-synctex=1", "-latexoption=-no-shell-escape"]);
+            if round > 0 {
+                // packages were just installed: latexmk sees no changed source, so force the rebuild
+                cmd.arg("-g");
+            }
             if let Some(i) = installer {
-                c.arg(i);
+                cmd.arg(format!("-latexoption={i}"));
             }
-            c.arg(&main_name);
-            run_limited(c, timeout, mem)
-        };
-        let mut last = run_engine(&dir);
-        if let Ok((_, false)) = last {
-            let aux = fs::read_to_string(out_dir.join(format!("{stem}.aux"))).unwrap_or_default();
-            if aux.contains("\\bibdata") {
-                if let Some(b) = exe("bibtex") {
-                    let mut c = base_command(b, &dir);
-                    c.arg(sub.join(&stem));
-                    let _ = run_limited(c, timeout, mem);
+            cmd.arg(&main_name);
+            match run_limited(cmd, timeout, mem) {
+                Ok((s, t)) => (success, timed_out) = (s, t),
+                Err(e) => resp.log = format!("! cannot start latexmk: {e}"),
+            }
+        } else {
+            // Fallback without latexmk: engine, bibtex when needed, then two more passes.
+            let run_engine = |dir: &Path| {
+                let mut c = base_command(engine_exe.clone(), dir);
+                c.args(["-recorder", "-interaction=nonstopmode", "-synctex=1", "-no-shell-escape"]);
+                if let Some(i) = installer {
+                    c.arg(i);
+                }
+                c.arg(&main_name);
+                run_limited(c, timeout, mem)
+            };
+            let mut last = run_engine(&dir);
+            if let Ok((_, false)) = last {
+                let aux = fs::read_to_string(out_dir.join(format!("{stem}.aux"))).unwrap_or_default();
+                if aux.contains("\\bibdata") {
+                    if let Some(b) = exe("bibtex") {
+                        let mut c = base_command(b, &dir);
+                        c.arg(sub.join(&stem));
+                        let _ = run_limited(c, timeout, mem);
+                    }
+                }
+                for _ in 0..2 {
+                    last = run_engine(&dir);
+                    if matches!(last, Ok((_, true)) | Err(_)) {
+                        break;
+                    }
                 }
             }
-            for _ in 0..2 {
-                last = run_engine(&dir);
-                if matches!(last, Ok((_, true)) | Err(_)) {
-                    break;
-                }
+            match last {
+                Ok((s, t)) => (success, timed_out) = (s, t),
+                Err(e) => resp.log = format!("! cannot start {}: {e}", req.engine),
             }
         }
-        match last {
-            Ok((s, t)) => (success, timed_out) = (s, t),
-            Err(e) => resp.log = format!("! cannot start {}: {e}", req.engine),
+        if !managed_tinytex || success || timed_out || round == crate::tinytex::MAX_ROUNDS {
+            break;
+        }
+        let missing = crate::tinytex::missing_files(&fs::read_to_string(&log_path).unwrap_or_default());
+        let Some(bin) = info.bin_dir.as_deref() else { break };
+        let run = crate::tinytex::tlmgr_runner(bin);
+        let notify = |pkg: &str| {
+            if let Some(cb) = &on_download {
+                cb(&format!("installing {pkg}"));
+            }
+        };
+        if missing.is_empty() || crate::tinytex::install_missing(&missing, &mut tried, &run, &notify).is_empty() {
+            break;
         }
     }
 
@@ -647,9 +670,28 @@ fn compile_tectonic(
 /// Directories of the TeX installation (kpathsea variables), resolved once. Reading from these is expected.
 fn tex_roots() -> &'static Vec<PathBuf> {
     static ROOTS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| find_exe("kpsewhich").map(|k| roots_from(&k)).unwrap_or_default())
+}
+
+/// The managed TinyTeX's directories, from its own kpsewhich (it is not on PATH), plus the install folder itself.
+fn managed_tinytex_roots() -> &'static Vec<PathBuf> {
+    static ROOTS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
     ROOTS.get_or_init(|| {
+        let Some(root) = managed_root() else { return Vec::new() };
+        let mut out = tinytex_bin(root).and_then(|b| find_exe_in("kpsewhich", b.as_os_str())).map(|k| roots_from(&k)).unwrap_or_default();
+        if let Ok(c) = root.join("tinytex").canonicalize() {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+        out
+    })
+}
+
+/// The directories a TeX installation reads from, asked from its kpsewhich (canonical paths).
+fn roots_from(kpse: &Path) -> Vec<PathBuf> {
+    {
         let mut out = Vec::new();
-        let Some(kpse) = find_exe("kpsewhich") else { return out };
         let sep = if cfg!(windows) { ';' } else { ':' };
         for var in [
             "TEXMFROOT", "TEXMFDIST", "TEXMFMAIN", "TEXMFLOCAL", "TEXMFSYSVAR", "TEXMFSYSCONFIG", "TEXMFVAR",
@@ -671,7 +713,7 @@ fn tex_roots() -> &'static Vec<PathBuf> {
             }
         }
         out
-    })
+    }
 }
 
 const FONT_EXT: &[&str] = &["ttf", "otf", "ttc", "pfb", "pfa", "afm", "tfm", "vf", "dfont"];
@@ -691,10 +733,8 @@ fn read_allowed(path: &Path, build: &Path, roots: &[PathBuf]) -> bool {
 pub fn verify_reads(build: &Path, out_dir: &Path, stem: &str) -> Result<(), usize> {
     let build = build.canonicalize().unwrap_or_else(|_| build.to_path_buf());
     let mut roots = tex_roots().clone();
-    // The TeX tree HiveTeX installed itself (not on PATH, so kpsewhich above does not see it).
-    if let Some(r) = managed_root() {
-        roots.push(r.join("tinytex"));
-    }
+    // The TeX tree HiveTeX installed itself (not on PATH, so the kpsewhich above does not see it).
+    roots.extend(managed_tinytex_roots().iter().cloned());
     let roots = &roots;
     let mut bad = 0usize;
     let mut check = |p: &Path, base: &Path| {
@@ -824,6 +864,38 @@ Speed: \qty{3}{\metre\per\second}
         assert!(r.local_only);
         assert!(r.log.contains("quick compiler"));
         eprintln!("downloaded during the build: {:?}", seen.lock().unwrap());
+    }
+
+    /// Real build with the managed TinyTeX installing a missing package. Run after real_tinytex_installs_and_compiles:
+    /// HIVETEX_IGNORE_SYSTEM_TEX=1 HIVETEX_TINYTEX_ROOT=<root> cargo test --lib real_tinytex_installs_missing -- --ignored
+    #[test]
+    #[ignore]
+    fn real_tinytex_installs_missing_packages() {
+        let Some(root) = std::env::var_os("HIVETEX_TINYTEX_ROOT").map(PathBuf::from) else { return };
+        set_managed_root(root);
+        let work = tmp("real-tinytex");
+        let doc = r"\documentclass{article}
+\usepackage{tikz-cd}
+\begin{document}
+\begin{tikzcd} A \arrow[r] & B \end{tikzcd}
+\end{document}
+";
+        let req = CompileReq {
+            project: "p2".into(),
+            files: vec![FileIn { path: "main.tex".into(), hash: "h".into(), content_b64: Some(B64.encode(doc)) }],
+            main: "main.tex".into(),
+            engine: "pdflatex".into(),
+            timeout_ms: 900_000,
+            memory_mb: 0,
+        };
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let s2 = seen.clone();
+        let cb: OnDownload = std::sync::Arc::new(move |f: &str| s2.lock().unwrap().push(f.to_string()));
+        let r = compile_with(&work, req, Some(cb));
+        eprintln!("events: {:?}", seen.lock().unwrap());
+        eprintln!("ok={} local_only={} tail: {}", r.ok, r.local_only, &r.log[r.log.len().saturating_sub(600)..]);
+        assert!(!r.local_only, "TinyTeX builds are verified and shareable");
+        assert!(r.ok, "the missing package is installed and the build succeeds");
     }
 
     #[test]
