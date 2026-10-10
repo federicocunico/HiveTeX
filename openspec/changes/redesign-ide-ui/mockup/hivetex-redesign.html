@@ -1,0 +1,1015 @@
+<title>HiveTeX Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&family=STIX+Two+Text:ital,wght@0,400;0,600;1,400;1,600&display=swap">
+<style>
+/* Layout: a design board. Top switcher picks a screen; each screen is a 1280px product frame scaled to fit,
+   followed by a two-column usability review (newcomer / experienced). */
+:root {
+  /* Neutrals: cool slate, slightly blue, so the honey accent reads warm against them. */
+  --paper: #f7f8fa;      /* app background */
+  --surface: #ffffff;    /* panels, cards */
+  --sunken: #eff1f5;     /* rails, inputs, wells */
+  --line: #dfe2e9;
+  --line-strong: #c7ccd7;
+  --ink: #16181d;
+  --muted: #5a6072;
+  --faint: #868c9c;
+  /* Brand: honey. Fill for large shapes, ink for text/focus on light. */
+  --honey: #eba724;
+  --honey-ink: #8a5300;
+  --honey-soft: #fdf2d9;
+  --on-honey: #1d1403;
+  /* Semantic */
+  --ok: #1d7a4b;   --ok-soft: #e3f4ea;
+  --warn: #b45309; --warn-soft: #fdeedd;
+  --bad: #b42318;  --bad-soft: #fde8e6;
+  /* Presence: one stable color per collaborator, shared by avatar ring, cursor and file dot. */
+  --p1: #2f6feb; --p2: #c2417a; --p3: #0f8a7f; --p4: #7a4fd6;
+  /* Syntax (editor) */
+  --syn-cmd: #3557c9; --syn-env: #8a3fb3; --syn-math: #0f7d6e; --syn-comment: #7f8596; --syn-brace: #5a6072; --syn-arg: #16181d;
+  /* PDF is paper in both themes */
+  --pdf-paper: #ffffff; --pdf-ink: #121212; --pdf-desk: #e4e7ee;
+  --shadow-1: 0 1px 2px rgb(16 20 30 / .06);
+  --shadow-2: 0 2px 6px rgb(16 20 30 / .06), 0 12px 32px rgb(16 20 30 / .10);
+  --scrim: rgb(20 22 28 / .38);
+  --r-s: 4px; --r-m: 6px; --r-l: 10px;
+  /* Type */
+  --ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --code: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  --serif: 'STIX Two Text', 'Latin Modern Roman', 'Times New Roman', Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0f1116; --surface: #161920; --sunken: #1c2029; --line: #2a2f3b; --line-strong: #3a4050;
+    --ink: #e7e9ef; --muted: #a0a6b6; --faint: #737a8c;
+    --honey: #f2b53c; --honey-ink: #f5bf55; --honey-soft: #33270d; --on-honey: #1d1403;
+    --ok: #4cc386; --ok-soft: #12291d; --warn: #f0a050; --warn-soft: #33220f; --bad: #ff8a7a; --bad-soft: #3a1915;
+    --p1: #6b9bff; --p2: #ef6fa6; --p3: #3cc7b6; --p4: #a888ff;
+    --syn-cmd: #82a6ff; --syn-env: #d29bf2; --syn-math: #5fd3bf; --syn-comment: #7e8597; --syn-brace: #a0a6b6; --syn-arg: #e7e9ef;
+    --pdf-desk: #252a35;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / .4);
+    --shadow-2: 0 2px 6px rgb(0 0 0 / .35), 0 16px 40px rgb(0 0 0 / .45);
+    --scrim: rgb(0 0 0 / .55);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0f1116; --surface: #161920; --sunken: #1c2029; --line: #2a2f3b; --line-strong: #3a4050;
+  --ink: #e7e9ef; --muted: #a0a6b6; --faint: #737a8c;
+  --honey: #f2b53c; --honey-ink: #f5bf55; --honey-soft: #33270d; --on-honey: #1d1403;
+  --ok: #4cc386; --ok-soft: #12291d; --warn: #f0a050; --warn-soft: #33220f; --bad: #ff8a7a; --bad-soft: #3a1915;
+  --p1: #6b9bff; --p2: #ef6fa6; --p3: #3cc7b6; --p4: #a888ff;
+  --syn-cmd: #82a6ff; --syn-env: #d29bf2; --syn-math: #5fd3bf; --syn-comment: #7e8597; --syn-brace: #a0a6b6; --syn-arg: #e7e9ef;
+  --pdf-desk: #252a35;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow-2: 0 2px 6px rgb(0 0 0 / .35), 0 16px 40px rgb(0 0 0 / .45);
+  --scrim: rgb(0 0 0 / .55);
+}
+
+* { box-sizing: border-box; }
+html, body { background: var(--paper); color: var(--ink); }
+body { font: 14px/1.5 var(--ui); padding-inline: 20px; padding-block: 0 64px; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--honey-ink); outline-offset: 2px; }
+svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.mono { font-family: var(--code); }
+.tab-num { font-variant-numeric: tabular-nums; }
+
+/* ---------- Board chrome ---------- */
+.board-head { max-width: 1280px; margin-inline: auto; padding-block: 28px 16px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: end; justify-content: space-between; }
+.board-head h1 { font: 600 28px/1.15 var(--serif); margin: 0; text-wrap: balance; }
+.board-head p { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.switcher { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--paper); border-bottom: 1px solid var(--line); }
+.switcher-in { max-width: 1280px; margin-inline: auto; display: flex; flex-wrap: wrap; gap: 4px; padding-block: 8px; align-items: center; }
+.switcher button { border: 1px solid transparent; background: none; padding: 6px 12px; border-radius: var(--r-m); cursor: pointer; color: var(--muted); font-weight: 500; }
+.switcher button[aria-selected="true"] { background: var(--surface); border-color: var(--line); color: var(--ink); box-shadow: var(--shadow-1); }
+.switcher .sp { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; background: var(--surface); }
+.seg button { border: 0; border-radius: 0; padding: 5px 10px; }
+.seg button[aria-pressed="true"] { background: var(--sunken); color: var(--ink); }
+.screen { max-width: 1280px; margin-inline: auto; padding-top: 20px; display: grid; gap: 20px; }
+.screen[hidden] { display: none; }
+.caption { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+.caption h2 { font: 600 20px/1.2 var(--serif); margin: 0; }
+.caption p { margin: 0; color: var(--muted); max-width: 70ch; }
+.overlay-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+
+.fit { width: 100%; overflow: hidden; border-radius: var(--r-l); border: 1px solid var(--line); box-shadow: var(--shadow-2); background: var(--paper); }
+.frame { width: 1280px; transform-origin: 0 0; position: relative; background: var(--paper); overflow: hidden; }
+
+/* Usability review */
+.review { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.review section { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); padding: 16px 18px; }
+.review h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.review ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.review li { display: grid; grid-template-columns: auto 1fr; gap: 10px; }
+.review li b { font-weight: 600; }
+.heur { font: 500 11px/1 var(--code); color: var(--honey-ink); background: var(--honey-soft); border-radius: var(--r-s); padding: 4px 6px; height: fit-content; white-space: nowrap; }
+
+/* ---------- Shared product components ---------- */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--r-m); border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-weight: 500; white-space: nowrap; }
+.btn:hover { background: var(--sunken); }
+.btn.primary { background: var(--honey); border-color: var(--honey); color: var(--on-honey); }
+.btn.primary:hover { filter: brightness(1.04); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ghost:hover { background: var(--sunken); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 13px; }
+.btn.lg { height: 44px; padding: 0 20px; font-size: 15px; border-radius: var(--r-l); }
+.iconbtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: var(--r-m); border: 0; background: none; color: var(--muted); cursor: pointer; position: relative; }
+.iconbtn:hover { background: var(--sunken); color: var(--ink); }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; line-height: 1; padding: 4px 8px; border-radius: 999px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.honey { background: var(--honey-soft); color: var(--honey-ink); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.kbd { font: 500 11px/1 var(--code); padding: 3px 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-s); color: var(--muted); background: var(--surface); }
+.field { display: grid; gap: 6px; }
+.field label { font-weight: 500; font-size: 13px; }
+.input { height: 38px; border: 1px solid var(--line-strong); border-radius: var(--r-m); background: var(--surface); padding: 0 12px; width: 100%; display: flex; align-items: center; gap: 8px; color: var(--ink); }
+.input.focus { border-color: var(--honey-ink); box-shadow: 0 0 0 3px var(--honey-soft); }
+.hint { font-size: 12.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.hint.ok { color: var(--ok); }
+.av { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; box-shadow: 0 0 0 2px var(--surface); }
+.avs { display: inline-flex; }
+.avs .av + .av { margin-left: -6px; }
+.logo { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; letter-spacing: -.01em; color: var(--ink); }
+.logo svg { width: 24px; height: 24px; }
+
+/* ---------- 1. Landing ---------- */
+.lp { background: var(--paper); }
+.lp-nav { display: flex; align-items: center; gap: 28px; padding: 18px 56px; }
+.lp-nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
+.lp-nav .sp { flex: 1; }
+.lp-hero { display: grid; grid-template-columns: 500px 1fr; gap: 48px; padding: 40px 56px 56px; align-items: center; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--honey-ink); font-weight: 600; }
+.lp-hero h1 { font: 400 54px/1.04 var(--serif); letter-spacing: -.015em; margin: 14px 0 18px; text-wrap: balance; }
+.lp-hero h1 em { font-style: italic; color: var(--honey-ink); }
+.lp-hero p.lead { font-size: 17px; line-height: 1.55; color: var(--muted); margin: 0 0 26px; max-width: 46ch; }
+.cta-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.small-print { margin-top: 14px; font-size: 13px; color: var(--faint); }
+.shot { border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface); box-shadow: var(--shadow-2); overflow: hidden; }
+.shot-bar { height: 34px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 12.5px; color: var(--muted); }
+.shot-body { display: grid; grid-template-columns: 1fr 1fr; height: 330px; }
+.shot-src { padding: 14px 0; font: 12.5px/1.75 var(--code); border-right: 1px solid var(--line); overflow: hidden; }
+.shot-src .ln { display: grid; grid-template-columns: 34px 1fr; }
+.shot-src .ln > span:first-child { color: var(--faint); text-align: right; padding-right: 12px; }
+.shot-pdf { background: var(--pdf-desk); padding: 18px; display: grid; place-items: start center; overflow: hidden; }
+.mini-page { background: var(--pdf-paper); color: var(--pdf-ink); width: 100%; max-width: 270px; aspect-ratio: 1 / 1.294; padding: 26px 24px; font: 8.5px/1.45 var(--serif); box-shadow: 0 1px 3px rgb(0 0 0 / .18); }
+.mini-page h4 { font: 600 13px/1.2 var(--serif); text-align: center; margin: 0 0 4px; }
+.mini-page .au { text-align: center; font-size: 8px; margin-bottom: 10px; }
+.mini-page .abs { margin: 0 14px 8px; font-size: 7.5px; text-align: justify; }
+.mini-page h5 { font: 600 9.5px/1.2 var(--serif); margin: 8px 0 3px; }
+.mini-page p { margin: 0 0 4px; text-align: justify; text-indent: 1em; }
+.typing { background: var(--p2); color: #fff; }
+.caret { display: inline-block; width: 2px; height: 1.2em; vertical-align: -3px; position: relative; }
+.caret i { position: absolute; bottom: 100%; left: -1px; font: 600 9.5px/1 var(--ui); font-style: normal; color: #fff; padding: 2px 4px; border-radius: 3px 3px 3px 0; white-space: nowrap; }
+@keyframes blink { 50% { opacity: 0; } }
+.caret.blink { animation: blink 1s steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) { .caret.blink { animation: none; } }
+.lp-section { padding: 56px; border-top: 1px solid var(--line); }
+.lp-section h2 { font: 400 34px/1.15 var(--serif); margin: 0 0 8px; text-wrap: balance; }
+.lp-section .sub { color: var(--muted); margin: 0 0 32px; font-size: 16px; max-width: 60ch; }
+.feat { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px 40px; }
+.feat div { display: grid; gap: 6px; }
+.feat h3 { margin: 0; font-size: 16px; display: flex; gap: 8px; align-items: center; }
+.feat h3 svg { color: var(--honey-ink); width: 18px; height: 18px; }
+.feat p { margin: 0; color: var(--muted); }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; counter-reset: s; border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface); }
+.steps li { list-style: none; padding: 22px 24px; display: grid; gap: 8px; align-content: start; }
+.steps li + li { border-left: 1px solid var(--line); }
+.steps .n { font: 600 13px/1 var(--code); color: var(--honey-ink); }
+.steps h3 { margin: 0; font-size: 16px; }
+.steps p { margin: 0; color: var(--muted); }
+.steps code { font: 12.5px var(--code); background: var(--sunken); padding: 1px 5px; border-radius: 4px; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.duo > div { padding: 24px 26px; border-radius: var(--r-l); background: var(--surface); border: 1px solid var(--line); display: grid; gap: 10px; align-content: start; }
+.duo h3 { margin: 0; font: 600 20px/1.2 var(--serif); }
+.duo ul { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 4px; }
+.lp-foot { padding: 24px 56px; border-top: 1px solid var(--line); display: flex; gap: 24px; color: var(--faint); font-size: 13px; }
+.lp-foot .sp { flex: 1; }
+
+/* ---------- 2. Auth ---------- */
+.auth { display: grid; grid-template-columns: 540px 1fr; height: 800px; }
+.auth-side { background: var(--sunken); border-right: 1px solid var(--line); padding: 40px 48px; display: grid; grid-template-rows: auto 1fr auto; gap: 24px; }
+.auth-side blockquote { margin: 0; align-self: center; font: 400 26px/1.3 var(--serif); text-wrap: balance; }
+.auth-side blockquote small { display: block; margin-top: 14px; font: 13px/1.4 var(--ui); color: var(--muted); }
+.auth-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; color: var(--muted); }
+.auth-side li { display: flex; gap: 10px; align-items: center; }
+.auth-side li svg { color: var(--ok); }
+.auth-main { display: grid; place-items: center; }
+.auth-form { width: 400px; display: grid; gap: 18px; }
+.auth-form h2 { margin: 0; font: 600 28px/1.2 var(--serif); }
+.auth-form .lede { margin: -10px 0 4px; color: var(--muted); }
+.server-chip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: var(--r-m); }
+.server-chip b { color: var(--ink); font-weight: 500; font-family: var(--code); font-size: 12.5px; }
+.server-chip a { margin-left: auto; color: var(--honey-ink); font-weight: 500; }
+.meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.meter span { height: 4px; border-radius: 2px; background: var(--line); }
+.meter span.on { background: var(--ok); }
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.alt { text-align: center; color: var(--muted); font-size: 13.5px; }
+.alt a { color: var(--honey-ink); font-weight: 500; }
+
+/* ---------- App header (dashboard) ---------- */
+.apphead { height: 52px; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.apphead .sp { flex: 1; }
+.searchbox { width: 380px; height: 34px; border: 1px solid var(--line); background: var(--sunken); border-radius: var(--r-m); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--faint); }
+.searchbox .kbd { margin-left: auto; }
+
+/* ---------- 3. Projects ---------- */
+.dash { height: 800px; display: grid; grid-template-rows: auto 1fr; }
+.dash-main { padding: 32px 56px; display: grid; gap: 20px; align-content: start; }
+.dash-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dash-title h1 { margin: 0; font: 600 28px/1.2 var(--serif); margin-right: auto; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs span { padding: 8px 12px; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs span.on { color: var(--ink); border-color: var(--honey); }
+.tabs .sp { flex: 1; }
+.plist { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); }
+.prow { display: grid; grid-template-columns: 44px 1fr 120px 120px 150px 32px; gap: 16px; align-items: center; padding: 14px 18px; }
+.prow + .prow { border-top: 1px solid var(--line); }
+.prow.head { padding-block: 10px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+.thumb { width: 44px; height: 56px; border-radius: 3px; background: var(--pdf-paper); border: 1px solid var(--line); padding: 7px 6px; display: grid; gap: 3px; align-content: start; }
+.thumb i { display: block; height: 2px; background: #c9ccd3; border-radius: 1px; }
+.thumb i.t { height: 3px; background: #6b7080; width: 70%; justify-self: center; }
+.pname { display: grid; gap: 3px; min-width: 0; }
+.pname b { font-weight: 600; font-size: 15px; }
+.pname span { color: var(--muted); font-size: 12.5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pname code { font: 12px var(--code); }
+
+/* Dialog (shared) */
+.scrim { position: absolute; inset: 0; background: var(--scrim); display: grid; place-items: center; z-index: 5; }
+.dialog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-2); display: grid; }
+.dialog-h { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.dialog-h h2 { margin: 0; font: 600 18px/1.2 var(--ui); margin-right: auto; }
+.dialog-b { padding: 20px 22px; display: grid; gap: 18px; }
+.dialog-f { display: flex; gap: 10px; justify-content: flex-end; align-items: center; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--sunken); border-radius: 0 0 12px 12px; }
+.dialog-f .note { margin-right: auto; color: var(--muted); font-size: 13px; }
+.tpl-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tpl { border: 1px solid var(--line); border-radius: var(--r-l); padding: 10px; display: grid; gap: 8px; background: var(--surface); }
+.tpl.sel { border-color: var(--honey-ink); box-shadow: 0 0 0 3px var(--honey-soft); }
+.tpl .pg { background: var(--pdf-desk); border-radius: var(--r-m); height: 116px; display: grid; place-items: center; }
+.tpl .pg > div { width: 72px; height: 94px; background: var(--pdf-paper); box-shadow: 0 1px 2px rgb(0 0 0 / .2); padding: 9px 8px; display: grid; gap: 3px; align-content: start; }
+.tpl .pg i { display: block; height: 2px; background: #cdd0d7; }
+.tpl .pg i.t { height: 4px; background: #555a66; width: 66%; justify-self: center; margin-bottom: 3px; }
+.tpl .pg i.h { height: 3px; background: #8a8f9b; width: 40%; margin-top: 3px; }
+.tpl .pg .wide { width: 104px; height: 66px; }
+.tpl b { font-size: 14px; }
+.tpl span { font-size: 12px; color: var(--muted); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.toggle { width: 34px; height: 20px; border-radius: 10px; background: var(--honey); position: relative; flex: none; }
+.toggle::after { content: ""; position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+
+/* ---------- 4. Workspace ---------- */
+.ws { height: 800px; display: grid; grid-template-rows: 48px 1fr 28px; background: var(--paper); }
+.ws-head { display: flex; align-items: center; gap: 10px; padding: 0 10px 0 6px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.ws-head .crumb { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ws-head .crumb b { font-weight: 600; white-space: nowrap; }
+.ws-head .slug { font: 12px var(--code); color: var(--muted); background: var(--sunken); padding: 3px 7px; border-radius: var(--r-s); }
+.ws-head .sp { flex: 1; }
+.split-btn { display: inline-flex; }
+.split-btn .btn:first-child { border-radius: var(--r-m) 0 0 var(--r-m); }
+.split-btn .btn:last-child { border-radius: 0 var(--r-m) var(--r-m) 0; border-left-color: rgb(0 0 0 / .15); padding: 0 8px; }
+.ws-body { display: grid; grid-template-columns: 48px 248px 1fr 6px 1fr; min-height: 0; }
+.rail { background: var(--sunken); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; }
+.rail .iconbtn { width: 36px; height: 36px; }
+.rail .iconbtn svg { width: 19px; height: 19px; }
+.rail .iconbtn.on { color: var(--ink); background: var(--surface); box-shadow: var(--shadow-1); }
+.rail .iconbtn.on::before { content: ""; position: absolute; left: -6px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--honey); }
+.badge { position: absolute; top: 3px; right: 2px; min-width: 15px; height: 15px; border-radius: 8px; background: var(--honey); color: var(--on-honey); font: 600 10px/15px var(--ui); text-align: center; padding: 0 3px; }
+.rail .sp { flex: 1; }
+.side { background: var(--surface); border-right: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+.side-h { display: flex; align-items: center; height: 40px; padding: 0 8px 0 14px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.side-h .sp { flex: 1; }
+.side-h .iconbtn { width: 26px; height: 26px; }
+.tree { list-style: none; margin: 0; padding: 0 6px; font-size: 13.5px; }
+.tree li { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-s); color: var(--ink); }
+.tree li.in { padding-left: 26px; }
+.tree li svg { color: var(--faint); width: 15px; height: 15px; }
+.tree li.sel { background: var(--honey-soft); }
+.tree li .sp { flex: 1; }
+.tree .main-tag { font-size: 10.5px; color: var(--honey-ink); font-weight: 600; letter-spacing: .04em; }
+.tree .pd { width: 7px; height: 7px; border-radius: 50%; }
+.side-foot { border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.side-foot div { display: flex; align-items: center; gap: 8px; }
+.outline-mini { list-style: none; margin: 0; padding: 4px 6px 0; font-size: 13px; }
+.outline-mini li { height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--muted); border-radius: var(--r-s); }
+.outline-mini li.l2 { padding-left: 22px; }
+.outline-mini li.cur { color: var(--ink); background: var(--sunken); }
+
+.editor { display: grid; grid-template-rows: 36px 38px 1fr auto; min-width: 0; background: var(--surface); }
+.etabs { display: flex; align-items: end; background: var(--sunken); border-bottom: 1px solid var(--line); padding-left: 4px; }
+.etab { height: 32px; padding: 0 12px; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); border-radius: 6px 6px 0 0; }
+.etab.on { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-bottom-color: var(--surface); margin-bottom: -1px; }
+.etab .pd { width: 7px; height: 7px; border-radius: 50%; }
+.fmt { display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.fmt .iconbtn { width: 30px; height: 30px; }
+.fmt .sep { width: 1px; height: 18px; background: var(--line); margin: 0 6px; }
+.fmt .sel-btn { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border-radius: var(--r-m); color: var(--muted); font-size: 13px; }
+.fmt .sp { flex: 1; }
+.code { font: 13px/22px var(--code); padding: 10px 0; overflow: hidden; position: relative; }
+.code .ln { display: grid; grid-template-columns: 22px 34px 1fr; white-space: pre; }
+.code .ln > .g { display: grid; place-items: center; }
+.code .ln > .n { color: var(--faint); text-align: right; padding-right: 14px; }
+.code .ln.active { background: color-mix(in srgb, var(--honey-soft) 55%, transparent); }
+.code .ln.active > .n { color: var(--ink); }
+.c { color: var(--syn-cmd); } .e { color: var(--syn-env); } .m { color: var(--syn-math); } .cm { color: var(--syn-comment); font-style: italic; } .b { color: var(--syn-brace); }
+.squig { text-decoration: underline wavy var(--bad); text-underline-offset: 4px; }
+.errdot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.sel-p3 { background: color-mix(in srgb, var(--p3) 22%, transparent); }
+.rcaret { display: inline-block; width: 2px; height: 18px; vertical-align: -4px; position: relative; }
+.rcaret i { position: absolute; bottom: 100%; left: 0; font: 600 10px/1 var(--ui); font-style: normal; color: #fff; padding: 3px 5px; border-radius: 3px 3px 3px 0; white-space: nowrap; }
+.problems { border-top: 1px solid var(--line); background: var(--surface); }
+.problems-h { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 12px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.problems-h b { color: var(--ink); font-weight: 600; }
+.problems-h .sp { flex: 1; }
+.prob { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; padding: 10px 14px; align-items: start; }
+.prob svg { color: var(--bad); margin-top: 2px; }
+.prob .t { font-weight: 600; }
+.prob .t code { font: 12.5px var(--code); font-weight: 500; }
+.prob p { margin: 3px 0 0; color: var(--muted); font-size: 13px; max-width: 60ch; }
+.prob .acts { display: flex; gap: 6px; }
+
+.gutter { background: var(--line); cursor: col-resize; position: relative; }
+.gutter::after { content: ""; position: absolute; left: 2px; top: 50%; width: 2px; height: 28px; margin-top: -14px; border-radius: 1px; background: var(--line-strong); }
+.pdf { display: grid; grid-template-rows: 38px 1fr; min-width: 0; background: var(--pdf-desk); }
+.pdf-bar { display: flex; align-items: center; gap: 6px; padding: 0 8px 0 12px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.pdf-bar .sp { flex: 1; }
+.pdf-bar .iconbtn { width: 28px; height: 28px; }
+.pdf-scroll { padding: 22px; overflow: hidden; display: grid; justify-items: center; align-content: start; gap: 16px; position: relative; }
+.page { background: var(--pdf-paper); color: var(--pdf-ink); width: 470px; height: 608px; padding: 50px 54px; font: 10.5px/1.48 var(--serif); box-shadow: 0 1px 3px rgb(0 0 0 / .2), 0 6px 20px rgb(0 0 0 / .08); }
+.page h1 { font: 600 17px/1.25 var(--serif); text-align: center; margin: 0 0 8px; text-wrap: balance; }
+.page .au { text-align: center; margin-bottom: 4px; }
+.page .af { text-align: center; font-size: 9.5px; font-style: italic; margin-bottom: 14px; }
+.page .abs { margin: 0 28px 12px; font-size: 9.5px; text-align: justify; }
+.page .abs b { display: block; text-align: center; margin-bottom: 3px; }
+.page h2 { font: 600 12px/1.2 var(--serif); margin: 12px 0 5px; }
+.page p { margin: 0 0 5px; text-align: justify; text-indent: 1.4em; hyphens: auto; }
+.page .hl { background: rgb(242 181 60 / .35); }
+.page .missing { font-weight: 600; }
+.page .eq { text-align: center; margin: 8px 0; font-style: italic; display: flex; justify-content: center; gap: 30px; }
+.page .eq span:last-child { font-style: normal; }
+.followtag { position: absolute; top: 14px; right: 16px; }
+
+.statusbar { display: flex; align-items: center; gap: 16px; padding: 0 12px; background: var(--surface); border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.statusbar span { display: inline-flex; align-items: center; gap: 6px; }
+.statusbar .sp { flex: 1; }
+.statusbar svg { width: 13px; height: 13px; }
+
+/* Palette, Share, Tour overlays */
+.palette { width: 620px; margin-top: -240px; }
+.pal-in { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.pal-in .q { flex: 1; }
+.pal-list { padding: 6px; display: grid; gap: 1px; }
+.pal-group { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); padding: 8px 10px 4px; }
+.pal-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-m); }
+.pal-item.on { background: var(--honey-soft); }
+.pal-item svg { color: var(--muted); }
+.pal-item mark { background: none; color: var(--honey-ink); font-weight: 600; }
+.pal-item .sp { flex: 1; }
+.pal-item .kbds { display: flex; gap: 3px; }
+.pal-foot { display: flex; gap: 16px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.pal-foot span { display: inline-flex; gap: 5px; align-items: center; }
+.share { width: 560px; }
+.idbox { display: flex; gap: 8px; align-items: center; }
+.idbox .input { font-family: var(--code); }
+.mtable { display: grid; border: 1px solid var(--line); border-radius: var(--r-m); }
+.mrow { display: grid; grid-template-columns: 28px 1fr 120px 28px; gap: 10px; align-items: center; padding: 8px 12px; }
+.mrow + .mrow { border-top: 1px solid var(--line); }
+.mrow small { color: var(--muted); display: block; font-size: 12px; }
+.selectish { height: 30px; border: 1px solid var(--line-strong); border-radius: var(--r-m); display: flex; align-items: center; justify-content: space-between; padding: 0 8px; font-size: 13px; background: var(--surface); }
+.setrow { display: flex; align-items: center; gap: 12px; }
+.setrow > div { flex: 1; }
+.setrow small { display: block; color: var(--muted); font-size: 12.5px; }
+.tour { position: absolute; left: 60px; top: 64px; width: 330px; z-index: 6; }
+.tour-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); box-shadow: var(--shadow-2); padding: 16px 18px; display: grid; gap: 10px; }
+.tour-card h3 { margin: 0; font-size: 15px; }
+.tour-card p { margin: 0; color: var(--muted); font-size: 13.5px; }
+.tour-card .row { display: flex; align-items: center; gap: 8px; }
+.tour-card .row .sp { flex: 1; }
+.tour-arrow { position: absolute; top: -7px; left: 30px; width: 12px; height: 12px; background: var(--surface); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+.ring { position: absolute; border: 2px solid var(--honey); border-radius: var(--r-m); box-shadow: 0 0 0 4000px var(--scrim); z-index: 5; pointer-events: none; }
+
+/* ---------- 5. System ---------- */
+.sys { display: grid; gap: 20px; }
+.sys-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.sys-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); padding: 18px; display: grid; gap: 14px; align-content: start; }
+.sys-card h3 { margin: 0; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.sw { display: grid; gap: 6px; font-size: 12px; }
+.sw span { height: 40px; border-radius: var(--r-m); border: 1px solid var(--line); }
+.sw code { font: 11px var(--code); color: var(--muted); }
+.typescale { display: grid; gap: 10px; }
+.typescale div { display: grid; grid-template-columns: 80px 1fr; gap: 12px; align-items: baseline; }
+.typescale code { font: 11px var(--code); color: var(--faint); }
+.icons { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; color: var(--muted); }
+.icons div { display: grid; place-items: center; height: 40px; border-radius: var(--r-m); background: var(--sunken); }
+.icons svg { width: 19px; height: 19px; }
+.compo { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+@media (max-width: 640px) {
+  .board-head h1 { font-size: 23px; }
+  .switcher button { padding: 6px 9px; }
+}
+</style>
+
+<!-- Icon sprite: one stroke icon set (Lucide-style geometry) replacing emoji glyphs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-files" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-outline" viewBox="0 0 24 24"><path d="M4 6h16M8 12h12M8 18h12M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-changes" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v3A4.5 4.5 0 0 0 10.5 16H15.5"/><path d="M13 13.5 15.5 16 13 18.5"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+    <symbol id="i-backup" viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 7.9"/><path d="M12 12v8M9 15l3-3 3 3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17h.01"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chevr" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-bold" viewBox="0 0 24 24"><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z"/></symbol>
+    <symbol id="i-italic" viewBox="0 0 24 24"><path d="M14 5h5M5 19h5M15 5 9 19"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+    <symbol id="i-sigma" viewBox="0 0 24 24"><path d="M18 6V4H6l6 8-6 8h12v-2"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></symbol>
+    <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M10 4v16"/></symbol>
+    <symbol id="i-quote" viewBox="0 0 24 24"><path d="M7 7h4v4c0 3-1.5 5-4 6M14 7h4v4c0 3-1.5 5-4 6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3A4 4 0 0 0 13 5.3l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/></symbol>
+    <symbol id="i-omega" viewBox="0 0 24 24"><path d="M4 19h5v-2.5A7 7 0 1 1 15 16.5V19h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12M6 9h12M6 15h12M9 6a3 3 0 1 0-3 3M15 6a3 3 0 1 1 3 3M9 18a3 3 0 1 1-3-3M15 18a3 3 0 1 0 3-3"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-focus" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></symbol>
+    <symbol id="i-zoomin" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v6M8 11h6"/></symbol>
+    <symbol id="i-zoomout" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
+    <symbol id="i-offline" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><rect x="3" y="17" width="18" height="4" rx="1"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-hex" viewBox="0 0 24 24"><path d="M12 2.5 20.5 7.3v9.4L12 21.5 3.5 16.7V7.3z"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12A8 8 0 0 1 18.3 7.1"/><path d="M18 3v4.5h-4.5M6 21v-4.5h4.5"/></symbol>
+  </defs>
+</svg>
+
+<header class="board-head">
+  <div>
+    <h1>HiveTeX, redesigned as a LaTeX IDE</h1>
+    <p>Mockup for the <code class="mono">redesign-ide-ui</code> change. Five screens, one design system, shared by the web app and the desktop app. Each screen is reviewed for two people: someone writing their first LaTeX paper, and someone who lives in an editor.</p>
+  </div>
+</header>
+
+<nav class="switcher" aria-label="Screens">
+  <div class="switcher-in" role="tablist">
+    <button role="tab" aria-selected="true" data-s="landing">Landing</button>
+    <button role="tab" aria-selected="false" data-s="auth">Create account</button>
+    <button role="tab" aria-selected="false" data-s="projects">Projects</button>
+    <button role="tab" aria-selected="false" data-s="workspace">Workspace</button>
+    <button role="tab" aria-selected="false" data-s="system">Design system</button>
+    <span class="sp"></span>
+    <div class="seg" role="group" aria-label="Theme">
+      <button aria-pressed="true" data-theme-set="system">System</button>
+      <button aria-pressed="false" data-theme-set="light">Light</button>
+      <button aria-pressed="false" data-theme-set="dark">Dark</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ================= 1. LANDING ================= -->
+<section class="screen" id="s-landing">
+  <div class="caption"><h2>Landing page</h2><p>Signed-out web visitors land here instead of a bare sign-in form. The desktop app skips it.</p></div>
+  <div class="fit"><div class="frame lp">
+    <nav class="lp-nav">
+      <span class="logo"><svg viewBox="0 0 24 24"><use href="#i-hex" stroke="var(--honey)" stroke-width="2.2" fill="var(--honey-soft)"/><path d="M9.5 8.5 14.5 15.5" stroke="var(--honey-ink)" stroke-width="2" stroke-linecap="round"/></svg>HiveTeX</span>
+      <a href="#">Features</a><a href="#">How it works</a><a href="#">Download</a><a href="#">Source code</a>
+      <span class="sp"></span>
+      <a href="#">Sign in</a>
+      <button class="btn primary">Create free account</button>
+    </nav>
+    <div class="lp-hero">
+      <div>
+        <span class="eyebrow">Free and open source LaTeX editor</span>
+        <h1>Write your paper <em>together</em>, on your own machines.</h1>
+        <p class="lead">Co-authors edit the same document live, keep writing offline, and the fastest computer in the group compiles the PDF for everyone. Your sources stay on your devices.</p>
+        <div class="cta-row">
+          <button class="btn primary lg">Create free account</button>
+          <button class="btn lg"><svg class="i"><use href="#i-download"/></svg>Download for Windows</button>
+        </div>
+        <div class="small-print">Also for macOS and Linux · AGPL-3.0 · No credit card, no storage quota</div>
+      </div>
+      <div class="shot" aria-label="Product preview">
+        <div class="shot-bar"><span class="avs"><span class="av" style="background:var(--p1)">FC</span><span class="av" style="background:var(--p2)">AL</span><span class="av" style="background:var(--p3)">KT</span></span>main.tex · 3 writing now<span style="margin-left:auto" class="pill ok"><span class="dot"></span>PDF up to date</span></div>
+        <div class="shot-body">
+          <div class="shot-src">
+            <div class="ln"><span>1</span><span><span class="c">\title</span><span class="b">{</span>Graph Networks for Protein Folding<span class="b">}</span></span></div>
+            <div class="ln"><span>2</span><span><span class="c">\author</span><span class="b">{</span>F. Cunico, A. Lindqvist, K. Tanaka<span class="b">}</span></span></div>
+            <div class="ln"><span>3</span><span></span></div>
+            <div class="ln"><span>4</span><span><span class="c">\begin</span><span class="b">{</span><span class="e">abstract</span><span class="b">}</span></span></div>
+            <div class="ln"><span>5</span><span>We predict tertiary structure from</span></div>
+            <div class="ln"><span>6</span><span>contact maps using <span id="typed">message passing</span><span class="caret blink" style="background:var(--p2)"><i style="background:var(--p2)">Ada</i></span></span></div>
+            <div class="ln"><span>7</span><span><span class="c">\end</span><span class="b">{</span><span class="e">abstract</span><span class="b">}</span></span></div>
+            <div class="ln"><span>8</span><span></span></div>
+            <div class="ln"><span>9</span><span><span class="c">\section</span><span class="b">{</span>Introduction<span class="b">}</span></span></div>
+            <div class="ln"><span>10</span><span>Folding is <span class="m">$\Delta G$</span>-driven <span class="c">\cite</span><span class="b">{</span>anfinsen73<span class="b">}</span>.</span></div>
+          </div>
+          <div class="shot-pdf">
+            <div class="mini-page">
+              <h4>Graph Networks for Protein Folding</h4>
+              <div class="au">F. Cunico · A. Lindqvist · K. Tanaka</div>
+              <div class="abs"><b>Abstract.</b> We predict tertiary structure from contact maps using <span id="typed-pdf">message passing</span> over residue graphs.</div>
+              <h5>1 Introduction</h5>
+              <p>Folding is <i>ΔG</i>-driven [1]. Most residues settle into a small set of local motifs, which a graph model can learn from contact maps alone.</p>
+              <p>We describe the model in Section 2 and the training data in Section 3.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="lp-section">
+      <h2>Built for papers with more than one author</h2>
+      <p class="sub">Everything Overleaf users expect, without handing your unpublished work to a cloud.</p>
+      <div class="feat">
+        <div><h3><svg class="i"><use href="#i-users"/></svg>Live co-writing</h3><p>See each co-author's cursor in their own color, follow them through the document, and never merge by hand.</p></div>
+        <div><h3><svg class="i"><use href="#i-offline"/></svg>Works offline</h3><p>Keep writing on a train. When you reconnect, changes merge paragraph by paragraph.</p></div>
+        <div><h3><svg class="i"><use href="#i-cpu"/></svg>Compiled by the hive</h3><p>The fastest computer online builds the PDF and sends it to everyone. If it leaves, the next one takes over.</p></div>
+        <div><h3><svg class="i"><use href="#i-lock"/></svg>Private by design</h3><p>Sources travel encrypted between co-authors' devices. The server only knows who is in the project.</p></div>
+        <div><h3><svg class="i"><use href="#i-github"/></svg>GitHub backup</h3><p>Commit to your own repository after a burst of edits, or when you stop typing for a while.</p></div>
+        <div><h3><svg class="i"><use href="#i-folder"/></svg>Bring your project</h3><p>Import an Overleaf .zip or a folder, or keep the project mirrored to a folder your other tools can read.</p></div>
+      </div>
+    </div>
+    <div class="lp-section">
+      <h2>From blank page to shared PDF</h2>
+      <p class="sub">Three steps, and the second one takes about ten seconds.</p>
+      <ol class="steps" style="margin:0;padding:0">
+        <li><span class="n">STEP 1</span><h3>Start from a template</h3><p>Article, thesis, Beamer slides or a CV. Each one compiles before you change a word.</p></li>
+        <li><span class="n">STEP 2</span><h3>Share the project ID</h3><p>Send <code>gnn-folding-2026</code> and its password. You choose who can edit and who can only read.</p></li>
+        <li><span class="n">STEP 3</span><h3>Write together</h3><p>Edits appear as they are typed. The PDF refreshes for everyone after each compile.</p></li>
+      </ol>
+    </div>
+    <div class="lp-section">
+      <div class="duo">
+        <div><h3>New to LaTeX?</h3><ul><li>A toolbar for headings, lists, math, figures and citations</li><li>Templates that already compile</li><li>Error messages in plain language, with a button to fix the common ones</li><li>A short tour the first time you open a project</li></ul></div>
+        <div><h3>Live in LaTeX already?</h3><ul><li>Command palette for every action, <span class="kbd">Ctrl K</span></li><li>Vim or Emacs keys, SyncTeX both ways, outline jump</li><li>Your own TeX Live, or a built-in compiler that installs itself</li><li>Mirror the project to a folder for Git, scripts or your AI tools</li></ul></div>
+      </div>
+    </div>
+    <footer class="lp-foot"><span>HiveTeX 0.2 · AGPL-3.0-or-later</span><span class="sp"></span><span>Source code</span><span>Documentation</span><span>Self-host</span><span>Privacy</span></footer>
+  </div></div>
+  <div class="review">
+    <section><h3>Newcomer reading</h3><ul>
+      <li><span class="heur">H2</span><div><b>Speaks the reader's language.</b> "Write your paper together" and "the fastest computer compiles" replace "P2P" and "leader election". No jargon above the fold.</div></li>
+      <li><span class="heur">H6</span><div><b>Shows instead of describing.</b> The hero preview is the real editor and PDF side by side, with a co-author typing, so the product makes sense before any text is read.</div></li>
+      <li><span class="heur">H8</span><div><b>One primary action.</b> "Create free account" is the only honey-filled button. Download is secondary, and sign-in is a link.</div></li>
+    </ul></section>
+    <section><h3>Experienced reading</h3><ul>
+      <li><span class="heur">H7</span><div><b>Power features are named, not hidden.</b> The "Live in LaTeX already?" column lists the palette, keymaps, SyncTeX and folder mirror, which are the things that make experts switch.</div></li>
+      <li><span class="heur">TRUST</span><div><b>Honest about the architecture.</b> "Private by design" says what the server knows. Source code and self-hosting are in the nav, not buried.</div></li>
+      <li><span class="heur">PERF</span><div><b>Cheap to load.</b> The landing page is a separate lazy chunk, so returning signed-in users never download it.</div></li>
+    </ul></section>
+  </div>
+</section>
+
+<!-- ================= 2. AUTH ================= -->
+<section class="screen" id="s-auth" hidden>
+  <div class="caption"><h2>Create account</h2><p>The sign-in, forgot-password and reset screens share this split layout. The server line appears only in the desktop app.</p></div>
+  <div class="fit"><div class="frame auth">
+    <aside class="auth-side">
+      <span class="logo"><svg viewBox="0 0 24 24"><use href="#i-hex" stroke="var(--honey)" stroke-width="2.2" fill="var(--honey-soft)"/><path d="M9.5 8.5 14.5 15.5" stroke="var(--honey-ink)" stroke-width="2" stroke-linecap="round"/></svg>HiveTeX</span>
+      <blockquote>“We wrote the camera-ready version on three laptops across two time zones, and nobody emailed a .tex file.”<small>The pitch, in one sentence</small></blockquote>
+      <ul>
+        <li><svg class="i"><use href="#i-check"/></svg>Unlimited projects and co-authors</li>
+        <li><svg class="i"><use href="#i-check"/></svg>Sources stay on your devices</li>
+        <li><svg class="i"><use href="#i-check"/></svg>Works offline, merges when you reconnect</li>
+      </ul>
+    </aside>
+    <main class="auth-main">
+      <form class="auth-form" onsubmit="return false">
+        <h2>Create account</h2>
+        <p class="lede">You will use this name when co-authors invite you.</p>
+        <div class="server-chip"><svg class="i"><use href="#i-wifi"/></svg>Server <b>hivetex.vercel.app</b><a href="#">Change</a></div>
+        <div class="field"><label for="u">Username</label><div class="input" id="u">federico_c<svg class="i" style="margin-left:auto;color:var(--ok)"><use href="#i-check"/></svg></div><span class="hint ok">3–32 characters: a–z, 0–9, _ and -</span></div>
+        <div class="field"><label for="em">Email</label><div class="input" id="em">federico@example.org</div></div>
+        <div class="field"><label for="pw">Password</label><div class="input focus" id="pw"><span class="mono">••••••••••••••</span><svg class="i" style="margin-left:auto;color:var(--muted)"><use href="#i-eye"/></svg></div>
+          <div class="meter" aria-label="Password strength: strong"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div>
+          <div class="checks"><span class="hint ok"><svg class="i"><use href="#i-check"/></svg>At least 12 characters</span><span class="hint"><svg class="i"><use href="#i-lock"/></svg>Checked against leaked passwords when you submit</span></div>
+        </div>
+        <div class="field"><label for="pw2">Repeat password</label><div class="input" id="pw2"><span class="mono">••••••••••••••</span></div></div>
+        <button class="btn primary lg" style="justify-content:center">Create account</button>
+        <p class="alt">Already have an account? <a href="#">Sign in</a></p>
+      </form>
+    </main>
+  </div></div>
+  <div class="review">
+    <section><h3>Newcomer reading</h3><ul>
+      <li><span class="heur">H5</span><div><b>Prevents errors before submit.</b> Username format and password length are checked while typing, with the rule written next to the field. Only the leaked-password check needs the server.</div></li>
+      <li><span class="heur">H1</span><div><b>Visible state.</b> A green check confirms each rule as it is met, and the strength meter fills as the password grows.</div></li>
+      <li><span class="heur">H6</span><div><b>Recognition over recall.</b> The "Show password" eye means nobody has to retype the password to check for typos.</div></li>
+    </ul></section>
+    <section><h3>Experienced reading</h3><ul>
+      <li><span class="heur">H7</span><div><b>Fast path.</b> Fields are in autofill order with correct <code class="mono">autocomplete</code> tokens, so a password manager fills the whole form.</div></li>
+      <li><span class="heur">H4</span><div><b>Self-hosters see the server.</b> On desktop, the server is shown before sign-in and can be changed in place, as the release-distribution spec requires.</div></li>
+      <li><span class="heur">A11Y</span><div><b>Labels, not placeholders.</b> Every field has a visible label, and errors are linked to their field and announced.</div></li>
+    </ul></section>
+  </div>
+</section>
+
+<!-- ================= 3. PROJECTS ================= -->
+<section class="screen" id="s-projects" hidden>
+  <div class="caption"><h2>Projects and the template gallery</h2><p>"New project" opens the gallery. Join and Open folder are secondary actions.</p></div>
+  <div class="overlay-bar">Overlay:
+    <div class="seg" role="group" aria-label="Projects overlay"><button aria-pressed="false" data-ov="p-none">None</button><button aria-pressed="true" data-ov="p-new">New project</button></div>
+  </div>
+  <div class="fit"><div class="frame dash">
+    <header class="apphead">
+      <span class="logo"><svg viewBox="0 0 24 24"><use href="#i-hex" stroke="var(--honey)" stroke-width="2.2" fill="var(--honey-soft)"/><path d="M9.5 8.5 14.5 15.5" stroke="var(--honey-ink)" stroke-width="2" stroke-linecap="round"/></svg>HiveTeX</span>
+      <span class="sp"></span>
+      <div class="searchbox"><svg class="i"><use href="#i-search"/></svg>Search projects and commands<span class="kbd">Ctrl K</span></div>
+      <span class="sp"></span>
+      <button class="iconbtn" aria-label="Help"><svg class="i"><use href="#i-help"/></svg></button>
+      <span class="av" style="background:var(--p1)">FC</span>
+    </header>
+    <main class="dash-main">
+      <div class="dash-title">
+        <h1>Your projects</h1>
+        <button class="btn"><svg class="i"><use href="#i-folder"/></svg>Open folder</button>
+        <button class="btn"><svg class="i"><use href="#i-link"/></svg>Join with ID</button>
+        <button class="btn primary"><svg class="i"><use href="#i-plus"/></svg>New project</button>
+      </div>
+      <div class="tabs"><span class="on">All 5</span><span>Owned by me 3</span><span>Shared with me 2</span><span class="sp"></span><span>Sort: Last opened <svg class="i" style="vertical-align:-3px"><use href="#i-chev"/></svg></span></div>
+      <div class="plist" data-testid="project-list">
+        <div class="prow head"><span></span><span>Project</span><span>Your role</span><span>People</span><span>Last opened</span><span></span></div>
+        <div class="prow"><div class="thumb"><i class="t"></i><i></i><i></i><i></i><i></i></div><div class="pname"><b>Graph Networks for Protein Folding</b><span><code>gnn-folding-2026</code><span class="pill ok"><svg class="i" style="width:12px;height:12px"><use href="#i-github"/></svg>Backed up 4 min ago</span></span></div><span class="pill honey">Owner</span><span class="avs"><span class="av" style="background:var(--p1)">FC</span><span class="av" style="background:var(--p2)">AL</span><span class="av" style="background:var(--p3)">KT</span></span><span class="tab-num" style="color:var(--muted)">2 minutes ago</span><button class="iconbtn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div>
+        <div class="prow"><div class="thumb"><i class="t"></i><i></i><i></i><i></i></div><div class="pname"><b>PhD thesis</b><span><code>fc-thesis</code><span class="pill"><svg class="i" style="width:12px;height:12px"><use href="#i-folder"/></svg>D:\Thesis</span></span></div><span class="pill honey">Owner</span><span class="avs"><span class="av" style="background:var(--p1)">FC</span><span class="av" style="background:var(--p4)">MR</span></span><span class="tab-num" style="color:var(--muted)">Yesterday</span><button class="iconbtn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div>
+        <div class="prow"><div class="thumb"><i class="t"></i><i></i><i></i></div><div class="pname"><b>ICML rebuttal</b><span><code>icml-rebuttal</code></span></div><span class="pill">Editor</span><span class="avs"><span class="av" style="background:var(--p3)">KT</span><span class="av" style="background:var(--p1)">FC</span></span><span class="tab-num" style="color:var(--muted)">3 days ago</span><button class="iconbtn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div>
+        <div class="prow"><div class="thumb"><i class="t"></i><i></i><i></i><i></i></div><div class="pname"><b>Group meeting slides</b><span><code>lab-slides-oct</code></span></div><span class="pill">Viewer</span><span class="avs"><span class="av" style="background:var(--p4)">MR</span></span><span class="tab-num" style="color:var(--muted)">Last week</span><button class="iconbtn" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div>
+      </div>
+    </main>
+    <div class="scrim" id="p-new">
+      <div class="dialog" role="dialog" aria-label="New project" style="width:860px">
+        <div class="dialog-h"><h2>New project</h2><button class="iconbtn" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+        <div class="dialog-b">
+          <div class="tpl-grid">
+            <div class="tpl"><div class="pg"><div></div></div><b>Blank</b><span>Start from nothing</span></div>
+            <div class="tpl sel"><div class="pg"><div><i class="t"></i><i></i><i></i><i class="h"></i><i></i><i></i><i></i></div></div><b>Article</b><span>Title, abstract, sections, BibTeX</span></div>
+            <div class="tpl"><div class="pg"><div><i class="t"></i><i class="h"></i><i></i><i></i><i class="h"></i><i></i></div></div><b>Thesis or report</b><span>Chapters, front matter, appendix</span></div>
+            <div class="tpl"><div class="pg"><div class="wide"><i class="t"></i><i></i><i></i><i></i></div></div><b>Beamer slides</b><span>16:9 talk with sections</span></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="pn">Project name</label><div class="input focus" id="pn">Graph Networks for Protein Folding</div></div>
+            <div class="field"><label for="pid">Project ID</label><div class="input mono" id="pid" style="font-size:13px">gnn-folding-2026</div><span class="hint">Co-authors type this to join. You can change it later.</span></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="ppw">Join password</label><div class="input" id="ppw"><span class="mono">••••••••••</span><svg class="i" style="margin-left:auto;color:var(--muted)"><use href="#i-eye"/></svg></div><span class="hint"><svg class="i"><use href="#i-lock"/></svg>Co-authors need the ID and this password to join.</span></div>
+            <div class="field"><label>Where it lives</label><div class="setrow"><button class="btn"><svg class="i"><use href="#i-folder"/></svg>Store in a folder…</button><small style="color:var(--muted)">Desktop only. Otherwise kept in the app.</small></div></div>
+          </div>
+        </div>
+        <div class="dialog-f"><span class="note">Or <a href="#" style="color:var(--honey-ink)">import a .zip or folder</a></span><button class="btn">Cancel</button><button class="btn primary">Create project</button></div>
+      </div>
+    </div>
+  </div></div>
+  <div class="review">
+    <section><h3>Newcomer reading</h3><ul>
+      <li><span class="heur">H6</span><div><b>Pick, don't type.</b> Templates have page previews and say what's inside, so nobody faces an empty <code class="mono">main.tex</code> without knowing what to write.</div></li>
+      <li><span class="heur">H8</span><div><b>One obvious next step.</b> "New project" is the only primary button. Join and Open folder are visible but quieter.</div></li>
+      <li><span class="heur">H2</span><div><b>Roles in words.</b> Owner / Editor / Viewer pills replace "★" and color-only hints.</div></li>
+    </ul></section>
+    <section><h3>Experienced reading</h3><ul>
+      <li><span class="heur">H7</span><div><b>Keyboard first.</b> <span class="kbd">Ctrl K</span> searches projects and commands from anywhere. <span class="kbd">N</span> opens New project.</div></li>
+      <li><span class="heur">H1</span><div><b>Status in the list.</b> Backup state, folder binding and co-authors are visible per row without opening the project.</div></li>
+      <li><span class="heur">COMPAT</span><div><b>Tests keep their hooks.</b> The heading "Your projects", <code class="mono">project-list</code>, <code class="mono">open-folder</code> and the "Create project" button are unchanged.</div></li>
+    </ul></section>
+  </div>
+</section>
+
+<!-- ================= 4. WORKSPACE ================= -->
+<section class="screen" id="s-workspace" hidden>
+  <div class="caption"><h2>Workspace</h2><p>A header with four actions replaces the 17-button toolbar. Everything else lives in the rail, the panels and the command palette.</p></div>
+  <div class="overlay-bar">Overlay:
+    <div class="seg" role="group" aria-label="Workspace overlay"><button aria-pressed="true" data-ov="w-none">None</button><button aria-pressed="false" data-ov="w-pal">Command palette</button><button aria-pressed="false" data-ov="w-share">Share</button><button aria-pressed="false" data-ov="w-tour">First-run tour</button></div>
+  </div>
+  <div class="fit"><div class="frame ws" data-testid="workspace">
+    <header class="ws-head">
+      <button class="iconbtn" aria-label="All projects"><svg class="i"><use href="#i-back"/></svg></button>
+      <div class="crumb"><b>Graph Networks for Protein Folding</b><span class="slug" data-testid="project-slug">gnn-folding-2026</span><span class="pill honey" data-testid="role-pill">Owner</span></div>
+      <span class="sp"></span>
+      <span class="avs" aria-label="3 people online">
+        <span class="av" style="background:var(--p2);box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--p2)" title="Ada Lindqvist, intro.tex (following)">AL</span>
+        <span class="av" style="background:var(--p3)" title="Kenji Tanaka, main.tex">KT</span>
+        <span class="av" style="background:var(--p4)" title="Maria Rossi, refs.bib">MR</span>
+      </span>
+      <button class="btn"><svg class="i"><use href="#i-share"/></svg>Share</button>
+      <div class="split-btn"><button class="btn primary"><svg class="i"><use href="#i-play"/></svg>Recompile</button><button class="btn primary" aria-label="Compile options"><svg class="i"><use href="#i-chev"/></svg></button></div>
+      <button class="iconbtn" aria-label="Download PDF"><svg class="i"><use href="#i-download"/></svg></button>
+      <button class="iconbtn" aria-label="More actions"><svg class="i"><use href="#i-more"/></svg></button>
+    </header>
+    <div class="ws-body">
+      <nav class="rail" aria-label="Panels">
+        <button class="iconbtn on" aria-label="Files"><svg class="i"><use href="#i-files"/></svg></button>
+        <button class="iconbtn" aria-label="Outline"><svg class="i"><use href="#i-outline"/></svg></button>
+        <button class="iconbtn" aria-label="Search"><svg class="i"><use href="#i-search"/></svg></button>
+        <button class="iconbtn" aria-label="Changes, 3 new"><svg class="i"><use href="#i-changes"/></svg><span class="badge">3</span></button>
+        <button class="iconbtn" aria-label="History"><svg class="i"><use href="#i-history"/></svg></button>
+        <button class="iconbtn" aria-label="People"><svg class="i"><use href="#i-users"/></svg></button>
+        <button class="iconbtn" aria-label="GitHub backup"><svg class="i"><use href="#i-backup"/></svg></button>
+        <span class="sp"></span>
+        <button class="iconbtn" aria-label="Keyboard shortcuts"><svg class="i"><use href="#i-command"/></svg></button>
+        <button class="iconbtn" aria-label="Project settings"><svg class="i"><use href="#i-settings"/></svg></button>
+      </nav>
+      <aside class="side">
+        <div>
+          <div class="side-h">Files<span class="sp"></span><button class="iconbtn" aria-label="New file"><svg class="i"><use href="#i-plus"/></svg></button><button class="iconbtn" aria-label="Upload files"><svg class="i"><use href="#i-download" transform="rotate(180 12 12)"/></svg></button></div>
+          <ul class="tree" role="tree" data-testid="file-tree">
+            <li role="treeitem" class="sel"><svg class="i"><use href="#i-files"/></svg>main.tex<span class="sp"></span><span class="main-tag">MAIN</span><span class="pd" style="background:var(--p3)" title="Kenji is here"></span></li>
+            <li role="treeitem"><svg class="i"><use href="#i-folder"/></svg>sections</li>
+            <li role="treeitem" class="in"><svg class="i"><use href="#i-files"/></svg>intro.tex<span class="sp"></span><span class="pd" style="background:var(--p2)" title="Ada is here"></span></li>
+            <li role="treeitem" class="in"><svg class="i"><use href="#i-files"/></svg>method.tex</li>
+            <li role="treeitem" class="in"><svg class="i"><use href="#i-files"/></svg>results.tex</li>
+            <li role="treeitem"><svg class="i"><use href="#i-folder"/></svg>figures</li>
+            <li role="treeitem" class="in"><svg class="i"><use href="#i-image"/></svg>pipeline.pdf</li>
+            <li role="treeitem" class="in"><svg class="i"><use href="#i-image"/></svg>contact-map.png</li>
+            <li role="treeitem"><svg class="i"><use href="#i-quote"/></svg>refs.bib<span class="sp"></span><span class="pd" style="background:var(--p4)" title="Maria is here"></span></li>
+          </ul>
+          <div class="side-h" style="margin-top:8px">Outline</div>
+          <ul class="outline-mini">
+            <li>Abstract</li>
+            <li class="cur">1 Introduction</li>
+            <li class="l2">1.1 Related work</li>
+            <li>2 Method</li>
+            <li class="l2">2.1 Residue graphs</li>
+            <li>3 Results</li>
+          </ul>
+        </div>
+        <span></span>
+        <div class="side-foot">
+          <div><svg class="i" style="color:var(--ok)"><use href="#i-github"/></svg>Backed up 4 min ago</div>
+          <div><svg class="i"><use href="#i-folder"/></svg>Mirrored to D:\Papers\gnn</div>
+        </div>
+      </aside>
+      <section class="editor">
+        <div class="etabs"><span class="etab on">main.tex<span class="pd" style="background:var(--p3)"></span></span><span class="etab">intro.tex<span class="pd" style="background:var(--p2)"></span></span><span class="etab">refs.bib</span></div>
+        <div class="fmt" role="toolbar" aria-label="Formatting">
+          <span class="sel-btn">Section<svg class="i" style="width:14px;height:14px"><use href="#i-chev"/></svg></span>
+          <span class="sep"></span>
+          <button class="iconbtn" aria-label="Bold"><svg class="i"><use href="#i-bold"/></svg></button>
+          <button class="iconbtn" aria-label="Italic"><svg class="i"><use href="#i-italic"/></svg></button>
+          <button class="iconbtn" aria-label="Bulleted list"><svg class="i"><use href="#i-list"/></svg></button>
+          <span class="sep"></span>
+          <button class="iconbtn" aria-label="Math"><svg class="i"><use href="#i-sigma"/></svg></button>
+          <button class="iconbtn" aria-label="Symbol"><svg class="i"><use href="#i-omega"/></svg></button>
+          <button class="iconbtn" aria-label="Figure"><svg class="i"><use href="#i-image"/></svg></button>
+          <button class="iconbtn" aria-label="Table"><svg class="i"><use href="#i-table"/></svg></button>
+          <span class="sep"></span>
+          <button class="iconbtn" aria-label="Citation"><svg class="i"><use href="#i-quote"/></svg></button>
+          <button class="iconbtn" aria-label="Cross-reference"><svg class="i"><use href="#i-link"/></svg></button>
+          <span class="sp"></span>
+          <button class="iconbtn" aria-label="Focus mode"><svg class="i"><use href="#i-focus"/></svg></button>
+        </div>
+        <div class="code" data-testid="editor">
+          <div class="ln"><span class="g"></span><span class="n">36</span><span><span class="c">\section</span><span class="b">{</span>Introduction<span class="b">}</span><span class="c">\label</span><span class="b">{</span>sec:intro<span class="b">}</span></span></div>
+          <div class="ln"><span class="g"></span><span class="n">37</span><span>Proteins fold into the conformation that minimises</span></div>
+          <div class="ln"><span class="g"></span><span class="n">38</span><span>free energy <span class="c">\cite</span><span class="b">{</span>anfinsen73<span class="b">}</span>. Predicting that state</span></div>
+          <div class="ln"><span class="g"></span><span class="n">39</span><span>from sequence alone remains hard, because the</span></div>
+          <div class="ln"><span class="g"></span><span class="n">40</span><span>search space grows as <span class="m">$3^{N}$</span> for <span class="m">$N$</span> residues.</span></div>
+          <div class="ln"><span class="g"></span><span class="n">41</span><span></span></div>
+          <div class="ln active"><span class="g"><span class="errdot" title="Error"></span></span><span class="n">42</span><span>Recent work treats contacts as a graph <span class="squig"><span class="c">\citep</span></span><span class="b">{</span>jumper21<span class="b">}</span>,<span class="rcaret" style="background:var(--p3)"><i style="background:var(--p3)">Kenji</i></span></span></div>
+          <div class="ln"><span class="g"></span><span class="n">43</span><span><span class="sel-p3">and we follow that view with a</span> message-passing</span></div>
+          <div class="ln"><span class="g"></span><span class="n">44</span><span>network over residue pairs:</span></div>
+          <div class="ln"><span class="g"></span><span class="n">45</span><span><span class="c">\begin</span><span class="b">{</span><span class="e">equation</span><span class="b">}</span></span></div>
+          <div class="ln"><span class="g"></span><span class="n">46</span><span>  <span class="m">h_i^{(t+1)} = \phi\Big(h_i^{(t)}, \sum_{j} \psi(h_j^{(t)}, e_{ij})\Big)</span></span></div>
+          <div class="ln"><span class="g"></span><span class="n">47</span><span><span class="c">\end</span><span class="b">{</span><span class="e">equation</span><span class="b">}</span></span></div>
+          <div class="ln"><span class="g"></span><span class="n">48</span><span><span class="cm">% TODO(ada): add AlphaFold comparison table</span></span></div>
+          <div class="ln"><span class="g"></span><span class="n">49</span><span>Section~<span class="c">\ref</span><span class="b">{</span>sec:method<span class="b">}</span> describes the model.</span></div>
+        </div>
+        <div class="problems">
+          <div class="problems-h"><b>Problems</b><span class="pill bad">1 error</span><span class="pill warn">2 warnings</span><span class="sp"></span><span>Raw log</span><button class="iconbtn" aria-label="Collapse problems" style="width:24px;height:24px"><svg class="i"><use href="#i-chev"/></svg></button></div>
+          <div class="prob"><svg class="i"><use href="#i-alert"/></svg><div><div class="t">Unknown command <code>\citep</code> · main.tex, line 42</div><p><code class="mono">\citep</code> comes from the <code class="mono">natbib</code> package, which this document does not load. Add <code class="mono">\usepackage{natbib}</code> to the preamble, or use <code class="mono">\cite</code>.</p></div><div class="acts"><button class="btn sm">Go to line</button><button class="btn sm primary">Add natbib</button></div></div>
+        </div>
+      </section>
+      <div class="gutter" role="separator" aria-orientation="vertical" aria-label="Resize editor and PDF" aria-valuenow="50" tabindex="0"></div>
+      <section class="pdf">
+        <div class="pdf-bar">
+          <span class="pill warn" data-testid="stale-badge"><span class="dot"></span>Outdated: 2 edits since last compile</span>
+          <span class="sp"></span>
+          <button class="iconbtn" aria-label="Zoom out"><svg class="i"><use href="#i-zoomout"/></svg></button>
+          <span class="tab-num">110%</span>
+          <button class="iconbtn" aria-label="Zoom in"><svg class="i"><use href="#i-zoomin"/></svg></button>
+          <span class="tab-num" style="margin-left:6px">Page 1 of 9</span>
+        </div>
+        <div class="pdf-scroll" data-testid="pdf-scroll">
+          <div class="page">
+            <h1>Graph Networks for Protein Folding from Contact Maps</h1>
+            <div class="au">Federico Cunico · Ada Lindqvist · Kenji Tanaka</div>
+            <div class="af">University of Verona · KTH Stockholm · RIKEN</div>
+            <div class="abs"><b>Abstract</b>We predict tertiary structure from predicted contact maps using message passing over residue graphs. On CASP15 targets the model reaches a median GDT-TS of 71.4 while training on a single GPU.</div>
+            <h2>1&nbsp;&nbsp;Introduction</h2>
+            <p>Proteins fold into the conformation that minimises free energy [1]. Predicting that state from sequence alone remains hard, because the search space grows as 3<sup>N</sup> for N residues.</p>
+            <p class="hl">Recent work treats contacts as a graph <span class="missing">[?]</span>, and we follow that view with a message-passing network over residue pairs:</p>
+            <div class="eq"><span>h<sub>i</sub><sup>(t+1)</sup> = φ( h<sub>i</sub><sup>(t)</sup>, Σ<sub>j</sub> ψ(h<sub>j</sub><sup>(t)</sup>, e<sub>ij</sub>) )</span><span>(1)</span></div>
+            <p>Section 2 describes the model, and Section 3 reports results on CASP15.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+    <footer class="statusbar" data-testid="statusbar">
+      <span style="color:var(--ok)"><svg class="i"><use href="#i-sync"/></svg>All changes synced</span>
+      <span data-testid="peer-count"><svg class="i"><use href="#i-users"/></svg>3 people online</span>
+      <span data-testid="leader"><svg class="i"><use href="#i-cpu"/></svg>Compiled on kenji-workstation (fastest online) · 1.9 s</span>
+      <span class="sp"></span>
+      <span>Compile: best device <svg class="i"><use href="#i-chev"/></svg></span>
+      <span class="tab-num">Ln 42, Col 51</span>
+      <span>LaTeX · pdfLaTeX</span>
+    </footer>
+
+    <!-- Overlays -->
+    <div class="scrim" id="w-pal" hidden>
+      <div class="dialog palette" role="dialog" aria-label="Command palette">
+        <div class="pal-in"><svg class="i"><use href="#i-search"/></svg><span class="q">comp<span class="caret blink" style="background:var(--ink);height:1em"></span></span><span class="kbd">Esc</span></div>
+        <div class="pal-list">
+          <div class="pal-group">Actions</div>
+          <div class="pal-item on"><svg class="i"><use href="#i-play"/></svg><span><mark>Comp</mark>ile now</span><span class="sp"></span><span class="kbds"><span class="kbd">Ctrl</span><span class="kbd">Enter</span></span></div>
+          <div class="pal-item"><svg class="i"><use href="#i-cpu"/></svg><span><mark>Comp</mark>ile on this device</span><span class="sp"></span><span class="kbds"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">Enter</span></span></div>
+          <div class="pal-item"><svg class="i"><use href="#i-settings"/></svg><span><mark>Comp</mark>iler: choose engine and main file</span></div>
+          <div class="pal-item"><svg class="i"><use href="#i-download"/></svg><span>Download <mark>comp</mark>iled PDF</span></div>
+          <div class="pal-group">Files</div>
+          <div class="pal-item"><svg class="i"><use href="#i-files"/></svg><span>sections/<mark>comp</mark>arison.tex</span></div>
+          <div class="pal-group">Outline</div>
+          <div class="pal-item"><svg class="i"><use href="#i-outline"/></svg><span>3.2 <mark>Comp</mark>arison with AlphaFold</span><span class="sp"></span><span style="color:var(--faint);font-size:12px">results.tex:18</span></div>
+        </div>
+        <div class="pal-foot"><span><span class="kbd">↑</span><span class="kbd">↓</span>Move</span><span><span class="kbd">Enter</span>Run</span><span><span class="kbd">&gt;</span>Commands only</span><span><span class="kbd">@</span>Outline</span><span><span class="kbd">:</span>Go to line</span></div>
+      </div>
+    </div>
+    <div class="scrim" id="w-share" hidden>
+      <div class="dialog share" role="dialog" aria-label="Share project">
+        <div class="dialog-h"><h2>Share “Graph Networks for Protein Folding”</h2><button class="iconbtn" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+        <div class="dialog-b">
+          <div class="field"><label for="sid">Co-authors join with this ID</label>
+            <div class="idbox"><div class="input" id="sid">gnn-folding-2026</div><button class="btn"><svg class="i"><use href="#i-copy"/></svg>Copy invitation</button></div>
+            <span class="hint">The invitation contains the ID and how to join. It does not contain the password; send that separately.</span></div>
+          <div class="setrow"><svg class="i" style="color:var(--ok)"><use href="#i-lock"/></svg><div><b>Password required</b><small>Set 12 days ago</small></div><button class="btn sm">Change</button></div>
+          <div class="setrow"><svg class="i"><use href="#i-users"/></svg><div><b>New members join as</b><small>You can change each person's role below</small></div><div class="selectish" style="width:120px">Editor<svg class="i"><use href="#i-chev"/></svg></div></div>
+          <div class="mtable" data-testid="members-table">
+            <div class="mrow"><span class="av" style="background:var(--p1)">FC</span><span>federico_c (you)<small>Online now</small></span><span class="pill honey" style="justify-self:start">Owner</span><span></span></div>
+            <div class="mrow"><span class="av" style="background:var(--p2)">AL</span><span>ada_l<small>Online · intro.tex</small></span><div class="selectish">Editor<svg class="i"><use href="#i-chev"/></svg></div><button class="iconbtn" aria-label="Remove ada_l"><svg class="i"><use href="#i-x"/></svg></button></div>
+            <div class="mrow"><span class="av" style="background:var(--p3)">KT</span><span>kenji<small>Online · main.tex</small></span><div class="selectish">Editor<svg class="i"><use href="#i-chev"/></svg></div><button class="iconbtn" aria-label="Remove kenji"><svg class="i"><use href="#i-x"/></svg></button></div>
+            <div class="mrow"><span class="av" style="background:var(--p4)">MR</span><span>maria.rossi<small>Last seen yesterday</small></span><div class="selectish">Viewer<svg class="i"><use href="#i-chev"/></svg></div><button class="iconbtn" aria-label="Remove maria.rossi"><svg class="i"><use href="#i-x"/></svg></button></div>
+          </div>
+        </div>
+        <div class="dialog-f"><span class="note">Removing someone also blocks them from rejoining.</span><button class="btn">Done</button></div>
+      </div>
+    </div>
+    <div id="w-tour" hidden>
+      <div class="ring" style="left:6px;top:54px;width:38px;height:270px"></div>
+      <div class="tour" role="dialog" aria-label="Tour, step 2 of 4"><div class="tour-arrow" style="left:-7px;top:24px;transform:rotate(-45deg)"></div><div class="tour-card">
+        <span class="eyebrow">Step 2 of 4</span>
+        <h3>Everything else is in this rail</h3>
+        <p>Files, the document outline, search, recent changes, history, the people in this project and your GitHub backup. Click an icon to open its panel, or click it again to hide it.</p>
+        <div class="row"><a href="#" style="color:var(--muted);font-size:13px">Skip tour</a><span class="sp"></span><button class="btn sm">Back</button><button class="btn sm primary">Next</button></div>
+      </div></div>
+    </div>
+  </div></div>
+  <div class="review">
+    <section><h3>Newcomer reading</h3><ul>
+      <li><span class="heur">H1</span><div><b>Status in sentences.</b> "Outdated: 2 edits since last compile", "All changes synced", "Compiled on kenji-workstation (fastest online)". No unexplained pills or leader jargon.</div></li>
+      <li><span class="heur">H9</span><div><b>Errors that teach.</b> The Problems panel turns <code class="mono">Undefined control sequence</code> into the cause and a one-click fix. The raw log is one click away.</div></li>
+      <li><span class="heur">H6</span><div><b>The toolbar inserts LaTeX for you.</b> Section, bold, lists, math, symbols, figures, tables, citations and references, each with a tooltip that shows the LaTeX it writes.</div></li>
+      <li><span class="heur">H10</span><div><b>A tour, once.</b> Four steps (editor, rail, compile, share), skippable, and it can be reopened from Help.</div></li>
+    </ul></section>
+    <section><h3>Experienced reading</h3><ul>
+      <li><span class="heur">H7</span><div><b>Palette for everything.</b> <span class="kbd">Ctrl K</span> runs actions, opens files, jumps to outline entries (<span class="kbd">@</span>) or lines (<span class="kbd">:</span>), and shows each shortcut so it can be learned.</div></li>
+      <li><span class="heur">H3</span><div><b>Chrome you control.</b> Hide the formatting toolbar, collapse the side panel, drag or keyboard-resize the split, or press <span class="kbd">Ctrl Shift F</span> for focus mode. The layout is remembered per device.</div></li>
+      <li><span class="heur">COLLAB</span><div><b>Presence you can act on.</b> Each person has one color for avatar, cursor, selection and file dot. Click an avatar to follow them.</div></li>
+      <li><span class="heur">H4</span><div><b>Familiar conventions.</b> Overleaf's source/PDF split, a VS Code-style rail and palette, and SyncTeX double-click both ways.</div></li>
+    </ul></section>
+  </div>
+</section>
+
+<!-- ================= 5. SYSTEM ================= -->
+<section class="screen sys" id="s-system" hidden>
+  <div class="caption"><h2>Design system</h2><p>Tokens live in one stylesheet. Components read tokens only, so both themes come from the same rules.</p></div>
+  <div class="sys-grid">
+    <div class="sys-card"><h3>Color</h3>
+      <div class="swatches">
+        <div class="sw"><span style="background:var(--honey)"></span>Honey<code>--honey</code></div>
+        <div class="sw"><span style="background:var(--honey-ink)"></span>Honey ink<code>--honey-ink</code></div>
+        <div class="sw"><span style="background:var(--honey-soft)"></span>Honey soft<code>--honey-soft</code></div>
+        <div class="sw"><span style="background:var(--ink)"></span>Ink<code>--ink</code></div>
+        <div class="sw"><span style="background:var(--surface)"></span>Surface<code>--surface</code></div>
+        <div class="sw"><span style="background:var(--sunken)"></span>Sunken<code>--sunken</code></div>
+        <div class="sw"><span style="background:var(--paper)"></span>Paper<code>--paper</code></div>
+        <div class="sw"><span style="background:var(--muted)"></span>Muted<code>--muted</code></div>
+      </div>
+      <div class="compo"><span class="pill ok"><span class="dot"></span>Synced</span><span class="pill warn"><span class="dot"></span>Outdated</span><span class="pill bad"><span class="dot"></span>Error</span><span class="pill honey">Owner</span><span class="pill">Viewer</span></div>
+    </div>
+    <div class="sys-card"><h3>Presence colors</h3>
+      <p style="margin:0;color:var(--muted)">Assigned from a hash of the user ID, so a person keeps their color in every project and on every device. Each color has at least 3:1 contrast against the editor background in both themes.</p>
+      <div class="compo"><span class="av" style="background:var(--p1)">FC</span><span class="av" style="background:var(--p2)">AL</span><span class="av" style="background:var(--p3)">KT</span><span class="av" style="background:var(--p4)">MR</span><span style="color:var(--muted);font-size:12.5px">+ 4 more in the full set</span></div>
+      <div class="code" style="padding:0;font-size:12.5px"><div class="ln" style="grid-template-columns:1fr">text <span class="rcaret" style="background:var(--p2)"><i style="background:var(--p2)">Ada</i></span>more text <span class="sel-p3">selected by Kenji</span></div></div>
+    </div>
+    <div class="sys-card"><h3>Type</h3>
+      <div class="typescale">
+        <div><code>display</code><span style="font:400 30px/1.1 var(--serif)">STIX Two Text</span></div>
+        <div><code>ui 14/600</code><span style="font-weight:600">IBM Plex Sans, interface</span></div>
+        <div><code>ui 13</code><span style="font-size:13px;color:var(--muted)">Secondary text and hints</span></div>
+        <div><code>code 13</code><span class="mono" style="font-size:13px"><span class="c">\section</span><span class="b">{</span>JetBrains Mono<span class="b">}</span></span></div>
+      </div>
+      <p style="margin:0;color:var(--muted);font-size:13px">The fonts are bundled with the app, so the desktop app looks the same offline. The serif is loaded only on the landing and auth pages.</p>
+    </div>
+    <div class="sys-card"><h3>Controls</h3>
+      <div class="compo"><button class="btn primary">Create project</button><button class="btn">Share</button><button class="btn ghost">Cancel</button><button class="btn sm">Small</button></div>
+      <div class="compo"><span class="kbd">Ctrl</span><span class="kbd">K</span><span class="toggle"></span><div class="selectish" style="width:110px">Editor<svg class="i"><use href="#i-chev"/></svg></div></div>
+      <div class="field"><label for="demo">Label above, always</label><div class="input focus" id="demo">Focused input</div><span class="hint">Hint text sits under the field.</span></div>
+    </div>
+    <div class="sys-card"><h3>Icons</h3>
+      <div class="icons">
+        <div><svg class="i"><use href="#i-files"/></svg></div><div><svg class="i"><use href="#i-outline"/></svg></div><div><svg class="i"><use href="#i-search"/></svg></div><div><svg class="i"><use href="#i-changes"/></svg></div>
+        <div><svg class="i"><use href="#i-history"/></svg></div><div><svg class="i"><use href="#i-users"/></svg></div><div><svg class="i"><use href="#i-backup"/></svg></div><div><svg class="i"><use href="#i-settings"/></svg></div>
+        <div><svg class="i"><use href="#i-play"/></svg></div><div><svg class="i"><use href="#i-share"/></svg></div><div><svg class="i"><use href="#i-sigma"/></svg></div><div><svg class="i"><use href="#i-omega"/></svg></div>
+        <div><svg class="i"><use href="#i-image"/></svg></div><div><svg class="i"><use href="#i-table"/></svg></div><div><svg class="i"><use href="#i-quote"/></svg></div><div><svg class="i"><use href="#i-cpu"/></svg></div>
+      </div>
+      <p style="margin:0;color:var(--muted);font-size:13px">One 24px stroke set at 1.75px replaces the emoji glyphs (📄 🖼 ★ ✎ 🗑). Icon-only buttons always carry an accessible name and a tooltip.</p>
+    </div>
+    <div class="sys-card"><h3>Editor syntax</h3>
+      <div class="code" style="padding:0">
+        <div class="ln" style="grid-template-columns:1fr"><span><span class="c">\begin</span><span class="b">{</span><span class="e">figure</span><span class="b">}</span>[t]</span></div>
+        <div class="ln" style="grid-template-columns:1fr"><span>  <span class="c">\includegraphics</span>[width=<span class="m">0.9</span><span class="c">\linewidth</span>]<span class="b">{</span>figures/pipeline<span class="b">}</span></span></div>
+        <div class="ln" style="grid-template-columns:1fr"><span>  <span class="c">\caption</span><span class="b">{</span>Energy <span class="m">$E = \sum_i \epsilon_i$</span><span class="b">}</span></span></div>
+        <div class="ln" style="grid-template-columns:1fr"><span><span class="cm">% comments stay quiet</span></span></div>
+        <div class="ln" style="grid-template-columns:1fr"><span><span class="c">\end</span><span class="b">{</span><span class="e">figure</span><span class="b">}</span></span></div>
+      </div>
+      <p style="margin:0;color:var(--muted);font-size:13px">Commands, environments and math have separate colors. All meet 4.5:1 on the editor background.</p>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  // Screen switcher
+  const tabs = document.querySelectorAll('.switcher [role=tab]');
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    tabs.forEach((x) => x.setAttribute('aria-selected', String(x === t)));
+    document.querySelectorAll('.screen').forEach((s) => { s.hidden = s.id !== 's-' + t.dataset.s; });
+    fitAll();
+    try { localStorage.setItem('hx-mock-screen', t.dataset.s); } catch (e) {}
+  }));
+  try { const s = localStorage.getItem('hx-mock-screen'); if (s) document.querySelector(`[data-s="${s}"]`)?.click(); } catch (e) {}
+
+  // Theme
+  const themeBtns = document.querySelectorAll('[data-theme-set]');
+  themeBtns.forEach((b) => b.addEventListener('click', () => {
+    themeBtns.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (b.dataset.themeSet === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', b.dataset.themeSet);
+  }));
+
+  // Overlays
+  document.querySelectorAll('[data-ov]').forEach((b) => b.addEventListener('click', () => {
+    const group = b.parentElement.querySelectorAll('[data-ov]');
+    group.forEach((x) => {
+      x.setAttribute('aria-pressed', String(x === b));
+      const el = document.getElementById(x.dataset.ov);
+      if (el) el.hidden = x !== b;
+    });
+  }));
+
+  // Scale 1280px frames to fit their container
+  function fitAll() {
+    document.querySelectorAll('.fit').forEach((fit) => {
+      const frame = fit.querySelector('.frame');
+      if (!frame || !fit.offsetParent) return;
+      const s = Math.min(1, fit.clientWidth / 1280);
+      frame.style.transform = `scale(${s})`;
+      fit.style.height = frame.offsetHeight * s + 'px';
+    });
+  }
+  window.addEventListener('resize', fitAll);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
+  fitAll();
+
+  // Hero: a co-author typing; source and PDF update together
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const words = ['message passing', 'graph attention'];
+  const src = document.getElementById('typed'), pdf = document.getElementById('typed-pdf');
+  if (!reduce && src && pdf) {
+    let w = 0, i = words[0].length, phase = 'hold', hold = 14;
+    setInterval(() => {
+      if (phase === 'hold') { if (--hold <= 0) phase = 'del'; return; }
+      if (phase === 'del') { i--; src.textContent = words[w].slice(0, i); if (i === 0) { w = (w + 1) % words.length; phase = 'type'; } return; }
+      i++; src.textContent = words[w].slice(0, i);
+      if (i >= words[w].length) { pdf.textContent = words[w]; phase = 'hold'; hold = 18; }
+    }, 110);
+  }
+})();
+</script>

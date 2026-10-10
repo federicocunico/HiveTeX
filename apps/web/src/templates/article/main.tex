@@ -1,0 +1,76 @@
+% ---------------------------------------------------------------------------
+% Article template. Lines starting with % are comments: LaTeX ignores them.
+% Change the text, compile (Ctrl+Enter), and the PDF on the right updates.
+% ---------------------------------------------------------------------------
+\documentclass[11pt]{article}
+
+% Packages add features. amsmath: equations; graphicx: images.
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+% The title block. Separate several authors with \and.
+\title{Your Paper Title}
+\author{First Author \and Second Author}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% The abstract: one paragraph that says what you did and what you found.
+\begin{abstract}
+Summarise the problem, your approach and the main result in a few sentences.
+\end{abstract}
+
+% A section starts with \section{...}. Use \subsection for a level below.
+% \label gives it a name you can refer to with \ref{sec:intro}.
+\section{Introduction}\label{sec:intro}
+
+Write your introduction here. To cite a source, add it to refs.bib and use its
+key, for example \cite{knuth1984}. Section~\ref{sec:method} describes the method.
+
+\section{Method}\label{sec:method}
+
+Inline maths goes between dollar signs, like $E = mc^2$. A numbered equation
+uses the equation environment:
+\begin{equation}\label{eq:sum}
+  S_n = \sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+\end{equation}
+Refer to it as Equation~\eqref{eq:sum}.
+
+% A figure. Upload an image to the project, then replace the box below with
+% \includegraphics[width=0.8\linewidth]{your-image-file}
+\begin{figure}[t]
+  \centering
+  \framebox[0.8\linewidth]{\rule{0pt}{3cm}Your figure here}
+  \caption{Describe what the figure shows.}\label{fig:example}
+\end{figure}
+
+\section{Results}
+
+Figure~\ref{fig:example} and Table~\ref{tab:example} show how to refer to
+floats by their label.
+
+% A table: one & between columns, \\ at the end of each row.
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lrr}
+    \hline
+    Method & Accuracy & Time (s) \\
+    \hline
+    Baseline & 0.81 & 12 \\
+    Ours     & 0.87 & 9 \\
+    \hline
+  \end{tabular}
+  \caption{A small results table.}\label{tab:example}
+\end{table}
+
+\section{Conclusion}
+
+Close with what the results mean and what comes next.
+
+% The bibliography is built from refs.bib.
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

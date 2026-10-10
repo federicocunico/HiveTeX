@@ -35,6 +35,10 @@ export const fakeEngine: CompileEngine = {
     const main = input.files.find((f) => f.path === input.main)?.text;
     if (main === undefined) return { ok: false, log: `! I can't find file \`${input.main}'.` };
     if (main.includes('\\fail')) return { ok: false, log: `(./${input.main}\n! Undefined control sequence.\nl.1 \\fail\n\n)\n` };
+    // Like TeX: \citep is unknown unless natbib is loaded (lets tests exercise the compile help and its fix).
+    const citep = main.split('\n').findIndex((l) => l.includes('\\citep'));
+    if (citep >= 0 && !/\\usepackage(\[[^\]]*\])?\{[^}]*natbib/.test(main))
+      return { ok: false, log: `(./${input.main}\n! Undefined control sequence.\nl.${citep + 1} \\citep\n\n)\n` };
     return { ok: true, pdf: makePdf(main.split('\n')), log: 'fake engine ok' };
   },
 };

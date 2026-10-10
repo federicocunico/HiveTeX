@@ -37,6 +37,7 @@ import { detectEngine, detectMain } from './import/detect.js';
 import type { ApplyChoices, ApplyResult, ImportPlan } from './import/plan.js';
 import type { ImportBundle } from './import/sources.js';
 import { getGithubToken } from './github.js';
+import { type PresentPerson, peopleFromAwareness, presenceColor } from './presence.js';
 import { COMPILE_MODE_KEY, type CompileMode, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
 import { folderPermission, webFs } from './fs-access.js';
 import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
@@ -85,6 +86,12 @@ export class ProjectSession {
   pdf = $state<Uint8Array | null>(null);
   pdfRev = $state(0);
   stale = $state(true);
+  /** When the shown PDF arrived; change sets that end later are "edits since the last compile". */
+  private pdfShownAt = $state(0);
+  /** Editing bursts (change sets) newer than the shown PDF. */
+  get editsSincePdf(): number {
+    return this.changes.filter((c) => c.endedAt > this.pdfShownAt).length;
+  }
   syncIndex = $state<SyncIndex | null>(null);
   engineKind = $state<'native' | 'wasm' | 'none'>('none');
   engineNote = $state('');
@@ -116,7 +123,7 @@ export class ProjectSession {
 
   constructor(
     readonly project: ProjectInfo,
-    private user: { id: string; username: string },
+    readonly user: { id: string; username: string },
   ) {
     this.role = project.role;
   }
@@ -170,6 +177,8 @@ export class ProjectSession {
     });
     this.mesh.onPeerLeave(() => this.refreshPeers());
     this.mesh.awareness.setLocalStateField('user', { name: this.user.username, ...colorFor(this.user.username) });
+    this.mesh.awareness.on('change', () => this.refreshPresence());
+    this.refreshPresence();
 
     await this.setupCompile();
     this.backup = new BackupAgent({
@@ -478,6 +487,10 @@ export class ProjectSession {
     if (good && good.pdf !== this.pdf) {
       this.pdf = good.pdf;
       this.pdfRev++;
+      if (good.result.stateHash !== this.pdfState) {
+        this.pdfState = good.result.stateHash;
+        this.pdfShownAt = Date.now();
+      }
       this.syncIndex = good.synctex ? await parseSyncTeXGz(good.synctex).catch(() => null) : null;
     }
     this.scheduleStaleCheck();
@@ -493,6 +506,9 @@ export class ProjectSession {
       }
     }, 300);
   }
+
+  /** Project state the shown PDF was built from. */
+  private pdfState = '';
 
   requestCompile() {
     if (this.amLeader) void this.leader.run();
@@ -513,6 +529,8 @@ export class ProjectSession {
         this.pdfRev++;
         this.syncIndex = r.synctex ? await parseSyncTeXGz(r.synctex).catch(() => null) : null;
         this.stale = false;
+        this.pdfState = r.result.stateHash;
+        this.pdfShownAt = Date.now();
       }
     } catch (e) {
       this.compileStatus = 'error';
@@ -816,6 +834,23 @@ export class ProjectSession {
     return sha256Hex(bytes);
   }
 
+  /** Co-authors online and the file each has open (from the shared presence state). */
+  presence = $state<PresentPerson[]>([]);
+
+  /** Tells co-authors which file this user has open. */
+  setOpenFile(path: string | null) {
+    this.mesh.awareness.setLocalStateField('file', path);
+  }
+
+  private refreshPresence() {
+    this.presence = peopleFromAwareness(this.mesh.awareness.getStates(), this.mesh.awareness.clientID);
+  }
+
+  /** The file a co-author has open, by username, if they share it. */
+  fileOf(name: string): string | null {
+    return this.presence.find((p) => p.name === name && p.file)?.file ?? null;
+  }
+
   changelog: ChangeLog | null = null;
   changes = $state<ChangeSet[]>([]);
 
@@ -854,11 +889,9 @@ export class ProjectSession {
   }
 }
 
-const PALETTE = ['#d33f49', '#2a9d8f', '#e9a23b', '#3a86ff', '#8e5bd9', '#ef6f9c', '#4caf50', '#ff7a45'];
+/** A member's color for cursors and selections: the same presence color their avatar has everywhere. */
 export function colorFor(name: string) {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const color = PALETTE[h % PALETTE.length] as string;
+  const color = presenceColor(name);
   return { color, colorLight: `${color}33` };
 }
 

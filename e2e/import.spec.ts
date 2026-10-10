@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { type Page, expect, test } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
-import { PROJECT_PW, addFile, createProject, joinProject, newUser, uniq } from './helpers.js';
+import { PROJECT_PW, addFile, createProject, joinProject, newUser, openNewProject, uniq } from './helpers.js';
 
 const DOC = (pre = '') => `\\documentclass{article}\n${pre}\\begin{document}\n\\input{sections/intro}\n\\end{document}\n`;
 
@@ -53,6 +53,7 @@ test('create a project from an Overleaf zip; co-author sees the files; viewers c
   const owner = await newUser(ownerCtx, 'ima');
   const page = owner.page;
 
+  await openNewProject(page);
   await page.getByTestId('create-archive').setInputFiles(
     zipFile('overleaf.zip', {
       'paper.tex': DOC('\\usepackage{fontspec}\n'),
@@ -68,7 +69,7 @@ test('create a project from an Overleaf zip; co-author sees the files; viewers c
   await expect(page.getByTestId('import-dialog')).toContainText('LaTeX build artifact');
   await page.getByTestId('import-done').click();
 
-  await expect(fileIn(page, 'paper.tex')).toContainText('★');
+  await expect(fileIn(page, 'paper.tex').locator('xpath=..').getByTestId('main-badge')).toBeVisible();
   await expect(fileIn(page, 'sections/intro.tex')).toBeVisible();
   await expect(fileIn(page, 'figures/a.png')).toBeVisible();
   await expect(fileIn(page, 'paper.aux')).toHaveCount(0);

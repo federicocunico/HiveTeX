@@ -1,0 +1,7 @@
+{
+  "name": "Beamer slides",
+  "description": "A 16:9 talk with a title slide, sections and columns",
+  "main": "main.tex",
+  "order": 4,
+  "layout": "slides"
+}

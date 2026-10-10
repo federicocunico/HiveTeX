@@ -1,0 +1,24 @@
+% ---------------------------------------------------------------------------
+% Letter template. Put your address after \address and sign with \signature.
+% ---------------------------------------------------------------------------
+\documentclass[11pt]{letter}
+
+\address{Your Name\\Street and Number\\Postcode City}
+\signature{Your Name}
+\date{\today}
+
+\begin{document}
+
+% One letter environment per recipient; its argument is their address.
+\begin{letter}{Recipient Name\\Organisation\\Street and Number\\Postcode City}
+
+\opening{Dear Recipient,}
+
+Write the body of the letter here. Leave a blank line between paragraphs.
+
+A second paragraph.
+
+\closing{Kind regards,}
+
+\end{letter}
+\end{document}

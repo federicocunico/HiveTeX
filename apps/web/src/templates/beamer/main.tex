@@ -1,0 +1,50 @@
+% ---------------------------------------------------------------------------
+% Beamer slides template (16:9). Each frame environment is one slide.
+% ---------------------------------------------------------------------------
+\documentclass[aspectratio=169]{beamer}
+
+% A built-in theme. Try Madrid, metropolis-like ones, or Boadilla.
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+
+\title{Talk Title}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+% The title slide.
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% Sections group slides and appear in the outline.
+\section{Motivation}
+
+\begin{frame}{Why this matters}
+  \begin{itemize}
+    \item One idea per bullet
+    \item Keep slides short
+    \item<2-> This bullet appears on the second click
+  \end{itemize}
+\end{frame}
+
+\section{Results}
+
+\begin{frame}{A key equation}
+  \begin{equation*}
+    f(x) = \int_{-\infty}^{\infty} \hat{f}(\xi)\, e^{2\pi i \xi x}\, d\xi
+  \end{equation*}
+\end{frame}
+
+\begin{frame}{Two columns}
+  \begin{columns}
+    \column{0.5\textwidth}
+    Text on the left.
+    \column{0.5\textwidth}
+    \framebox[\linewidth]{\rule{0pt}{2cm}A figure on the right}
+  \end{columns}
+\end{frame}
+
+\end{document}

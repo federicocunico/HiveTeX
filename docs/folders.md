@@ -12,7 +12,7 @@ Folder paths and handles never leave the device; the server only knows that you 
 |---|---|---|
 | Open a folder / create a project from a folder | yes | Chrome, Edge and other Chromium browsers (File System Access API) |
 | Change detection | instant (OS file watcher) | instant where the browser has `FileSystemObserver`, otherwise every 1.5 s |
-| After a restart | the folder is bound again automatically | the browser asks once: click **Allow access to "…"** in the toolbar |
+| After a restart | the folder is bound again automatically | the browser asks once: click **Allow access to "…"** at the bottom of the Files panel |
 | Firefox, Safari | — | not available; projects live in the app (you can still import a folder or a .zip) |
 
 ## Choose where a new project lives
@@ -37,14 +37,15 @@ files and `.hivetexignore` patterns stay out. Files larger than 50 MB are skippe
 
 ## The Location menu
 
-In a project, the toolbar button **📁 folder ▾** (or **In the app ▾**) shows where the files are on this device:
+In a project, the button at the bottom of the **Files** panel (**In the folder …** or **In the app**) shows where the
+files are on this device:
 
 - **Use a folder… / Use another folder…** moves the project's files into a folder (they are written there right away).
 - **Show in file manager** (desktop) opens the folder.
 - **Stop using the folder** keeps the project in the app. The files in the folder stay where they are, but later
   edits are no longer synced through it.
 
-The projects page shows a **📁 badge** next to projects that use a folder on this device.
+The projects page shows a folder badge next to projects that use a folder on this device.
 
 ## The `.hivetex.json` marker
 
@@ -79,10 +80,10 @@ collaborators).
 ## Changes view: see and undo what the tools did
 
 There are no locks and no staging step: edits from the folder sync to everyone right away, like typing in the editor.
-To keep that safe, every device keeps a **history of change sets**: **Changes** in the toolbar.
+To keep that safe, every device keeps a **history of change sets**: **Changes** in the left rail of the workspace.
 
-- Each change set groups the edits from one source over a few seconds: **📁 Folder on this device** (an AI tool or
-  editor), **✎ You** (the editor), **👤 a collaborator**, or **↶ Undo**.
+- Each change set groups the edits from one source over a few seconds: the **folder on this device** (an AI tool or
+  editor), **you** in this app, a **co-author**, or an **undo**. An icon and its tooltip say which.
 - Expand one to see the files and a line diff.
 - **Undo** (editors and owners) reverts exactly that change set for everyone, as a new change. If later edits touched
   the same lines, the undo applies what it can and says it was partial.

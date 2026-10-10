@@ -21,7 +21,7 @@ account/organization and selects the repositories it may access — the app can 
 
 ## Using it
 
-*Project settings → GitHub backup*:
+The **GitHub backup** panel (the cloud icon in the workspace rail):
 
 1. **Connect GitHub**: opens GitHub in your browser. After you authorize, GitHub returns to the HiveTeX web app
    (`#/github-continue`). The app completes the link **with the account you are signed in with there**; if needed, it asks

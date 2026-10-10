@@ -29,8 +29,8 @@ test('offline edits on both sides merge automatically after reconnecting (6.8)',
   // both go offline and edit different places
   await a.page.getByTestId('pause-sync').click();
   await b.page.getByTestId('pause-sync').click();
-  await expect(a.page.getByTestId('peer-count')).toContainText('0 peers');
-  await expect(b.page.getByTestId('peer-count')).toContainText('0 peers');
+  await expect(a.page.getByTestId('peer-count')).toContainText('No co-authors');
+  await expect(b.page.getByTestId('peer-count')).toContainText('No co-authors');
 
   await a.page.locator('.cm-content').click();
   await a.page.keyboard.press('Control+Home');

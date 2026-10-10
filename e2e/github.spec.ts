@@ -1,6 +1,6 @@
 import { type BrowserContext, type Page, expect, test } from '@playwright/test';
 import { FakeGitHub } from '../packages/github/src/testing.js';
-import { PROJECT_PW, addFile, createProject, joinProject, newUser, onStack, replaceEditorText, uniq } from './helpers.js';
+import { PROJECT_PW, addFile, createProject, joinProject, newUser, onStack, replaceEditorText, showFiles, uniq } from './helpers.js';
 
 // The fake GitHub OAuth endpoints only exist in the embedded dev server (E2E_FAKE_GITHUB).
 test.skip(onStack, 'GitHub OAuth is not faked on the docker stack');
@@ -8,8 +8,11 @@ test.skip(onStack, 'GitHub OAuth is not faked on the docker stack');
 /** Routes GitHub (OAuth page + REST API) to an in-process fake, with the CORS headers a real browser needs. */
 async function mockGithub(context: BrowserContext, gh: FakeGitHub) {
   await context.route('https://github.com/login/oauth/authorize*', async (route) => {
-    const state = new URL(route.request().url()).searchParams.get('state');
-    await route.fulfill({ status: 302, headers: { location: `http://localhost:1420/api/github/callback?code=e2e-code&state=${state}` } });
+    const url = new URL(route.request().url());
+    const state = url.searchParams.get('state');
+    // back to the callback the server asked for (whatever port the dev page runs on)
+    const callback = url.searchParams.get('redirect_uri') ?? 'http://localhost:1420/api/github/callback';
+    await route.fulfill({ status: 302, headers: { location: `${callback}?code=e2e-code&state=${state}` } });
   });
   await context.route('https://api.github.com/**', async (route) => {
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
@@ -21,7 +24,7 @@ async function mockGithub(context: BrowserContext, gh: FakeGitHub) {
 }
 
 async function connect(page: Page) {
-  await page.getByTestId('settings-btn').click();
+  await page.getByTestId('backup-btn').click();
   await page.getByTestId('github-connect').click();
   await expect(page.getByText('Connected as')).toBeVisible({ timeout: 30_000 });
 }
@@ -74,7 +77,6 @@ test('a member with repo access loads the project from GitHub when nobody is onl
   await expect(owner.page.getByTestId('github-status')).toBeVisible();
   await owner.page.getByTestId('github-now').click();
   await expect(owner.page.getByText('Backup pushed')).toBeVisible({ timeout: 30_000 });
-  await owner.page.getByRole('button', { name: 'Close' }).click();
 
   // owner goes away entirely
   await owner.page.close();
@@ -85,7 +87,6 @@ test('a member with repo access loads the project from GitHub when nobody is onl
   await expect(guest.page.getByTestId('bootstrap-banner')).toBeVisible();
   // the guest connects GitHub (fake account has access to the repo) then loads the backup
   await connect(guest.page);
-  await guest.page.getByRole('button', { name: 'Close' }).click();
   await guest.page.getByTestId('load-github').click();
   await expect(guest.page.getByRole('treeitem', { name: 'main.tex' })).toBeVisible({ timeout: 30_000 });
   await guest.page.getByRole('treeitem', { name: 'main.tex' }).click();
@@ -100,8 +101,9 @@ test('a member with repo access loads the project from GitHub when nobody is onl
   await back.goto('/#/');
   await back.getByRole('link', { name: new RegExp(slug) }).click();
   await expect(back.getByTestId('workspace')).toBeVisible();
-  await expect(back.getByTestId('peer-count')).toContainText('1 peer', { timeout: 30_000 });
+  await expect(back.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
   await expect(guest.page.getByTestId('peer-count')).toContainText(owner.username, { timeout: 30_000 });
+  await showFiles(back);
   await expect(guest.page.getByRole('treeitem', { name: /main/ })).toHaveCount(1, { timeout: 15_000 });
   await expect(back.getByRole('treeitem', { name: /main/ })).toHaveCount(1, { timeout: 15_000 });
   await ownerCtx.close();

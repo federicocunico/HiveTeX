@@ -1,0 +1,136 @@
+<script lang="ts">
+  import { COMPILE_MODES, type CompileMode } from '../../lib/compile-mode.js';
+  import type { ProjectSession } from '../../lib/session.svelte.js';
+  import { Cpu, RefreshCw, Users, WifiOff } from '../../ui/icons.js';
+  import Icon from '../../ui/Icon.svelte';
+
+  /** One line of plain-language status: sync, people, who compiles, compile mode, cursor. */
+  let {
+    session: s,
+    cursor = null,
+    keymapMode = '',
+    onPeople,
+  }: {
+    session: ProjectSession;
+    cursor?: { line: number; col: number } | null;
+    /** e.g. "-- NORMAL --" with the Vim keymap. */
+    keymapMode?: string;
+    onPeople?: () => void;
+  } = $props();
+
+  const others = $derived(s.peers.length);
+  const peopleText = $derived(others === 0 ? 'No co-authors online' : `${others} co-author${others === 1 ? '' : 's'} online`);
+</script>
+
+<footer class="statusbar" data-testid="statusbar">
+  {#if s.offline || s.paused}
+    <span class="item warn" data-testid="offline-pill" data-tip="Your edits are kept on this device and merge automatically when you reconnect">
+      <Icon icon={WifiOff} size={13} />Offline: edits are kept and sync when you reconnect
+    </span>
+  {:else}
+    <span class="item ok"><Icon icon={RefreshCw} size={13} />{s.noPeerOnline ? 'Saved on this device' : 'All changes synced'}</span>
+  {/if}
+  <button type="button" class="item linkish" onclick={() => s.setPaused(!s.paused)} data-testid="pause-sync" data-tip={s.paused ? 'Reconnect to co-authors' : 'Disconnect and keep editing on this device'}>{s.paused ? 'Resume sync' : 'Work offline'}</button>
+
+  <button type="button" class="item linkish" onclick={onPeople} data-tip={s.peers.map((p) => p.uname).join(', ') || 'Nobody else is here right now'}>
+    <Icon icon={Users} size={13} /><span data-testid="peer-count">{peopleText}{others ? `: ${s.peers.map((p) => p.uname).join(', ')}` : ''}</span>
+  </button>
+
+  <span class="item" data-tip="The device that builds the PDF for everyone: the best one online, chosen automatically">
+    <Icon icon={Cpu} size={13} />
+    {#if s.compileMode === 'local'}
+      <span data-testid="leader">Compiles only on this device</span>
+    {:else if s.leaderName}
+      <span data-testid="leader">Compiles on {s.leaderName}{s.leaderName.includes('(this device)') ? '' : ' (best available)'}</span>
+    {:else}
+      <span data-testid="leader">Compiler: none available</span>
+    {/if}
+  </span>
+  {#if s.compileMode === 'peers' && !s.leaderName}
+    <span class="pill warn" role="status" data-testid="no-peer-compiler" data-tip="Switch to Automatic (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">No co-author can compile right now</span>
+  {/if}
+  {#if s.revoked}<span class="pill bad">you no longer have access</span>{/if}
+  {#if s.mirrorNotice}<span class="pill warn" role="status">{s.mirrorNotice}</span>{/if}
+
+  <span class="sp"></span>
+
+  {#if keymapMode}<span class="item mono" data-testid="keymap-mode">{keymapMode}</span>{/if}
+  {#if cursor}<span class="item num" data-testid="cursor-pos">Ln {cursor.line}, Col {cursor.col}</span>{/if}
+  <label class="item compiler" data-tip={COMPILE_MODES.find((m) => m.id === s.compileMode)?.hint}>Compile:
+    <select value={s.compileMode} onchange={(e) => void s.setCompileMode((e.currentTarget as HTMLSelectElement).value as CompileMode)} data-testid="compile-mode">
+      {#each COMPILE_MODES as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
+    </select>
+  </label>
+  <span class="item" data-testid="compiler-state">
+    {#if s.compilerPhase === 'setting-up'}Setting up the {s.compilerName}{s.compilerDetail ? ` (${s.compilerDetail})` : ''}…
+    {:else if s.compilerPhase === 'packages'}{s.compilerName}: {s.compilerDetail}…
+    {:else if s.compilerName}{s.compilerName}{s.localOnlyCompiler ? ' (builds stay on this device)' : ''}
+    {:else}{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}{/if}
+  </span>
+</footer>
+
+<style>
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 2px 14px;
+    min-height: var(--statusbar-h);
+    padding: 0 10px calc(0px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    font-size: var(--text-xs);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .ok {
+    color: var(--ok);
+  }
+  .warn {
+    color: var(--warn);
+  }
+  .linkish {
+    min-height: 22px;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 400;
+  }
+  .linkish:hover {
+    color: var(--ink);
+  }
+  .sp {
+    flex: 1;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .mono {
+    font-family: var(--font-code);
+  }
+  .compiler select {
+    min-height: 22px;
+    width: auto;
+    padding: 0 4px;
+    font-size: var(--text-xs);
+    border-color: transparent;
+    background: transparent;
+    color: var(--ink);
+  }
+  .compiler select:hover {
+    border-color: var(--line-strong);
+  }
+  .pill {
+    font-size: 11px;
+    padding: 2px 7px;
+  }
+</style>

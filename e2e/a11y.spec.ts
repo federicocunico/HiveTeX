@@ -76,3 +76,29 @@ test('layout works at 1024px and project list at phone width (7.6)', async ({ br
   expect(await u.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await ctx.close();
 });
+
+const report = (r: Awaited<ReturnType<AxeBuilder['analyze']>>) => JSON.stringify(serious(r).map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })));
+
+test('landing and sign-in screens: no serious violations in light and dark, no sideways scroll on phones', async ({ browser }) => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme });
+    const page = await ctx.newPage();
+    await page.goto('/');
+    await expect(page.getByTestId('landing')).toBeVisible();
+    const landing = await new AxeBuilder({ page }).analyze();
+    expect(serious(landing), `landing ${colorScheme}: ${report(landing)}`).toEqual([]);
+    for (const path of ['/#/login', '/#/register', '/#/forgot']) {
+      await page.goto(path);
+      await expect(page.locator('h1')).toBeVisible();
+      const r = await new AxeBuilder({ page }).analyze();
+      expect(serious(r), `${path} ${colorScheme}: ${report(r)}`).toEqual([]);
+    }
+    await page.setViewportSize({ width: 390, height: 800 });
+    for (const path of ['/', '/#/register']) {
+      await page.goto(path);
+      await expect(page.locator('h1')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${path} at 390px`).toBe(true);
+    }
+    await ctx.close();
+  }
+});

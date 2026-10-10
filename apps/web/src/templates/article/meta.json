@@ -1,0 +1,7 @@
+{
+  "name": "Article",
+  "description": "Title, abstract, sections, an equation, a figure, a table and BibTeX",
+  "main": "main.tex",
+  "order": 2,
+  "layout": "article"
+}

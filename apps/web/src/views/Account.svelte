@@ -4,6 +4,10 @@
   import { go } from '../lib/router.svelte.js';
   import { texliveEndpoint } from '../lib/wasm-engine.js';
   import { COMPILE_MODES, COMPILE_MODE_KEY, type CompileMode, readCompileMode } from '../lib/compile-mode.js';
+  import { resetLayout } from '../lib/layout.svelte.js';
+  import { FONT_MAX, FONT_MIN, type Keymap, prefs, setPref } from '../lib/preferences.svelte.js';
+  import { Monitor, Moon, Sun } from '../ui/icons.js';
+  import Icon from '../ui/Icon.svelte';
 
   let compileMode = $state<CompileMode>(readCompileMode());
   function saveCompileMode(mode: CompileMode) {
@@ -79,21 +83,49 @@
   }
 </script>
 
-<div class="page">
-  <h1>Account</h1>
+<div class="page account">
+  <h1>Account and preferences</h1>
   {#if auth.user}
     <p><strong>{auth.user.username}</strong> · {auth.user.email} {#if !auth.user.emailVerified}<span class="pill warn">email not verified — recovery needs a verified email</span> <button class="small" onclick={resendVerification} data-testid="resend-verification">Send a new verification link</button>{/if}</p>
   {/if}
   {#if error}<div class="error" role="alert">{error}</div>{/if}
   {#if info}<div class="notice" role="status">{info}</div>{/if}
-  <form class="card" onsubmit={change} style="max-width: 420px">
+  <section class="card" data-testid="preferences" aria-labelledby="prefs-title">
+    <h2 id="prefs-title">Preferences</h2>
+    <p class="muted" style="margin-top: 0">For this device only. They are never sent to the server or to co-authors.</p>
+    <fieldset class="seg-field">
+      <legend>Theme</legend>
+      <div class="seg">
+        {#each [['system', 'System', Monitor], ['light', 'Light', Sun], ['dark', 'Dark', Moon]] as const as [value, label, icon] (value)}
+          <label class:on={prefs.theme === value}>
+            <input type="radio" name="theme" {value} checked={prefs.theme === value} onchange={() => setPref('theme', value)} />
+            <Icon {icon} size={14} />{label}
+          </label>
+        {/each}
+      </div>
+    </fieldset>
+    <label class="field">Editor text size <small>{prefs.editorFontSize} px</small>
+      <input type="range" min={FONT_MIN} max={FONT_MAX} value={prefs.editorFontSize} oninput={(e) => setPref('editorFontSize', Number(e.currentTarget.value))} data-testid="pref-font-size" />
+    </label>
+    <label class="row"><input type="checkbox" checked={prefs.toolbar} onchange={(e) => setPref('toolbar', e.currentTarget.checked)} data-testid="pref-toolbar" /> Show the formatting toolbar above the editor</label>
+    <label class="field">Editor keys
+      <select value={prefs.keymap} onchange={(e) => setPref('keymap', e.currentTarget.value as Keymap)} data-testid="pref-keymap">
+        <option value="default">Default</option>
+        <option value="vim">Vim</option>
+        <option value="emacs">Emacs</option>
+      </select>
+    </label>
+    <div><button type="button" onclick={() => (resetLayout(), (info = 'Layout reset: panels and pane sizes are back to their defaults.'))}>Reset workspace layout</button></div>
+  </section>
+
+  <form class="card" onsubmit={change}>
     <h2>Change password</h2>
     <label class="field">Current password <input type="password" bind:value={current} autocomplete="current-password" required /></label>
     <label class="field">New password <small>at least 12 characters</small> <input type="password" bind:value={next} autocomplete="new-password" required minlength="12" /></label>
     <button class="primary" type="submit">Change password</button>
   </form>
 
-  <div class="card" style="max-width: 420px; margin-top: 16px" data-testid="compiler-settings">
+  <div class="card" data-testid="compiler-settings">
     <h2>Compiler</h2>
     <p class="muted" style="margin-top: 0">How this device takes part in building PDFs, for every project.</p>
     {#each COMPILE_MODES as m (m.id)}
@@ -104,7 +136,7 @@
     {/each}
   </div>
 
-  <form class="card" onsubmit={saveConnection} style="max-width: 420px; margin-top: 16px">
+  <form class="card" onsubmit={saveConnection}>
     <h2>Connections</h2>
     {#if isDesktop}
       <label class="field">HiveTeX server <small>accounts, project lookup and connection setup; your documents never go there</small>
@@ -126,3 +158,82 @@
 
   <p style="margin-top: 24px"><button class="danger" onclick={signOutEverywhere}>Sign out of all devices</button></p>
 </div>
+
+<style>
+  .account {
+    width: min(760px, 100%);
+    padding: 32px clamp(16px, 4vw, 40px) 48px;
+    display: grid;
+    gap: 16px;
+    align-content: start;
+  }
+  h1 {
+    margin: 0;
+    font-size: var(--text-2xl);
+  }
+  .account :global(.card) {
+    display: grid;
+    gap: 10px;
+    padding: 18px 20px;
+  }
+  .account :global(.card h2) {
+    margin: 0;
+    font-size: var(--text-lg);
+  }
+  .account :global(.field) {
+    margin: 0;
+  }
+  .seg-field {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .seg-field legend {
+    padding: 0;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .seg {
+    display: inline-flex;
+    width: fit-content;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-m);
+    overflow: hidden;
+  }
+  .seg label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: var(--text-sm);
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .seg label + label {
+    border-left: 1px solid var(--line);
+  }
+  .seg label.on {
+    background: var(--honey-soft);
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .seg label:focus-within {
+    outline: 2px solid var(--honey-ink);
+    outline-offset: -2px;
+  }
+  .seg input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  input[type='range'] {
+    width: min(320px, 100%);
+    accent-color: var(--honey-ink);
+  }
+  select {
+    width: auto;
+  }
+</style>

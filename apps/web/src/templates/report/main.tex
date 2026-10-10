@@ -1,0 +1,39 @@
+% ---------------------------------------------------------------------------
+% Thesis or report template. Long documents are split into one file per
+% chapter: main.tex pulls them in with \include{...}.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper,openany]{report}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\title{Thesis Title\\[1ex]\large A subtitle if you need one}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+
+% Front matter: title page, abstract and table of contents.
+\maketitle
+
+\begin{abstract}
+One page that states the question, the approach and the main contributions.
+\end{abstract}
+
+% The table of contents fills itself in from your chapters and sections.
+% It needs two compiles to be complete.
+\tableofcontents
+
+% Each chapter lives in its own file in the chapters folder.
+\include{chapters/introduction}
+\include{chapters/background}
+
+% Appendices come after \appendix: chapters are then lettered A, B, ...
+\appendix
+\chapter{Additional Material}
+Proofs, extra tables or data that would interrupt the main text.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

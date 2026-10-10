@@ -4,6 +4,23 @@ Free, decentralized, peer-to-peer collaborative LaTeX editor. Sources live only 
 (synced as CRDTs over WebRTC); the best connected machine compiles the PDF for everyone.
 A tiny Vercel "control plane" handles accounts, project lookup, permissions and connection bootstrap only.
 
+![The HiveTeX workspace: outline, LaTeX source with the formatting toolbar, and the compiled PDF](docs/images/workspace-light.png)
+
+## The interface
+
+An IDE for writing papers together, in the browser or as a desktop app:
+
+- **For newcomers:** templates that compile out of the box (article, thesis, Beamer, letter, CV), a toolbar that
+  writes LaTeX for you (headings, lists, math, symbols, figures, tables, citations, references), compile errors
+  explained in plain words with one-click fixes, and a short tour.
+- **For experienced users:** a command palette (Ctrl/Cmd+K) for every action, file, heading and line; keyboard
+  shortcuts; Vim or Emacs keys; resizable panes, focus mode, SyncTeX both ways, and a project folder for your own tools.
+- **Together:** one color per co-author on avatars, cursors and files, *follow* a co-author, and a Share dialog with
+  the invitation, password, default role and members.
+
+See [The interface](docs/interface.md) for a tour and the full shortcut list. Light and dark themes follow your system
+or your choice ([dark](docs/images/workspace-dark.png), [landing page](docs/images/landing.png)).
+
 ## Architecture
 - `apps/web` – Svelte 5 + Vite SPA (also the Tauri frontend)
 - `apps/desktop` – Tauri 2 shell (native compile, folder mirror, keychain)
@@ -14,7 +31,7 @@ See `openspec/specs/` for the behavior specs and `openspec/changes/archive/` for
 
 ## Documentation
 
-- [Real-time performance](docs/performance.md) · [Importing Overleaf / arXiv / folders](docs/import.md) · [Deployment (free tier)](docs/deployment.md) · [Accounts & admin](docs/accounts.md) · [Permissions](docs/permissions.md)
+- [The interface (tour and shortcuts)](docs/interface.md) · [Real-time performance](docs/performance.md) · [Importing Overleaf / arXiv / folders](docs/import.md) · [Deployment (free tier)](docs/deployment.md) · [Accounts & admin](docs/accounts.md) · [Permissions](docs/permissions.md)
 - [Wire protocol](docs/protocol.md) · [Compilation](docs/compilation.md) · [GitHub backup](docs/github-backup.md)
 - [Projects in folders (open a clone, Changes view)](docs/folders.md) · [Local AI tools (Claude Code, Codex, Cursor)](docs/local-ai-tools.md) · [Security review](docs/security.md) · [Local stack (Docker)](docs/local-stack.md)
 - Specs: `openspec/specs/` · history (proposals, designs, tasks): `openspec/changes/archive/`

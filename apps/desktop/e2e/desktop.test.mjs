@@ -141,6 +141,7 @@ test('create a project from a cloned folder: the tree comes from disk and edits 
 test('link a folder to a project, then open that folder again from the projects page', async () => {
   await home();
   const slug = uniq('link-');
+  await (await byTestId('new-project-btn')).click();
   await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
   await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
   await (await b.$("//button[normalize-space()='Create project']")).click();
@@ -177,6 +178,7 @@ test('link a folder to a project, then open that folder again from the projects 
 test('without any TeX installed, the first compile sets up the quick compiler and builds on this device', { timeout: 600_000 }, async () => {
   await home();
   const slug = uniq('quick-');
+  await (await byTestId('new-project-btn')).click();
   await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
   await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
   await (await b.$("//button[normalize-space()='Create project']")).click();

@@ -1,6 +1,11 @@
 <script lang="ts">
   import type { FileEntry } from '@hivetex/sync';
+  import type { Snippet } from 'svelte';
   import { type LooseItem, itemsFromDrop, itemsFromFiles } from '../lib/import/sources.js';
+  import { ChevronDown, ChevronRight, Download, FileCode, FileImage, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Pencil, Star, Trash, Upload } from '../ui/icons.js';
+  import Icon from '../ui/Icon.svelte';
+  import IconButton from '../ui/IconButton.svelte';
+  import PanelHead from './workspace/PanelHead.svelte';
 
   let {
     files,
@@ -14,6 +19,8 @@
     onUpload,
     onDownload,
     onSetMain,
+    headerExtra,
+    presence = {},
   }: {
     files: FileEntry[];
     activeId: string | null;
@@ -27,6 +34,10 @@
     onUpload: (load: () => Promise<{ items: LooseItem[]; hasFolder: boolean }>, dir: string) => void;
     onDownload: (f: FileEntry) => void;
     onSetMain: (f: FileEntry) => void;
+    /** Extra header actions (e.g. Import…). */
+    headerExtra?: Snippet;
+    /** Co-authors with each file open: path → [{ name, color }]. */
+    presence?: Record<string, Array<{ name: string; color: string }>>;
   } = $props();
 
   interface Node {
@@ -72,6 +83,18 @@
   let fileInput: HTMLInputElement;
   let uploadDir = '';
 
+  /** Starts naming a new file or folder at the top level (for the command palette). */
+  export function startAdd(kind: 'file' | 'folder') {
+    adding = { kind, dir: '' };
+    addName = '';
+  }
+
+  /** Starts renaming `path` (for the command palette). */
+  export function startRename(path: string) {
+    renaming = path;
+    renameTo = path;
+  }
+
   function toggle(p: string) {
     const s = new Set(collapsed);
     if (s.has(p)) s.delete(p);
@@ -111,7 +134,23 @@
     return el?.dataset.dir ?? '';
   }
 
-  const icon = (n: Node) => (isDir(n) ? (collapsed.has(n.path) ? '▸' : '▾') : n.entry?.kind === 'binary' ? '🖼' : '📄');
+  function fileIcon(n: Node) {
+    if (isDir(n)) return collapsed.has(n.path) ? Folder : FolderOpen;
+    if (n.entry?.kind === 'binary') return FileImage;
+    return /\.(tex|bib|sty|cls|bst|txt|md)$/i.test(n.name) ? FileText : FileCode;
+  }
+
+  /** Arrow-key navigation between visible tree items (WAI-ARIA tree). */
+  function onTreeKey(e: KeyboardEvent, n: Node) {
+    const items = [...((e.currentTarget as HTMLElement).closest('[role="tree"]')?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])];
+    const i = items.indexOf(e.currentTarget as HTMLElement);
+    if (e.key === 'ArrowDown') items[i + 1]?.focus();
+    else if (e.key === 'ArrowUp') items[i - 1]?.focus();
+    else if (e.key === 'ArrowRight' && isDir(n) && collapsed.has(n.path)) toggle(n.path);
+    else if (e.key === 'ArrowLeft' && isDir(n) && !collapsed.has(n.path)) toggle(n.path);
+    else return;
+    e.preventDefault();
+  }
 </script>
 
 {#snippet branch(n: Node, depth: number)}
@@ -122,22 +161,26 @@
       aria-expanded={isDir(c) ? !collapsed.has(c.path) : undefined}
       tabindex="0"
       onkeydown={(e) => {
-        if (e.target === e.currentTarget && e.key === 'Enter') isDir(c) ? toggle(c.path) : c.entry && onOpen(c.entry);
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter') isDir(c) ? toggle(c.path) : c.entry && onOpen(c.entry);
+        else onTreeKey(e, c);
       }}
     >
       <div
         class="node"
         data-dir={isDir(c) ? c.path : c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''}
         class:active={c.entry?.id === activeId}
-        style={`padding-left: ${8 + depth * 14}px`}
+        style:padding-left="{6 + depth * 14}px"
         role="presentation"
         onclick={() => (isDir(c) ? toggle(c.path) : c.entry && onOpen(c.entry))}
       >
-        <span aria-hidden="true">{icon(c)}</span>
+        <span class="chev" aria-hidden="true">{#if isDir(c)}<Icon icon={collapsed.has(c.path) ? ChevronRight : ChevronDown} size={14} />{/if}</span>
+        <Icon icon={fileIcon(c)} size={15} class="ficon" />
         {#if renaming === c.path && c.entry}
           <!-- svelte-ignore a11y_autofocus -->
           <input
             type="text"
+            aria-label={`New path for ${c.name}`}
             bind:value={renameTo}
             autofocus
             onclick={(e) => e.stopPropagation()}
@@ -149,34 +192,36 @@
             onblur={() => (renaming = null)}
           />
         {:else}
-          <span class="nm" title={c.path}>{c.name}{c.path === mainPath ? ' ★' : ''}</span>
+          <span class="nm" title={c.path}>{c.name}</span>
+          {#if c.path === mainPath}<span class="main-badge" data-testid="main-badge" data-tip="Main document: compiling starts here">Main</span>{/if}
         {/if}
+        {#each presence[c.path] ?? [] as p (p.name)}<span class="pdot" style:background={p.color} data-tip="{p.name} is here" data-testid="presence-dot"><span class="sr-only">{p.name} is here</span></span>{/each}
         <span class="acts">
           {#if !isDir(c) && c.entry?.kind === 'binary'}
-            <button class="ghost small" title="Download" aria-label={`Download ${c.name}`} onclick={(e) => { e.stopPropagation(); c.entry && onDownload(c.entry); }}>⬇</button>
+            <IconButton icon={Download} size={24} label={`Download ${c.name}`} tip="Download" onclick={(e) => { e.stopPropagation(); c.entry && onDownload(c.entry); }} />
           {/if}
           {#if canWrite}
             {#if isDir(c)}
-              <button class="ghost small" title="New file here" aria-label={`New file in ${c.name}`} onclick={(e) => { e.stopPropagation(); adding = { kind: 'file', dir: c.path }; }}>＋</button>
-              <button class="ghost small" title="Upload here" aria-label={`Upload into ${c.name}`} onclick={(e) => { e.stopPropagation(); uploadDir = c.path; fileInput.click(); }}>⬆</button>
-            {:else if c.entry?.path.endsWith('.tex')}
-              <button class="ghost small" title="Set as main file" aria-label={`Set ${c.name} as main file`} onclick={(e) => { e.stopPropagation(); c.entry && onSetMain(c.entry); }}>★</button>
+              <IconButton icon={FilePlus} size={24} label={`New file in ${c.name}`} tip="New file here" onclick={(e) => { e.stopPropagation(); adding = { kind: 'file', dir: c.path }; }} />
+              <IconButton icon={Upload} size={24} label={`Upload into ${c.name}`} tip="Upload here" onclick={(e) => { e.stopPropagation(); uploadDir = c.path; fileInput.click(); }} />
+            {:else if c.entry?.path.endsWith('.tex') && c.path !== mainPath}
+              <IconButton icon={Star} size={24} label={`Set ${c.name} as main file`} tip="Set as main document" onclick={(e) => { e.stopPropagation(); c.entry && onSetMain(c.entry); }} />
             {/if}
             {#if c.entry}
-              <button class="ghost small" title="Rename or move" aria-label={`Rename ${c.name}`} onclick={(e) => { e.stopPropagation(); renaming = c.path; renameTo = c.path; }}>✎</button>
+              <IconButton icon={Pencil} size={24} label={`Rename ${c.name}`} tip="Rename or move" onclick={(e) => { e.stopPropagation(); renaming = c.path; renameTo = c.path; }} />
               {#if confirmDelete === c.path}
-                <button class="ghost small danger" onclick={(e) => { e.stopPropagation(); c.entry && onDelete(c.entry); confirmDelete = null; }}>Delete?</button>
+                <button type="button" class="confirm" onclick={(e) => { e.stopPropagation(); c.entry && onDelete(c.entry); confirmDelete = null; }}>Delete?</button>
               {:else}
-                <button class="ghost small" title="Delete" aria-label={`Delete ${c.name}`} onclick={(e) => { e.stopPropagation(); confirmDelete = c.path; }}>🗑</button>
+                <IconButton icon={Trash} size={24} label={`Delete ${c.name}`} tip="Delete" onclick={(e) => { e.stopPropagation(); confirmDelete = c.path; }} />
               {/if}
             {/if}
           {/if}
         </span>
       </div>
       {#if adding && adding.dir === c.path && isDir(c)}
-        <div style={`padding-left: ${22 + depth * 14}px; margin: 2px 6px`}>
+        <div class="adding" style:padding-left="{26 + depth * 14}px">
           <!-- svelte-ignore a11y_autofocus -->
-          <input type="text" bind:value={addName} autofocus placeholder={adding.kind === 'file' ? 'name.tex' : 'folder'} onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') adding = null; }} onblur={submitAdd} />
+          <input type="text" aria-label={adding.kind === 'file' ? 'New file name' : 'New folder name'} bind:value={addName} autofocus placeholder={adding.kind === 'file' ? 'name.tex' : 'folder'} onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') adding = null; }} onblur={submitAdd} />
         </div>
       {/if}
       {#if isDir(c) && !collapsed.has(c.path)}
@@ -187,7 +232,7 @@
 {/snippet}
 
 <div
-  class="pane tree"
+  class="filetree"
   class:dragover={dragging}
   role="region"
   aria-label="Project files"
@@ -196,14 +241,14 @@
   ondragleave={() => (dragging = false)}
   ondrop={onDrop}
 >
-  <div class="row" style="padding: 8px; gap: 4px">
-    <strong class="spacer">Files</strong>
+  <PanelHead title="Files">
     {#if canWrite}
-      <button class="small" title="New file" aria-label="New file" onclick={() => { adding = { kind: 'file', dir: '' }; }}>＋ File</button>
-      <button class="small" title="New folder" aria-label="New folder" onclick={() => { adding = { kind: 'folder', dir: '' }; }}>＋ Folder</button>
-      <button class="small" title="Upload files" aria-label="Upload files" onclick={() => { uploadDir = ''; fileInput.click(); }}>⬆</button>
+      <IconButton icon={FilePlus} size={28} label="New file" onclick={() => { adding = { kind: 'file', dir: '' }; }} />
+      <IconButton icon={FolderPlus} size={28} label="New folder" onclick={() => { adding = { kind: 'folder', dir: '' }; }} />
+      <IconButton icon={Upload} size={28} label="Upload files" onclick={() => { uploadDir = ''; fileInput.click(); }} />
     {/if}
-  </div>
+    {@render headerExtra?.()}
+  </PanelHead>
   <input
     bind:this={fileInput}
     type="file"
@@ -219,11 +264,124 @@
     }}
   />
   {#if adding && adding.dir === ''}
-    <div style="margin: 2px 8px">
+    <div class="adding">
       <!-- svelte-ignore a11y_autofocus -->
-      <input type="text" bind:value={addName} autofocus placeholder={adding.kind === 'file' ? 'name.tex' : 'folder'} data-testid="new-name" onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') adding = null; }} onblur={submitAdd} />
+      <input type="text" aria-label={adding.kind === 'file' ? 'New file name' : 'New folder name'} bind:value={addName} autofocus placeholder={adding.kind === 'file' ? 'name.tex' : 'folder'} data-testid="new-name" onkeydown={(e) => { if (e.key === 'Enter') submitAdd(); if (e.key === 'Escape') adding = null; }} onblur={submitAdd} />
     </div>
   {/if}
-  <ul role="tree" aria-label="Files">{@render branch(tree, 0)}</ul>
-  {#if files.length === 0}<p class="muted" style="padding: 8px">Empty project. Create a file or drop files here.</p>{/if}
+  <ul role="tree" aria-label="Files" class="tree">{@render branch(tree, 0)}</ul>
+  {#if files.length === 0}
+    <p class="empty">{canWrite ? 'This project is empty. Create a file, or drop files and folders here.' : 'This project is empty.'}</p>
+  {/if}
 </div>
+
+<style>
+  .filetree {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .filetree.dragover {
+    outline: 2px dashed var(--honey-ink);
+    outline-offset: -4px;
+  }
+  .tree,
+  .tree :global(ul) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .tree {
+    padding: 0 6px 8px;
+    overflow: auto;
+  }
+  li:focus-visible {
+    outline: none;
+  }
+  li:focus-visible > .node {
+    outline: 2px solid var(--honey-ink);
+    outline-offset: -2px;
+  }
+  .node {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 28px;
+    padding-right: 4px;
+    border-radius: var(--r-s);
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  .node:hover {
+    background: var(--sunken);
+  }
+  .node.active {
+    background: var(--honey-soft);
+    font-weight: 500;
+  }
+  .chev {
+    width: 14px;
+    display: inline-flex;
+    color: var(--faint);
+    flex: none;
+  }
+  .node :global(.ficon) {
+    color: var(--muted);
+  }
+  .nm {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .main-badge {
+    flex: none;
+    padding: 1px 5px;
+    border-radius: var(--r-s);
+    background: var(--honey-soft);
+    color: var(--honey-ink);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .pdot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .acts {
+    display: none;
+    gap: 0;
+    flex: none;
+  }
+  .node:hover .acts,
+  .node:focus-within .acts,
+  li:focus-visible > .node .acts {
+    display: flex;
+  }
+  .confirm {
+    min-height: 24px;
+    padding: 0 8px;
+    border-color: var(--bad);
+    color: var(--bad);
+    font-size: var(--text-xs);
+  }
+  .adding {
+    margin: 2px 6px;
+  }
+  .adding input,
+  .node input {
+    width: 100%;
+    min-height: 26px;
+    padding: 2px 6px;
+    font-size: 13px;
+  }
+  .empty {
+    margin: 4px 14px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+</style>

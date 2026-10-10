@@ -7,9 +7,9 @@ the `.hivetex.json` marker and per-device locations.
 
 ## Use a folder
 
-1. Open the project → toolbar **In the app ▾** → **Use a folder…** → choose (or create) a folder. Or create the project
+1. Open the project → **In the app** at the bottom of the Files panel → **Use a folder…** → choose (or create) a folder. Or create the project
    **In a folder…**, or open an existing folder (e.g. a `git clone`) with **Open folder…** on the projects page.
-2. The project's files are written there immediately. The toolbar shows **📁 <folder>**.
+2. The project's files are written there immediately. The Files panel shows **In the folder <folder>**.
 3. Open the folder with your tool:
 
 ```bash
@@ -25,8 +25,8 @@ written to the folder atomically.
 
 ## Review and undo: the Changes view
 
-There are no locks and no "accept" step. Instead, **Changes** in the toolbar lists change sets by source (📁 the
-folder, ✎ you, 👤 collaborators), with a diff per file and an **Undo** that reverts one change set for everyone. Use it to
+There are no locks and no "accept" step. Instead, **Changes** in the workspace rail lists change sets by source (the
+folder, you, co-authors), with a diff per file and an **Undo** that reverts one change set for everyone. Use it to
 review what an agent did and to roll back what you don't want. History stays on the device for 7 days.
 
 ## What is (not) mirrored

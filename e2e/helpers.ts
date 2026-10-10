@@ -24,7 +24,15 @@ export async function newUser(context: BrowserContext, prefix = 'user') {
   return { page, username };
 }
 
+/** Opens the "New project" dialog from the projects page. */
+export async function openNewProject(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'New project' });
+  if (!(await dialog.isVisible())) await page.getByTestId('new-project-btn').click();
+  await expect(dialog).toBeVisible();
+}
+
 export async function createProject(page: Page, slug: string, password = PROJECT_PW) {
+  await openNewProject(page);
   await page.getByPlaceholder('my-paper-2026').fill(slug);
   await page.locator('form:has(h2:text("New project")) input[type=password]').fill(password);
   await page.getByRole('button', { name: 'Create project' }).click();
@@ -32,13 +40,27 @@ export async function createProject(page: Page, slug: string, password = PROJECT
 }
 
 export async function joinProject(page: Page, slug: string, password = PROJECT_PW) {
+  await page.getByTestId('join-btn').click();
   await page.locator('form:has(h2:text("Join a project")) input[type=text]').fill(slug);
   await page.locator('form:has(h2:text("Join a project")) input[type=password]').fill(password);
   await page.getByRole('button', { name: 'Join', exact: true }).click();
   await expect(page.getByTestId('workspace')).toBeVisible();
 }
 
+/** Signs out from the account menu in the app header. */
+export async function signOut(page: Page) {
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
+}
+
+/** Opens the Files panel of the workspace unless it is already showing (the open panel is remembered per device). */
+export async function showFiles(page: Page) {
+  if (!(await page.getByTestId('file-tree').isVisible())) await page.getByTestId('rail-files').click();
+  await expect(page.getByTestId('file-tree')).toBeVisible();
+}
+
 export async function addFile(page: Page, name: string) {
+  await showFiles(page);
   await page.getByRole('button', { name: 'New file', exact: true }).click();
   await page.getByTestId('new-name').fill(name);
   await page.getByTestId('new-name').press('Enter');

@@ -1,0 +1,7 @@
+{
+  "name": "Blank",
+  "description": "An empty project; add your own files",
+  "main": "main.tex",
+  "order": 1,
+  "layout": "blank"
+}

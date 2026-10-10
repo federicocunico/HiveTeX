@@ -4,9 +4,17 @@ import { stex } from '@codemirror/legacy-modes/mode/stex';
 
 export const latexLanguage = StreamLanguage.define(stex);
 
+/** A bibliography entry; `detail` (the title) is what completion shows. */
+export interface CiteEntry {
+  key: string;
+  detail?: string;
+  author?: string;
+  year?: string;
+}
+
 export interface ProjectIndex {
   labels: string[];
-  cites: Array<{ key: string; detail?: string }>;
+  cites: CiteEntry[];
   files: string[];
 }
 
@@ -18,22 +26,32 @@ export function scanLabels(text: string): string[] {
   return out;
 }
 
-/** BibTeX/BibLaTeX entry keys (with title as detail when present). */
-export function scanBib(text: string): Array<{ key: string; detail?: string }> {
-  const out: Array<{ key: string; detail?: string }> = [];
+/** A BibTeX field's value, without the outer braces or quotes and with inner braces dropped. */
+function bibField(body: string, name: string): string | undefined {
+  const m = new RegExp(`(?:^|[,\\s])${name}\\s*=\\s*(\\{((?:[^{}]|\\{[^{}]*\\})*)\\}|"([^"]*)"|(\\d+))`, 'i').exec(body);
+  const v = m?.[2] ?? m?.[3] ?? m?.[4];
+  return v?.replace(/[{}]/g, '').replace(/\s+/g, ' ').trim() || undefined;
+}
+
+/** BibTeX/BibLaTeX entries: key, title (as detail), authors and year when present. */
+export function scanBib(text: string): CiteEntry[] {
+  const out: CiteEntry[] = [];
   const re = /@(\w+)\s*\{\s*([^,\s]+)\s*,([\s\S]*?)(?=\n@|\s*$)/g;
   for (const m of text.matchAll(re)) {
     const type = (m[1] as string).toLowerCase();
     if (type === 'comment' || type === 'string' || type === 'preamble') continue;
-    const title = /title\s*=\s*[{"]([^}"]+)/i.exec(m[3] as string)?.[1]?.replace(/\s+/g, ' ').trim();
-    out.push({ key: m[2] as string, ...(title ? { detail: title } : {}) });
+    const body = m[3] as string;
+    const title = bibField(body, 'title');
+    const author = bibField(body, 'author');
+    const year = bibField(body, 'year') ?? bibField(body, 'date')?.slice(0, 4);
+    out.push({ key: m[2] as string, ...(title ? { detail: title } : {}), ...(author ? { author } : {}), ...(year ? { year } : {}) });
   }
   return out;
 }
 
 export function buildIndex(files: Array<{ path: string; kind: string; text?: string }>): ProjectIndex {
   const labels = new Set<string>();
-  const cites = new Map<string, { key: string; detail?: string }>();
+  const cites = new Map<string, CiteEntry>();
   const names: string[] = [];
   for (const f of files) {
     names.push(f.path);

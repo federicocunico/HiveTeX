@@ -1,6 +1,8 @@
 <script lang="ts">
   import { type PdfPosition, type SyncIndex, reverseSearch } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
+  import { ChevronDown, ChevronUp, PanelRight, ZoomIn, ZoomOut } from '../ui/icons.js';
+  import IconButton from '../ui/IconButton.svelte';
 
   let {
     pdf,
@@ -10,6 +12,9 @@
     syncIndex,
     highlight = null,
     onReverse,
+    zoom = $bindable(1.2),
+    editsSincePdf = 0,
+    onHide,
   }: {
     pdf: Uint8Array | null;
     rev: number;
@@ -18,10 +23,12 @@
     syncIndex: SyncIndex | null;
     highlight?: PdfPosition | null;
     onReverse?: (file: string, line: number) => void;
+    zoom?: number;
+    editsSincePdf?: number;
+    onHide?: (() => void) | undefined;
   } = $props();
 
   let scroller: HTMLDivElement;
-  let zoom = $state(1.2);
   let pageCount = $state(0);
   let current = $state(1);
   let error = $state('');
@@ -29,6 +36,14 @@
   // biome-ignore lint/suspicious/noExplicitAny: pdf.js document type is loaded lazily
   let doc: any = null;
   let token = 0;
+
+  /** Frees a rendered document. pdf.js 6 keeps destroy() on the loading task; older versions had it on the document. */
+  // biome-ignore lint/suspicious/noExplicitAny: pdf.js document type is loaded lazily
+  function dispose(d: any) {
+    if (!d) return;
+    if (typeof d.destroy === 'function') void d.destroy();
+    else if (typeof d.loadingTask?.destroy === 'function') void d.loadingTask.destroy();
+  }
 
   async function render() {
     if (!pdf) return;
@@ -38,7 +53,7 @@
     try {
       const pdfjs = await import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
-      doc?.destroy();
+      dispose(doc);
       doc = await pdfjs.getDocument({ data: pdf.slice(), useSystemFonts: false }).promise;
       if (my !== token) return;
       pageCount = doc.numPages;
@@ -124,31 +139,149 @@
     untrack(drawHighlight);
   });
 
+  const staleText = $derived(
+    editsSincePdf > 0 ? `Outdated: ${editsSincePdf} edit${editsSincePdf === 1 ? '' : 's'} since the last compile` : 'Outdated',
+  );
+
   onDestroy(() => {
     token++;
-    doc?.destroy();
+    dispose(doc);
   });
 </script>
 
-<div class="pdf-pane pane" data-testid="pdf-pane">
-  <div class="toolbar">
-    <button class="small" onclick={() => (zoom = Math.max(0.5, +(zoom - 0.1).toFixed(2)))} aria-label="Zoom out">−</button>
-    <span style="min-width: 3.5em; text-align: center">{Math.round(zoom * 100)}%</span>
-    <button class="small" onclick={() => (zoom = Math.min(3, +(zoom + 0.1).toFixed(2)))} aria-label="Zoom in">+</button>
-    <span class="spacer"></span>
-    {#if pageCount}
-      <button class="small" onclick={() => goto(Math.max(1, current - 1))} aria-label="Previous page">‹</button>
-      <span>{current} / {pageCount}</span>
-      <button class="small" onclick={() => goto(Math.min(pageCount, current + 1))} aria-label="Next page">›</button>
+
+<div class="pdf-pane" data-testid="pdf-pane">
+  <div class="pdf-bar">
+    {#if stale && pdf}
+      <span class="pill warn" data-testid="stale-badge" data-tip="Recompile to see the latest edits">
+        <span class="dot" aria-hidden="true"></span>{staleText}
+      </span>
+    {:else if pdf}
+      <span class="pill ok"><span class="dot" aria-hidden="true"></span>Up to date</span>
     {/if}
-    {#if stale && pdf}<span class="pill warn" data-testid="stale-badge" title="Edits are newer than this PDF">outdated</span>{/if}
-    {#if compiledBy}<span class="muted" data-testid="compiled-by">compiled by {compiledBy}</span>{/if}
+    {#if compiledBy}<span class="by" data-testid="compiled-by">compiled by {compiledBy}</span>{/if}
+    <span class="sp"></span>
+    <IconButton icon={ZoomOut} size={28} label="Zoom out" onclick={() => (zoom = Math.max(0.5, +(zoom - 0.1).toFixed(2)))} />
+    <span class="num" aria-live="polite">{Math.round(zoom * 100)}%</span>
+    <IconButton icon={ZoomIn} size={28} label="Zoom in" onclick={() => (zoom = Math.min(3, +(zoom + 0.1).toFixed(2)))} />
+    {#if pageCount}
+      <span class="sep" aria-hidden="true"></span>
+      <IconButton icon={ChevronUp} size={28} label="Previous page" onclick={() => goto(Math.max(1, current - 1))} />
+      <span class="num">Page {current} of {pageCount}</span>
+      <IconButton icon={ChevronDown} size={28} label="Next page" onclick={() => goto(Math.min(pageCount, current + 1))} />
+    {/if}
+    {#if onHide}<IconButton icon={PanelRight} size={28} label="Hide PDF" tip="Hide the PDF (Ctrl+Alt+P)" onclick={onHide} />{/if}
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable regions must be keyboard-focusable, WCAG 2.1.1) -->
   <div class="pdf-scroll" bind:this={scroller} onscroll={onScroll} ondblclick={onDblClick} role="document" aria-label="PDF preview" tabindex="0" data-testid="pdf-scroll">
     {#if !pdf}
-      <p class="muted" style="text-align: center; margin-top: 40px">No PDF yet. A connected device with a LaTeX compiler will build it for everyone.</p>
+      <div class="nopdf">
+        <p><strong>No PDF yet.</strong></p>
+        <p>Press Recompile. The best device online, or this one, builds the PDF and shares it with everyone.</p>
+      </div>
     {/if}
   </div>
-  {#if error}<div class="error" style="margin: 0">{error}</div>{:else if rendering}<div class="muted" style="padding: 2px 10px; font-size: 12px">Rendering…</div>{:else}<div></div>{/if}
+  {#if error}<div class="error pdf-msg" role="alert">{error}</div>{:else if rendering}<div class="pdf-msg">Rendering…</div>{/if}
 </div>
+
+<style>
+  .pdf-pane {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--pdf-desk);
+  }
+  .pdf-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 40px;
+    padding: 0 6px 0 10px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    font-size: var(--text-sm);
+    color: var(--muted);
+    overflow: hidden;
+  }
+  .pdf-bar :global(.pill) {
+    flex: none;
+    white-space: nowrap;
+  }
+  .by {
+    margin-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-xs);
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .sp {
+    flex: 1;
+  }
+  .num {
+    min-width: 3.2em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    font-size: var(--text-xs);
+  }
+  .sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: var(--line);
+  }
+  .pdf-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 16px;
+    background: var(--pdf-desk);
+  }
+  .pdf-scroll :global(canvas) {
+    display: block;
+    margin: 0 auto 16px;
+    background: var(--pdf-paper);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.2), 0 6px 20px rgb(0 0 0 / 0.08);
+    max-width: none;
+  }
+  .pdf-scroll :global(.page-wrap) {
+    position: relative;
+    width: max-content;
+    margin: 0 auto 16px;
+  }
+  .pdf-scroll :global(.page-wrap canvas) {
+    margin: 0;
+  }
+  .pdf-scroll :global(.hl) {
+    position: absolute;
+    background: rgb(242 181 60 / 0.35);
+    border: 1px solid rgb(200 140 0 / 0.8);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  .nopdf {
+    max-width: 34ch;
+    margin: 48px auto;
+    text-align: center;
+    color: var(--muted);
+  }
+  .nopdf p {
+    margin: 0 0 6px;
+  }
+  .pdf-msg {
+    flex: none;
+    padding: 4px 10px;
+    font-size: var(--text-xs);
+    color: var(--muted);
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+</style>

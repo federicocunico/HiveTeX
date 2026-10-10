@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { PROJECT_PW, addFile, newUser, typeInEditor, uniq } from './helpers.js';
+import { PROJECT_PW, addFile, newUser, openNewProject, typeInEditor, uniq } from './helpers.js';
 
 /**
  * Folder projects in the web app (Chromium, File System Access API). The folder picker is stubbed with a directory
@@ -54,6 +54,7 @@ test('web folders: create in a folder, external edits sync, reopen re-binds, sto
   await pickNext(page, dir);
 
   const slug = uniq('fold-');
+  await openNewProject(page);
   await page.getByPlaceholder('my-paper-2026').fill(slug);
   await page.locator('form:has(h2:text("New project")) input[type=password]').fill(PROJECT_PW);
   await page.getByTestId('create-in-folder').click();
@@ -128,5 +129,25 @@ test('web folders: "Open folder…" creates a project with the folder tree, and 
   await page.getByTestId('open-folder').click();
   await expect(page.getByTestId('project-slug')).toHaveText(slug);
   await expect(page.getByTestId('location-btn')).toContainText(dir);
+  await ctx.close();
+});
+
+test('web folders: a project created from a template in a folder writes the template files there', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const { page } = await newUser(ctx, 'fldt');
+  await stubPicker(page);
+  await page.reload();
+  const dir = uniq('tdir-');
+  await pickNext(page, dir);
+  await openNewProject(page);
+  await page.getByTestId('template-report').click();
+  await page.getByPlaceholder('my-paper-2026').fill(uniq('foldt-'));
+  await page.locator('form:has(h2:text("New project")) input[type=password]').fill(PROJECT_PW);
+  await page.getByTestId('create-in-folder').click();
+  await expect(page.getByText(`In the folder “${dir}”`)).toBeVisible();
+  await page.getByRole('button', { name: 'Create project' }).click();
+  await expect(page.getByTestId('workspace')).toBeVisible();
+  await expect.poll(() => readExternal(page, dir, 'main.tex'), { timeout: 10_000 }).toContain('\\documentclass');
+  await expect.poll(() => readExternal(page, dir, 'chapters/introduction.tex'), { timeout: 10_000 }).toContain('\\chapter{Introduction}');
   await ctx.close();
 });

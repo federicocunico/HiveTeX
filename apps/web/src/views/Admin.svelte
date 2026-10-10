@@ -57,7 +57,7 @@
   }
 </script>
 
-<div class="page">
+<div class="page admin">
   <h1>Platform administration</h1>
   {#if error}<div class="error" role="alert">{error}</div>{/if}
   {#if info}<div class="notice" role="status">{info}</div>{/if}
@@ -96,3 +96,22 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .admin {
+    width: min(900px, 100%);
+    padding: 32px clamp(16px, 4vw, 40px) 48px;
+    display: grid;
+    gap: 16px;
+    align-content: start;
+  }
+  h1 {
+    margin: 0;
+    font-size: var(--text-2xl);
+  }
+  .admin :global(table) {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-l);
+  }
+</style>

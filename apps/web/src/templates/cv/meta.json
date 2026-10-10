@@ -1,0 +1,7 @@
+{
+  "name": "CV",
+  "description": "Education, experience, skills and publications on one page",
+  "main": "main.tex",
+  "order": 6,
+  "layout": "cv"
+}

@@ -1,0 +1,41 @@
+% ---------------------------------------------------------------------------
+% CV template, using only the standard article class so it compiles anywhere.
+% \cventry below is a small command defined here: change it to restyle every entry.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2cm]{geometry}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+% \cventry{dates}{title}{place}{description}
+\newcommand{\cventry}[4]{%
+  \textbf{#2} \hfill #1\\
+  \textit{#3}\\[2pt]
+  #4\par\medskip}
+
+% A section heading with a rule under it.
+\newcommand{\cvsection}[1]{\bigskip{\large\bfseries #1}\\[-6pt]\rule{\linewidth}{0.4pt}\par\smallskip}
+
+\begin{document}
+
+{\LARGE\bfseries Your Name}\\[4pt]
+you@example.org \quad $\cdot$ \quad +00 000 000 000 \quad $\cdot$ \quad City, Country
+
+\cvsection{Education}
+\cventry{2020--2024}{PhD in Your Field}{University Name}{Thesis: a one-line summary of the thesis.}
+\cventry{2018--2020}{MSc in Your Field}{University Name}{Focus areas or a notable project.}
+
+\cvsection{Experience}
+\cventry{2024--now}{Research Associate}{Lab or Company}{What you did and what it achieved, in one or two lines.}
+
+\cvsection{Skills}
+\textbf{Languages:} English, Italian \\
+\textbf{Tools:} \LaTeX, Python, Git
+
+\cvsection{Publications}
+\begin{enumerate}
+  \item A. Author and Y. Name. \emph{Paper title}. Venue, 2024.
+\end{enumerate}
+
+\end{document}

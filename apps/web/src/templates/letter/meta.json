@@ -1,0 +1,7 @@
+{
+  "name": "Letter",
+  "description": "A formal letter with addresses, opening and closing",
+  "main": "main.tex",
+  "order": 5,
+  "layout": "letter"
+}

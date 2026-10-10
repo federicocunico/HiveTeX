@@ -52,7 +52,7 @@ test('seven users: edits reach everyone in real time and concurrent typing conve
     await joinProject(u.page, slug);
   }
   for (const u of users) {
-    await expect(u.page.getByTestId('peer-count')).toContainText(`${N - 1} peers`, { timeout: 120_000 });
+    await expect(u.page.getByTestId('peer-count')).toContainText(`${N - 1} co-authors`, { timeout: 120_000 });
     await u.page.getByRole('treeitem', { name: 'main.tex' }).click();
     await expect(u.page.locator('.cm-content')).toBeVisible();
   }

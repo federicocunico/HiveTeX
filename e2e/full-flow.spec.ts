@@ -29,12 +29,12 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
     await expect(u.page.locator('.cm-content')).toContainText('owner line');
   }
   await O.page.getByTestId('settings-btn').click();
-  await O.page.locator('[data-testid=members-table] tr', { hasText: V.username }).getByLabel(`Role of ${V.username}`).selectOption('viewer');
+  await O.page.locator('[data-testid=members-table] li', { hasText: V.username }).getByLabel(`Role of ${V.username}`).selectOption('viewer');
   await expect(O.page.getByText(`${V.username} is now viewer`)).toBeVisible();
   await O.page.getByRole('button', { name: 'Close' }).click();
 
   // everyone sees two peers
-  for (const u of [O, E, V]) await expect(u.page.getByTestId('peer-count')).toContainText('2 peers', { timeout: 30_000 });
+  for (const u of [O, E, V]) await expect(u.page.getByTestId('peer-count')).toContainText('2 co-authors', { timeout: 30_000 });
 
   // concurrent edits from owner and editor converge
   const typeAt = async (p: Page, where: 'Control+Home' | 'Control+End', text: string) => {
@@ -90,14 +90,14 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
   const removed = leaderIsOwner ? otherPage : await reopen(ctxE); // the editor's open page
   const removedName = E.username;
   // the (re-opened) owner page must be linked to both members before the removal, so it can announce the new epoch
-  await expect(ownerPage.getByTestId('peer-count')).toContainText('2 peers', { timeout: 60_000 });
-  await expect(removed.getByTestId('peer-count')).not.toContainText('0 peers', { timeout: 30_000 });
+  await expect(ownerPage.getByTestId('peer-count')).toContainText('2 co-authors', { timeout: 60_000 });
+  await expect(removed.getByTestId('peer-count')).not.toContainText('No co-authors', { timeout: 30_000 });
   await ownerPage.getByTestId('settings-btn').click();
-  await ownerPage.locator('[data-testid=members-table] tr', { hasText: removedName }).getByRole('button', { name: 'Remove', exact: true }).click();
+  await ownerPage.locator('[data-testid=members-table] li', { hasText: removedName }).getByRole('button', { name: 'Remove', exact: true }).click();
   await expect(ownerPage.getByText(`${removedName} removed`, { exact: false })).toBeVisible();
   await ownerPage.getByRole('button', { name: 'Close' }).click();
   await expect(removed.getByText('you no longer have access')).toBeVisible({ timeout: 60_000 });
-  await expect(removed.getByTestId('peer-count')).toContainText('0 peers', { timeout: 60_000 });
+  await expect(removed.getByTestId('peer-count')).toContainText('No co-authors', { timeout: 60_000 });
   void editorText;
 
   await Promise.all([ctxO.close(), ctxE.close(), ctxV.close()]);

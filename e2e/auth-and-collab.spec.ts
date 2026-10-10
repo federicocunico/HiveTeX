@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { PW, addFile, createProject, editorText, joinProject, newUser, typeInEditor, uniq, waitForMail } from './helpers.js';
+import { PW, addFile, createProject, editorText, joinProject, newUser, signOut, typeInEditor, uniq, waitForMail } from './helpers.js';
 
 test('account flow: register, verify, sign out, reset password, sign in (3.8)', async ({ browser }) => {
   const context = await browser.newContext();
@@ -12,7 +12,7 @@ test('account flow: register, verify, sign out, reset password, sign in (3.8)', 
   await expect(page.getByText('Email verified')).toBeVisible();
 
   await page.goto('/#/');
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await signOut(page);
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 
   // forgot -> neutral message -> reset link -> new password -> sign in
@@ -63,12 +63,12 @@ test('collaboration: join as viewer, promote to editor, live sync and presence (
   await expect(guest.page.locator('.cm-content')).not.toContainText('HACK');
 
   // peers see each other
-  await expect(owner.page.getByTestId('peer-count')).toContainText('1 peer online');
+  await expect(owner.page.getByTestId('peer-count')).toContainText('1 co-author online');
   await expect(guest.page.getByTestId('peer-count')).toContainText(owner.username);
 
   // owner promotes the guest
   await owner.page.getByTestId('settings-btn').click();
-  const row = owner.page.locator('[data-testid=members-table] tr', { hasText: guest.username });
+  const row = owner.page.locator('[data-testid=members-table] li', { hasText: guest.username });
   await row.getByLabel(`Role of ${guest.username}`).selectOption('editor');
   await owner.page.getByRole('button', { name: 'Close' }).click();
 

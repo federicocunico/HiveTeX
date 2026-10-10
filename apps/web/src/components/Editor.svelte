@@ -1,17 +1,21 @@
 <script lang="ts">
   import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
   import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-  import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from '@codemirror/language';
+  import { bracketMatching, indentOnInput } from '@codemirror/language';
   import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from '@codemirror/lint';
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-  import { Compartment, EditorState } from '@codemirror/state';
+  import { Compartment, EditorState, Prec } from '@codemirror/state';
   import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
   import type { Diagnostic } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
   import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
   import * as Y from 'yjs';
   import { type ProjectIndex, latexCompletionSource, latexLanguage } from '../lib/latex.js';
+  import { editorCommandForKey } from '../lib/commands.svelte.js';
+  import { type Insertion, inMathAt } from '../lib/latex-insert.js';
+  import { prefs } from '../lib/preferences.svelte.js';
   import type { ProjectSession } from '../lib/session.svelte.js';
+  import { editorFontSize, hivetexEditorTheme } from '../styles/editor-theme.js';
 
   let {
     session,
@@ -21,6 +25,9 @@
     getIndex,
     jumpLine = null,
     onForwardSearch,
+    onCursor,
+    onKeymapMode,
+    onUserActivity,
   }: {
     session: ProjectSession;
     fileId: string;
@@ -29,14 +36,118 @@
     getIndex: () => ProjectIndex;
     jumpLine?: { line: number; n: number } | null;
     onForwardSearch?: (line: number) => void;
+    /** Cursor position (1-based line and column) for the status bar. */
+    onCursor?: (pos: { line: number; col: number }) => void;
+    /** Vim mode ("-- NORMAL --") or "Emacs" for the status bar; '' with the default keys. */
+    onKeymapMode?: (mode: string) => void;
+    /** The user typed, scrolled or clicked in the editor (ends "follow"). */
+    onUserActivity?: () => void;
   } = $props();
+
+  /**
+   * Replaces the selection with what `build` returns (toolbar, pickers, fixes), as one ordinary edit by this user:
+   * it syncs, appears in Changes and undoes like typing. Returns false when the editor is read-only or not ready.
+   */
+  export function insertWith(build: (selected: string, ctx: { inMath: boolean }) => Insertion): boolean {
+    if (!view || readOnly) return false;
+    const { from, to } = view.state.selection.main;
+    const ins = build(view.state.sliceDoc(from, to), { inMath: inMathAt(view.state.doc.toString(), from) });
+    view.dispatch({
+      changes: { from, to, insert: ins.text },
+      selection: { anchor: from + ins.anchor, head: from + (ins.head ?? ins.anchor) },
+      scrollIntoView: true,
+      userEvent: 'input.format',
+    });
+    view.focus();
+    return true;
+  }
+
+  /** Inserts `text` at the start of line `line` (1-based), e.g. a missing \usepackage in the preamble. */
+  export function insertLineBefore(line: number, text: string): boolean {
+    if (!view || readOnly) return false;
+    const l = view.state.doc.line(Math.min(Math.max(1, line), view.state.doc.lines));
+    view.dispatch({ changes: { from: l.from, insert: `${text}\n` }, userEvent: 'input.fix' });
+    return true;
+  }
+
+  /** Scrolls a co-author's cursor (by awareness client id) into view, if they are in this file. */
+  export function revealClient(clientId: number): boolean {
+    const st = session.mesh.awareness.getStates().get(clientId) as { cursor?: { head?: unknown } } | undefined;
+    if (!view || !ytext?.doc || !st?.cursor?.head) return false;
+    const pos = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(st.cursor.head), ytext.doc);
+    if (!pos || pos.type !== ytext) return false;
+    view.dispatch({ effects: EditorView.scrollIntoView(Math.min(pos.index, view.state.doc.length), { y: 'center' }) });
+    return true;
+  }
+
+  /** Current text of the open file. */
+  export function text(): string {
+    return view?.state.doc.toString() ?? '';
+  }
+
+  // Optional Vim or Emacs keys, downloaded only when chosen.
+  const keymapMode = new Compartment();
+  let loadedKeymap = 'default';
+  async function applyKeymap(k: string) {
+    if (!view || k === loadedKeymap) return;
+    loadedKeymap = k;
+    if (k === 'vim') {
+      const { vim, getCM } = await import('@replit/codemirror-vim');
+      if (!view || loadedKeymap !== 'vim') return;
+      view.dispatch({ effects: keymapMode.reconfigure(vim({ status: false })) });
+      onKeymapMode?.('-- NORMAL --');
+      getCM(view)?.on('vim-mode-change', (e: { mode: string; subMode?: string }) =>
+        onKeymapMode?.(`-- ${(e.subMode ? `${e.mode} ${e.subMode}` : e.mode).toUpperCase()} --`),
+      );
+    } else if (k === 'emacs') {
+      const { emacs } = await import('@replit/codemirror-emacs');
+      if (!view || loadedKeymap !== 'emacs') return;
+      view.dispatch({ effects: keymapMode.reconfigure(emacs()) });
+      onKeymapMode?.('Emacs');
+    } else {
+      view.dispatch({ effects: keymapMode.reconfigure([]) });
+      onKeymapMode?.('');
+    }
+  }
+
+  // App shortcuts typed in the editor (Ctrl+Enter compiles, Ctrl+K opens the palette, …) come from the command
+  // registry, checked before CodeMirror's own keymap.
+  const appKeys = Prec.highest(
+    EditorView.domEventHandlers({
+      keydown(e) {
+        if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) onUserActivity?.();
+        const c = editorCommandForKey(e);
+        if (!c) return false;
+        e.preventDefault();
+        c.run();
+        return true;
+      },
+      wheel() {
+        onUserActivity?.();
+        return false;
+      },
+      mousedown() {
+        onUserActivity?.();
+        return false;
+      },
+    }),
+  );
+
+  const reportCursor = EditorView.updateListener.of((u) => {
+    if (!onCursor || !(u.selectionSet || u.docChanged || u.focusChanged)) return;
+    const head = u.state.selection.main.head;
+    const line = u.state.doc.lineAt(head);
+    onCursor({ line: line.number, col: head - line.from + 1 });
+  });
 
   let host: HTMLDivElement;
   let view: EditorView | null = null;
   let undo: Y.UndoManager | null = null;
+  let ytext: Y.Text | null = null;
   let loading = $state(true);
   // Role changes (e.g. the owner demotes us to viewer) must flip the editor to read-only without remounting.
   const access = new Compartment();
+  const fontSize = new Compartment();
   const accessExt = (ro: boolean) => [
     EditorState.readOnly.of(ro),
     EditorView.editable.of(!ro),
@@ -48,7 +159,7 @@
     view?.destroy();
     view = null;
     await session.mesh.openDoc(`f:${id}`);
-    const ytext = await session.model.openText(id);
+    ytext = await session.model.openText(id);
     if (!host) return;
     undo = new Y.UndoManager(ytext);
     view = new EditorView({
@@ -56,6 +167,8 @@
       state: EditorState.create({
         doc: ytext.toString(),
         extensions: [
+          // first, so Vim/Emacs bindings take precedence over the default keymap
+          keymapMode.of([]),
           lineNumbers(),
           drawSelection(),
           highlightActiveLine(),
@@ -63,7 +176,8 @@
           bracketMatching(),
           closeBrackets(),
           highlightSelectionMatches(),
-          syntaxHighlighting(defaultHighlightStyle),
+          hivetexEditorTheme,
+          fontSize.of(editorFontSize(prefs.editorFontSize)),
           latexLanguage,
           EditorView.lineWrapping,
           autocompletion({ override: [latexCompletionSource(getIndex)] }),
@@ -85,10 +199,14 @@
           ]),
           yCollab(ytext, session.mesh.awareness, { undoManager: undo }),
           access.of(accessExt(readOnly)),
+          reportCursor,
+          appKeys,
         ],
       }),
     });
     loading = false;
+    loadedKeymap = 'default';
+    void applyKeymap(prefs.keymap);
     applyDiagnostics();
     applyJump();
   }
@@ -123,6 +241,16 @@
   $effect(() => {
     const ro = readOnly;
     untrack(() => view?.dispatch({ effects: access.reconfigure(accessExt(ro)) }));
+  });
+
+  $effect(() => {
+    const k = prefs.keymap;
+    untrack(() => void applyKeymap(k));
+  });
+
+  $effect(() => {
+    const px = prefs.editorFontSize;
+    untrack(() => view?.dispatch({ effects: fontSize.reconfigure(editorFontSize(px)) }));
   });
 
   $effect(() => {

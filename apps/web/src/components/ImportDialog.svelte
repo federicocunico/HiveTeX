@@ -13,6 +13,7 @@
 
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import Dialog from '../ui/Dialog.svelte';
   import { isDesktop } from '../lib/api.js';
   import { SKIP_LABEL } from '../lib/import/filter.js';
   import type { ApplyResult, ImportMode, ImportPlan, Resolution } from '../lib/import/plan.js';
@@ -82,25 +83,6 @@
 
   function focusFirst() {
     dialogEl?.querySelector<HTMLElement>('button:not([disabled]), input, select')?.focus();
-  }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' && stage !== 'applying' && stage !== 'reading') {
-      e.preventDefault();
-      close();
-    }
-    if (e.key !== 'Tab') return;
-    const els = [...dialogEl.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([hidden]):not([disabled]), select, summary, [tabindex="0"]')];
-    if (els.length === 0) return;
-    const first = els[0] as HTMLElement;
-    const last = els[els.length - 1] as HTMLElement;
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
   }
 
   function close() {
@@ -213,9 +195,8 @@
   }
 </script>
 
-<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="import-title" data-testid="import-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={onKey}>
-  <div class="card import-card">
-    <h2 id="import-title">Import</h2>
+<Dialog title="Import" size="md" onClose={close} dismissible={stage !== 'applying' && stage !== 'reading'} testid="import-dialog">
+  <div class="import" bind:this={dialogEl}>
 
     {#if stage === 'pick'}
       <p class="muted">Bring in an Overleaf or GitHub <strong>.zip</strong>, an arXiv <strong>.tar.gz</strong>, a folder, or individual files. Everything is read on this device; nothing is uploaded to the server.</p>
@@ -249,7 +230,6 @@
     {:else if stage === 'error'}
       <div class="error" role="alert" data-testid="import-error">{errorMsg}</div>
       <p class="muted">The project was not changed.</p>
-      <div class="row"><span class="spacer"></span><button onclick={close}>Close</button></div>
     {:else if stage === 'preview' && plan && bundle && counts}
       <p>
         <strong>{bundle.name}</strong>:
@@ -327,13 +307,15 @@
       <div class="row"><span class="spacer"></span><button class="primary" onclick={close} data-testid="import-done">Done</button></div>
     {/if}
   </div>
-</div>
+</Dialog>
 
 <style>
-  .import-card {
-    width: min(640px, 100%);
-    max-height: 85vh;
-    overflow: auto;
+  .import {
+    display: grid;
+    gap: 10px;
+  }
+  .import p {
+    margin: 0;
   }
   .filelist {
     max-height: 220px;
@@ -346,8 +328,8 @@
     padding: 2px 0;
   }
   .modes {
-    border: 1px solid var(--border, #ddd);
-    border-radius: 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-m);
     padding: 6px 10px;
   }
   .small-print {

@@ -1,0 +1,190 @@
+/*
+ * HiveTeX design tokens ("honey on slate"). Components read these and nothing else.
+ *
+ * - Bare :root holds the complete light palette.
+ * - The dark palette redefines tokens only, twice: for the OS setting (unless the user picked light) and for an
+ *   explicit dark choice. Both dark blocks must stay identical (test/tokens.test.ts checks it).
+ * - Plain hex values only in the palette blocks, so the contrast test can read them. No color-mix(): WebKitGTK on
+ *   older Linux desktops lacks it.
+ */
+:root {
+  color-scheme: light;
+
+  /* Surfaces and text */
+  --paper: #f7f8fa;
+  --surface: #ffffff;
+  --sunken: #eff1f5;
+  --raised: #ffffff;
+  --line: #dfe2e9;
+  --line-strong: #c3c8d4;
+  --ink: #16181d;
+  --muted: #555b6c;
+  --faint: #636979;
+
+  /* Brand: honey. Fill behind dark text; honey-ink for accent text, links and focus rings. */
+  --honey: #eba724;
+  --honey-hover: #f0b23e;
+  --honey-ink: #8a5300;
+  --honey-soft: #fdf2d9;
+  --on-honey: #1d1403;
+  --active-line: #fefaf0;
+  --selection: #f9e3b4;
+
+  /* Semantic, separate from the accent */
+  --ok: #1a7144;
+  --ok-soft: #e3f4ea;
+  --warn: #9a4a08;
+  --warn-soft: #fdeedd;
+  --bad: #b42318;
+  --bad-soft: #fde8e6;
+
+  /* Presence: one color per collaborator (avatar, cursor, selection, file dot), the same in both themes so a
+     person looks the same to everyone: >= 3:1 on both surfaces, white initials >= 4.5:1. Mirrored in lib/presence.ts. */
+  --p1: #2f6feb;
+  --p2: #c2417a;
+  --p3: #0b7a70;
+  --p4: #7a4fd6;
+  --p5: #c2410c;
+  --p6: #3e7d2a;
+  --p7: #a16207;
+  --p8: #0e7490;
+  --on-presence: #ffffff;
+
+  /* Editor syntax. >= 4.5:1 on --surface. */
+  --syn-cmd: #3557c9;
+  --syn-env: #8a3fb3;
+  --syn-math: #0f7d6e;
+  --syn-comment: #687083;
+  --syn-brace: #555b6c;
+  --syn-string: #9a4a08;
+
+  /* PDF stays paper in both themes */
+  --pdf-desk: #e4e7ee;
+  --pdf-paper: #ffffff;
+
+  --scrim: rgb(20 22 28 / 0.38);
+  --shadow-1: 0 1px 2px rgb(16 20 30 / 0.06);
+  --shadow-2: 0 2px 6px rgb(16 20 30 / 0.06), 0 12px 32px rgb(16 20 30 / 0.1);
+
+  /* Type */
+  --font-ui: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  --font-display: 'STIX Two Text Variable', 'STIX Two Text', 'Latin Modern Roman', 'Times New Roman', Georgia, serif;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+
+  /* Shape and space */
+  --r-s: 4px;
+  --r-m: 6px;
+  --r-l: 10px;
+  --r-xl: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --control-h: 32px;
+  --header-h: 48px;
+  --rail-w: 48px;
+  --statusbar-h: 28px;
+
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --paper: #0f1116;
+    --surface: #161920;
+    --sunken: #1c2029;
+    --raised: #1f232d;
+    --line: #2a2f3b;
+    --line-strong: #3d4454;
+    --ink: #e7e9ef;
+    --muted: #a0a6b6;
+    --faint: #8a91a3;
+    --honey: #f2b53c;
+    --honey-hover: #f5c05a;
+    --honey-ink: #f5bf55;
+    --honey-soft: #33270d;
+    --on-honey: #1d1403;
+    --active-line: #1d1e1f;
+    --selection: #4a3a14;
+    --ok: #4cc386;
+    --ok-soft: #12291d;
+    --warn: #f0a050;
+    --warn-soft: #33220f;
+    --bad: #ff8a7a;
+    --bad-soft: #3a1915;
+    --p1: #2f6feb;
+    --p2: #c2417a;
+    --p3: #0b7a70;
+    --p4: #7a4fd6;
+    --p5: #c2410c;
+    --p6: #3e7d2a;
+    --p7: #a16207;
+    --p8: #0e7490;
+    --on-presence: #ffffff;
+    --syn-cmd: #82a6ff;
+    --syn-env: #d29bf2;
+    --syn-math: #5fd3bf;
+    --syn-comment: #8a91a3;
+    --syn-brace: #a0a6b6;
+    --syn-string: #f0a050;
+    --pdf-desk: #252a35;
+    --pdf-paper: #ffffff;
+    --scrim: rgb(0 0 0 / 0.55);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-2: 0 2px 6px rgb(0 0 0 / 0.35), 0 16px 40px rgb(0 0 0 / 0.45);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #0f1116;
+  --surface: #161920;
+  --sunken: #1c2029;
+  --raised: #1f232d;
+  --line: #2a2f3b;
+  --line-strong: #3d4454;
+  --ink: #e7e9ef;
+  --muted: #a0a6b6;
+  --faint: #8a91a3;
+  --honey: #f2b53c;
+  --honey-hover: #f5c05a;
+  --honey-ink: #f5bf55;
+  --honey-soft: #33270d;
+  --on-honey: #1d1403;
+  --active-line: #1d1e1f;
+  --selection: #4a3a14;
+  --ok: #4cc386;
+  --ok-soft: #12291d;
+  --warn: #f0a050;
+  --warn-soft: #33220f;
+  --bad: #ff8a7a;
+  --bad-soft: #3a1915;
+  --p1: #2f6feb;
+  --p2: #c2417a;
+  --p3: #0b7a70;
+  --p4: #7a4fd6;
+  --p5: #c2410c;
+  --p6: #3e7d2a;
+  --p7: #a16207;
+  --p8: #0e7490;
+  --on-presence: #ffffff;
+  --syn-cmd: #82a6ff;
+  --syn-env: #d29bf2;
+  --syn-math: #5fd3bf;
+  --syn-comment: #8a91a3;
+  --syn-brace: #a0a6b6;
+  --syn-string: #f0a050;
+  --pdf-desk: #252a35;
+  --pdf-paper: #ffffff;
+  --scrim: rgb(0 0 0 / 0.55);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 2px 6px rgb(0 0 0 / 0.35), 0 16px 40px rgb(0 0 0 / 0.45);
+}

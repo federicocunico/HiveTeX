@@ -1,7 +1,7 @@
 # Importing existing projects
 
 You can bring existing LaTeX sources into HiveTeX when you **create a project** (the *Start from existing sources*
-fields) or, if you are an owner or editor, **inside an open project** with **Import…** in the toolbar. Uploading or
+fields) or, if you are an owner or editor, **inside an open project** with **Import…** in the Files panel (or *Import…* in the command palette, Ctrl+K). Uploading or
 dropping files and folders on the file tree goes through the same steps.
 
 Everything happens **on your device**. Archives and files are read in the browser (or desktop app) and reach your

@@ -32,9 +32,11 @@ export async function localDeps(opts: LocalOptions = {}): Promise<Deps & { mailb
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)) });
   const { publicKey, privateKey } = await generateKeyPair('EdDSA', { extractable: true });
+  // APP_ORIGIN lets a second checkout run its dev page (and e2e) on another port alongside the default one.
+  const appOrigin = opts.appOrigin ?? process.env.APP_ORIGIN ?? 'http://localhost:1420';
   const config: Config = {
-    appOrigin: opts.appOrigin ?? 'http://localhost:1420',
-    extraOrigins: ['tauri://localhost', 'http://tauri.localhost', 'http://localhost:1420'],
+    appOrigin,
+    extraOrigins: ['tauri://localhost', 'http://tauri.localhost', 'http://localhost:1420', appOrigin],
     cookieSecure: false,
     ticketPrivateJwk: JSON.stringify(await exportJWK(privateKey)),
     ticketKid: 'dev',

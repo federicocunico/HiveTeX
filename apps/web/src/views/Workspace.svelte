@@ -1,62 +1,153 @@
 <script lang="ts">
   import { type PdfPosition, forwardSearch, parseSyncTeXGz, reverseSearch } from '@hivetex/compile';
-  import type { FileEntry, HistorySnapshot } from '@hivetex/sync';
-  import { onDestroy, onMount } from 'svelte';
+  import type { FileEntry } from '@hivetex/sync';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import ChangesPanel from '../components/ChangesPanel.svelte';
+  import Editor from '../components/Editor.svelte';
   import FileTree from '../components/FileTree.svelte';
   import ImportDialog, { type ImportRequest } from '../components/ImportDialog.svelte';
-  import ProjectSettings from '../components/ProjectSettings.svelte';
-  import Editor from '../components/Editor.svelte';
   import PdfView from '../components/PdfView.svelte';
+  import ProjectSettings from '../components/ProjectSettings.svelte';
+  import ShareDialog from '../components/ShareDialog.svelte';
+  import BackupPanel from '../components/workspace/BackupPanel.svelte';
+  import HistoryPanel from '../components/workspace/HistoryPanel.svelte';
+  import OutlinePanel from '../components/workspace/OutlinePanel.svelte';
+  import PeoplePanel from '../components/workspace/PeoplePanel.svelte';
+  import FormatToolbar, { type FormatAction } from '../components/workspace/FormatToolbar.svelte';
+  import PickerDialog from '../components/workspace/PickerDialog.svelte';
+  import ProblemsPanel from '../components/workspace/ProblemsPanel.svelte';
+  import SymbolPalette from '../components/workspace/SymbolPalette.svelte';
+  import TableDialog from '../components/workspace/TableDialog.svelte';
+  import Tour from '../components/workspace/Tour.svelte';
+  import { tourWanted } from '../lib/tour.js';
+  import SearchPanel from '../components/workspace/SearchPanel.svelte';
+  import StatusBar from '../components/workspace/StatusBar.svelte';
   import { ApiError, api, isDesktop } from '../lib/api.js';
-  import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
-  import { COMPILE_MODES, type CompileMode } from '../lib/compile-mode.js';
   import { auth } from '../lib/auth.svelte.js';
-  import { type ProjectIndex, buildIndex, emptyIndex } from '../lib/latex.js';
-  import { go } from '../lib/router.svelte.js';
-  import { type Match, replaceProject, searchProject } from '../lib/search.js';
-  import { ProjectSession, type ProjectInfo } from '../lib/session.svelte.js';
+  import { registerCommands, registerSource, setGotoLine } from '../lib/commands.svelte.js';
+  import { openPalette, openShortcuts } from '../lib/palette.svelte.js';
+  import { takeFreshFolderProject } from '../lib/folders.js';
+  import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
   import { type LooseItem, isArchiveName, readLoose } from '../lib/import/sources.js';
   import { exportZip } from '../lib/import/zip.js';
-  import { takePendingImport } from './Projects.svelte';
-  import { takeFreshFolderProject } from '../lib/folders.js';
+  import { type ProjectIndex, buildIndex, emptyIndex } from '../lib/latex.js';
+  import { type Panel, SIDE_MAX, SIDE_MIN, SPLIT_MAX, SPLIT_MIN, layout, resetLayout, setLayout, togglePanel } from '../lib/layout.svelte.js';
+  import { go } from '../lib/router.svelte.js';
+  import { type ProjectInfo, ProjectSession } from '../lib/session.svelte.js';
+  import { applyTemplate } from '../lib/templates.js';
+  import { type OutlineEntry, buildOutline, currentHeading } from '../lib/outline.js';
+  import { helpFor, preambleInsertLine } from '../lib/compile-help.js';
+  import * as tex from '../lib/latex-insert.js';
+  import { prefs, setPref } from '../lib/preferences.svelte.js';
+  import {
+    ArrowLeft,
+    Bold,
+    Eye,
+    Image,
+    Italic,
+    Link,
+    List,
+    ListOrdered,
+    Omega,
+    Quote,
+    Sigma,
+    SquareSigma,
+    Table,
+    Changes,
+    ChevronDown,
+    CloudUpload,
+    Download,
+    Ellipsis,
+    FileImage,
+    FilePlus,
+    Files,
+    FileText,
+    FolderOpen,
+    FolderPlus,
+    Help,
+    History,
+    Keyboard,
+    ListTree,
+    Maximize,
+    Minimize,
+    PanelLeft,
+    PanelRight,
+    Pencil,
+    Play,
+    Search,
+    Settings,
+    Share,
+    Users,
+  } from '../ui/icons.js';
+  import AvatarStack from '../ui/AvatarStack.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import IconButton from '../ui/IconButton.svelte';
+  import Menu, { type MenuItem } from '../ui/Menu.svelte';
+  import Splitter from '../ui/Splitter.svelte';
+  import { toast } from '../ui/toast.svelte.js';
+  import { takePendingImport, takePendingTemplate } from './Projects.svelte';
 
   let { projectId }: { projectId: string } = $props();
 
   let session = $state<ProjectSession | null>(null);
   let error = $state('');
   let activeId = $state<string | null>(null);
-  let index: ProjectIndex = emptyIndex();
+  let index = $state.raw<ProjectIndex>(emptyIndex());
+  let outline = $state.raw<OutlineEntry[]>([]);
+  /** Text of every text file, refreshed with the index (for outline and compile help). */
+  let texts = $state.raw(new Map<string, string>());
   let showSettings = $state(false);
-  let showHistory = $state(false);
-  let showChanges = $state(false);
-  let showSearch = $state(false);
-  let showPdf = $state(false);
-  let snapshots = $state<HistorySnapshot[]>([]);
+  let showShare = $state(false);
+  let showTour = $state(false);
   let jump = $state<{ line: number; n: number } | null>(null);
   let highlight = $state<PdfPosition | null>(null);
-  let toast = $state('');
   let indexTimer: ReturnType<typeof setTimeout> | null = null;
-  let query = $state('');
-  let replacement = $state('');
-  let matches = $state<Match[]>([]);
-  let searchOpts = $state({ caseSensitive: false, regex: false, wholeWord: false });
   let compileError = $state('');
   let importRequest = $state<ImportRequest | null>(null);
+  let cursor = $state<{ line: number; col: number } | null>(null);
+  let keymapMode = $state('');
+
+  /** Under 1100 px the workspace shows the editor or the PDF, and the side panel floats over the editor. */
+  let narrow = $state(false);
+  let narrowView = $state<'editor' | 'pdf'>('editor');
+  /** Narrow screens: the side panel floats over the editor only until a file or line is picked. */
+  let overlayOpen = $state(false);
+  const sideVisible = $derived(!!layout.panel && (!narrow || overlayOpen));
+
+  function railClick(p: Panel) {
+    if (narrow) {
+      if (overlayOpen && layout.panel === p) overlayOpen = false;
+      else {
+        setLayout({ panel: p });
+        overlayOpen = true;
+      }
+    } else togglePanel(p);
+  }
+  let mainWidth = $state(800);
+
+  /** Change sets from co-authors and the folder that arrived while the Changes panel was closed. */
+  let seenChanges = $state(0);
+  const foreignChanges = $derived(session ? session.changes.filter((c) => c.source.kind === 'peer' || c.source.kind === 'folder').length : 0);
+  const unseen = $derived(layout.panel === 'changes' ? 0 : Math.max(0, foreignChanges - seenChanges));
+  $effect(() => {
+    if (layout.panel === 'changes') seenChanges = foreignChanges;
+  });
 
   const mainPath = $derived(session ? String(session.model.settings.get('main') ?? 'main.tex') : 'main.tex');
   const active = $derived(session?.files.find((f) => f.id === activeId) ?? null);
-  const diagnostics = $derived(
-    (session?.result?.diagnostics ?? []).filter((d) => !active || d.file === active.path || d.file === '' ),
-  );
+  const diagnostics = $derived((session?.result?.diagnostics ?? []).filter((d) => !active || d.file === active.path || d.file === ''));
   let settingsTick = $state(0);
 
-  function say(msg: string) {
-    toast = msg;
-    setTimeout(() => {
-      if (toast === msg) toast = '';
-    }, 3500);
-  }
+  const showEditor = $derived(!narrow || narrowView === 'editor');
+  const showPdf = $derived(narrow ? narrowView === 'pdf' : layout.pdf);
+
+  onMount(() => {
+    const mq = window.matchMedia('(max-width: 1099px)');
+    const update = () => (narrow = mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  });
 
   onMount(async () => {
     try {
@@ -78,7 +169,8 @@
       const s = new ProjectSession(info, auth.user);
       await s.open();
       session = s;
-      if (localStorage.getItem('hivetex.test') === '1') (window as unknown as { __p2p: unknown }).__p2p = {
+      if (localStorage.getItem('hivetex.test') === '1')
+        (window as unknown as { __p2p: unknown }).__p2p = {
           session: s,
           compile: { parseSyncTeXGz, forwardSearch, reverseSearch },
           // e2e: simulate an external tool editing the bound folder (same origin the folder mirror uses)
@@ -93,11 +185,15 @@
       scheduleIndex();
       const pending = takePendingImport();
       if (pending && s.canWrite) importRequest = pending;
+      const tpl = takePendingTemplate();
+      if (tpl && s.canWrite && s.files.length === 0) await applyTemplate(s.model, tpl.files, tpl.main);
       // Created from a folder: its files were imported when the folder was bound; pick main and engine from them.
       if (takeFreshFolderProject(s.project.id) && s.canWrite) {
         const main = await s.detectMainAndEngine().catch(() => null);
-        if (main) say(`Main document: ${main}`);
+        if (main) toast(`Main document: ${main}`, 'info');
       }
+      seenChanges = foreignChanges;
+      if (tourWanted()) setTimeout(() => (showTour = true), 400);
       const first = s.model.find(String(s.model.settings.get('main') ?? 'main.tex')) ?? s.files.find((f) => f.kind === 'text');
       if (first) activeId = first.id;
     } catch (e) {
@@ -110,7 +206,7 @@
     void session?.close();
   });
 
-  function scheduleIndex() {
+  function scheduleIndex(delay = 400) {
     if (indexTimer) clearTimeout(indexTimer);
     indexTimer = setTimeout(async () => {
       if (!session) return;
@@ -123,7 +219,10 @@
         });
       }
       index = buildIndex(files);
-    }, 400);
+      const t = new Map(files.filter((f) => 'text' in f).map((f) => [f.path, (f as { text: string }).text]));
+      texts = t;
+      outline = buildOutline(String(session.model.settings.get('main') ?? 'main.tex'), (p) => t.get(p), [...t.keys()].filter((p) => p.endsWith('.tex')));
+    }, delay);
   }
 
   /**
@@ -148,9 +247,9 @@
         return;
       }
       const r = await session.applyImport(plan, { mode: 'merge', resolutions: new Map(), defaultResolution: 'keep' });
-      say(`Added ${r.added} file${r.added === 1 ? '' : 's'}`);
+      toast(`Added ${r.added} file${r.added === 1 ? '' : 's'}`);
     } catch (e) {
-      say(e instanceof Error ? e.message : 'Upload failed');
+      toast(e instanceof Error ? e.message : 'Upload failed', 'error');
     }
   }
 
@@ -166,7 +265,7 @@
 
   async function onCreate(path: string, kind: 'file' | 'folder') {
     if (!session) return;
-    if (session.model.find(path)) return say(`"${path}" already exists`);
+    if (session.model.find(path)) return void toast(`"${path}" already exists`, 'error');
     try {
       if (kind === 'folder') session.model.createDir(path);
       else {
@@ -174,7 +273,7 @@
         activeId = await session.model.createTextNow(path, starter);
       }
     } catch (e) {
-      say(e instanceof Error ? e.message : 'Could not create the file');
+      toast(e instanceof Error ? e.message : 'Could not create the file', 'error');
     }
   }
 
@@ -231,10 +330,10 @@
   }
 
   function openFile(f: FileEntry) {
-    if (f.kind === 'text') activeId = f.id;
-    else if (f.kind === 'binary') {
-      activeId = f.id;
-    }
+    stopFollowing();
+    overlayOpen = false;
+    if (f.kind === 'text' || f.kind === 'binary') activeId = f.id;
+    if (narrow) narrowView = 'editor';
   }
 
   function setMain(f: FileEntry) {
@@ -243,68 +342,37 @@
   }
 
   function forward(line: number) {
-    if (!session?.syncIndex || !active) return say('SyncTeX data is not available for this PDF');
+    if (!session?.syncIndex || !active) return void toast('SyncTeX data is not available for this PDF', 'info');
     const pos = forwardSearch(session.syncIndex, active.path, line);
-    if (pos) highlight = { ...pos };
-    else say('No matching position in the PDF');
+    if (pos) {
+      highlight = { ...pos };
+      if (narrow) narrowView = 'pdf';
+      else if (!layout.pdf) setLayout({ pdf: true });
+    } else toast('No matching position in the PDF', 'info');
   }
 
   function reverse(file: string, line: number) {
+    overlayOpen = false;
     const f = session?.files.find((x) => x.path === file || x.path.endsWith(`/${file}`) || file.endsWith(`/${x.path}`));
     if (!f) return;
     activeId = f.id;
     jump = { line, n: (jump?.n ?? 0) + 1 };
+    if (narrow) narrowView = 'editor';
   }
 
-  function showDiag(file: string, line: number) {
-    reverse(file, line);
-  }
-
-  async function runSearch() {
-    if (!session || !query) {
-      matches = [];
-      return;
-    }
-    await session.mesh.prefetchAll();
-    matches = await searchProject(session.model, query, searchOpts);
-  }
-
-  async function runReplace() {
-    if (!session || !query) return;
-    const n = await replaceProject(session.model, query, replacement, searchOpts);
-    say(`Replaced ${n} occurrence${n === 1 ? '' : 's'}`);
-    await runSearch();
-  }
-
-  async function openHistory() {
-    if (!session) return;
-    await session.model.captureSnapshot();
-    snapshots = (await session.store.listSnapshots()).slice().reverse();
-    showHistory = true;
-  }
-
-  async function restore(id: string) {
-    if (!session) return;
-    await session.model.restore(id);
-    showHistory = false;
-    say('Restored. The state before the restore was saved too, so you can undo it from History.');
-  }
-
-  async function copyId() {
-    if (!session) return;
-    try {
-      await navigator.clipboard.writeText(session.project.slug);
-      say('Project ID copied');
-    } catch {
-      say(`Project ID: ${session.project.slug}`);
-    }
+  function gotoLine(fileId: string, line: number) {
+    overlayOpen = false;
+    activeId = fileId;
+    jump = { line, n: (jump?.n ?? 0) + 1 };
+    if (narrow) narrowView = 'editor';
   }
 
   async function loadFromGithub() {
     if (!session?.project.githubRepo) return;
     try {
       const n = await session.importFromGithub(session.project.githubRepo);
-      say(`Loaded ${n} files from GitHub`);
+      toast(`Loaded ${n} files from GitHub`);
+      openPanel('files');
       const first = session.model.find(String(session.model.settings.get('main') ?? 'main.tex')) ?? session.files.find((f) => f.kind === 'text');
       if (first) activeId = first.id;
     } catch (e) {
@@ -330,9 +398,9 @@
         if (!handle) return;
         await session.bindFolder({ handle });
       }
-      say(`Project files are now in the folder "${session.mirrorDir}"`);
+      toast(`Project files are now in the folder "${session.mirrorDir}"`);
     } catch (e) {
-      say(`Could not use that folder: ${e instanceof Error ? e.message : String(e)}`);
+      toast(`Could not use that folder: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   }
 
@@ -340,14 +408,14 @@
     showLocation = false;
     const label = session?.mirrorDir;
     await session?.unbindFolder();
-    if (label) say(`Stopped using "${label}". The files there were left as they are.`);
+    if (label) toast(`Stopped using "${label}". The files there were left as they are.`);
   }
 
   async function allowFolder() {
     try {
-      if (!(await session?.allowFolderAccess())) say('Access to the folder was not granted');
+      if (!(await session?.allowFolderAccess())) toast('Access to the folder was not granted', 'error');
     } catch (e) {
-      say(`Could not re-open the folder: ${e instanceof Error ? e.message : String(e)}`);
+      toast(`Could not re-open the folder: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   }
 
@@ -361,186 +429,532 @@
     const f = active;
     imageUrl = '';
     if (f?.kind === 'binary' && f.hash && isImage(f.path) && session) {
-      session.blobs.fetch(f.hash, 15_000).then((b) => {
-        if (active?.id === f.id) imageUrl = URL.createObjectURL(new Blob([b as unknown as BlobPart]));
-      }).catch(() => {});
+      session.blobs
+        .fetch(f.hash, 15_000)
+        .then((b) => {
+          if (active?.id === f.id) imageUrl = URL.createObjectURL(new Blob([b as unknown as BlobPart]));
+        })
+        .catch(() => {});
     }
+  });
+
+  // ---- layout ----
+
+  const RAIL: Array<{ id: Panel; label: string; icon: typeof Files; testid?: string }> = [
+    { id: 'files', label: 'Files', icon: Files, testid: 'rail-files' },
+    { id: 'outline', label: 'Outline', icon: ListTree, testid: 'rail-outline' },
+    { id: 'search', label: 'Search', icon: Search, testid: 'rail-search' },
+    { id: 'changes', label: 'Changes', icon: Changes, testid: 'changes-btn' },
+    { id: 'history', label: 'History', icon: History, testid: 'rail-history' },
+    { id: 'people', label: 'People', icon: Users, testid: 'rail-people' },
+    { id: 'backup', label: 'GitHub backup', icon: CloudUpload, testid: 'backup-btn' },
+  ];
+
+  function openPanel(p: Panel) {
+    setLayout({ panel: p });
+    overlayOpen = true;
+  }
+
+  function resizeSide(d: number) {
+    setLayout({ sideWidth: Math.max(SIDE_MIN, Math.min(SIDE_MAX, layout.sideWidth + d)) });
+  }
+
+  function resizeSplit(d: number) {
+    const w = Math.max(200, mainWidth);
+    setLayout({ split: Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, layout.split + d / w)) });
+  }
+
+  function togglePdf() {
+    if (narrow) narrowView = narrowView === 'pdf' ? 'editor' : 'pdf';
+    else setLayout({ pdf: !layout.pdf });
+  }
+
+  function toggleFocus() {
+    setLayout({ focus: !layout.focus });
+  }
+
+  // A new compile result: refresh the texts at once, so its problems are explained against the current source.
+  $effect(() => {
+    if (session?.result) untrack(() => scheduleIndex(0));
+  });
+
+  // ---- presence and follow ----
+
+  // Tell co-authors which file this user has open.
+  $effect(() => {
+    session?.setOpenFile(active?.path ?? null);
+  });
+
+  /** path → co-authors with that file open (for file-tree dots). */
+  const presenceByFile = $derived.by(() => {
+    const out: Record<string, Array<{ name: string; color: string }>> = {};
+    for (const p of session?.presence ?? []) if (p.file) (out[p.file] ??= []).push({ name: p.name, color: p.color });
+    return out;
+  });
+  const hereWithMe = $derived(active ? (presenceByFile[active.path] ?? []) : []);
+
+  /** The co-author being followed (username), if any. */
+  let following = $state<string | null>(null);
+
+  function follow(name: string) {
+    following = following === name ? null : name;
+    if (following) toast(`Following ${name}. Type, scroll or pick a file to stop.`, 'info');
+  }
+
+  function stopFollowing() {
+    following = null;
+  }
+
+  // While following: open their file and keep their cursor in view; stop when they leave.
+  $effect(() => {
+    const name = following;
+    if (!name || !session) return;
+    const person = session.presence.find((p) => p.name === name);
+    if (!person) {
+      following = null;
+      toast(`${name} went offline. Stopped following.`, 'info');
+      return;
+    }
+    if (person.file && person.file !== active?.path) {
+      const f = session.model.find(person.file);
+      if (f && (f.kind === 'text' || f.kind === 'binary')) activeId = f.id;
+      return;
+    }
+    const id = person.clientId;
+    queueMicrotask(() => editorRef?.revealClient(id));
+  });
+
+  // ---- authoring aids ----
+
+  let editorRef = $state<ReturnType<typeof Editor>>();
+  let picker = $state<null | 'figure' | 'table' | 'cite' | 'ref' | 'symbol'>(null);
+  const isTex = $derived(active?.kind === 'text' && /\.(tex|ltx|sty|cls)$/i.test(active.path));
+  const canFormat = $derived(!!session?.canWrite && active?.kind === 'text');
+  const showToolbar = $derived(prefs.toolbar && canFormat && isTex);
+
+  /** Applies an insertion once the dialog that asked for it has closed and given focus back. */
+  function insertSoon(build: (selected: string, ctx: { inMath: boolean }) => tex.Insertion) {
+    picker = null;
+    setTimeout(() => editorRef?.insertWith(build), 0);
+  }
+
+  function format(a: FormatAction) {
+    if (!editorRef) return;
+    switch (a.kind) {
+      case 'section':
+        editorRef.insertWith((sel) => tex.section(a.level, sel));
+        break;
+      case 'bold':
+        editorRef.insertWith(tex.bold);
+        break;
+      case 'italic':
+        editorRef.insertWith(tex.italic);
+        break;
+      case 'itemize':
+      case 'enumerate':
+        editorRef.insertWith((sel) => tex.list(a.kind as 'itemize' | 'enumerate', sel));
+        break;
+      case 'math':
+        editorRef.insertWith(tex.inlineMath);
+        break;
+      case 'equation':
+        editorRef.insertWith(tex.displayMath);
+        break;
+      case 'hide':
+        setPref('toolbar', false);
+        toast('Formatting toolbar hidden. Its actions stay in the command palette (Ctrl+K).', 'info');
+        break;
+      default:
+        picker = a.kind;
+    }
+  }
+
+  const currentOutline = $derived(active && cursor ? currentHeading(outline, active.path, cursor.line) : null);
+
+  /** Adds \usepackage{pkg} to the main document's preamble, as an ordinary edit by this user (undoable). */
+  async function addPackage(pkg: string) {
+    if (!session?.canWrite) return;
+    const main = session.model.find(mainPath);
+    if (!main || main.kind !== 'text') return void toast(`The main document ${mainPath} is missing`, 'error');
+    const line = `\\usepackage{${pkg}}`;
+    if (active?.id === main.id && editorRef) {
+      editorRef.insertLineBefore(preambleInsertLine(editorRef.text()), line);
+    } else {
+      const ytext = await session.model.openText(main.id);
+      const text = ytext.toString();
+      const at = text.split('\n').slice(0, preambleInsertLine(text) - 1).join('\n').length;
+      ytext.insert(at === 0 ? 0 : at + 1, `${line}\n`);
+    }
+    toast(`Added ${line} to ${mainPath}`);
+  }
+
+  const imageFiles = $derived((session?.files ?? []).filter((f) => f.kind === 'binary' && /\.(png|jpe?g|pdf|eps)$/i.test(f.path)));
+
+  // ---- commands (palette, shortcuts, menus) ----
+
+  let tree = $state<ReturnType<typeof FileTree>>();
+  let lastPanel: Panel = layout.panel ?? 'files';
+  $effect(() => {
+    if (layout.panel) lastPanel = layout.panel;
+  });
+
+  async function withFiles(fn: () => void) {
+    openPanel('files');
+    await tick();
+    fn();
+  }
+
+  onMount(() => {
+    const has = () => !!session;
+    const writable = () => !!session?.canWrite;
+    const off = registerCommands([
+      { id: 'compile', title: 'Compile now', group: 'Compile', keys: ['Mod+Enter', 'Mod+S'], icon: Play, aliases: ['recompile', 'build', 'save'], when: has, run: () => void compileNow() },
+      { id: 'compile-local', title: 'Compile on this device only', group: 'Compile', keys: ['Mod+Shift+Enter'], icon: Play, when: () => !!session?.engine, run: () => void compileLocal() },
+      { id: 'synctex-forward', title: 'Show this line in the PDF', group: 'Navigate', keys: ['Mod+Alt+J'], editor: true, aliases: ['synctex', 'forward search'], when: () => active?.kind === 'text', run: () => forward(cursor?.line ?? 1) },
+      { id: 'goto-line', title: 'Go to line…', group: 'Navigate', aliases: ['line number'], when: () => active?.kind === 'text', run: () => openPalette(':') },
+      { id: 'goto-heading', title: 'Go to heading…', group: 'Navigate', aliases: ['outline', 'section'], when: has, run: () => openPalette('@') },
+      { id: 'toggle-side', title: 'Show or hide the side panel', group: 'View', keys: ['Mod+Shift+E'], icon: PanelLeft, when: has, run: () => setLayout({ panel: layout.panel ? null : lastPanel }) },
+      { id: 'toggle-pdf', title: 'Show or hide the PDF', group: 'View', keys: ['Mod+Alt+P'], icon: PanelRight, when: has, run: togglePdf },
+      { id: 'focus', title: 'Focus mode', group: 'View', keys: ['Mod+Shift+F'], icon: Maximize, aliases: ['zen', 'distraction free'], when: has, run: toggleFocus },
+      { id: 'tour', title: 'Take the tour', group: 'Help', icon: Help, aliases: ['help', 'guide', 'introduction', 'onboarding'], when: has, run: () => (showTour = true) },
+      { id: 'reset-layout', title: 'Reset layout', group: 'View', aliases: ['panels', 'default layout'], when: has, run: resetLayout },
+      { id: 'search', title: 'Search in project', group: 'Navigate', keys: ['Mod+Shift+H'], icon: Search, aliases: ['find', 'replace'], when: has, run: () => openPanel('search') },
+      { id: 'panel-files', title: 'Show files', group: 'Navigate', icon: Files, when: has, run: () => openPanel('files') },
+      { id: 'panel-outline', title: 'Show outline', group: 'Navigate', icon: ListTree, aliases: ['sections', 'headings', 'table of contents'], when: has, run: () => openPanel('outline') },
+      { id: 'panel-changes', title: 'Show changes', group: 'Navigate', icon: Changes, aliases: ['undo', 'diff'], when: has, run: () => openPanel('changes') },
+      { id: 'panel-history', title: 'Show history', group: 'Navigate', icon: History, aliases: ['snapshots', 'restore'], when: has, run: () => openPanel('history') },
+      { id: 'panel-people', title: 'Show people', group: 'Navigate', icon: Users, aliases: ['collaborators', 'co-authors', 'online'], when: has, run: () => openPanel('people') },
+      { id: 'panel-backup', title: 'GitHub backup', group: 'Project', icon: CloudUpload, aliases: ['github', 'git', 'backup now'], when: has, run: () => openPanel('backup') },
+      { id: 'new-file', title: 'New file', group: 'Files', icon: FilePlus, aliases: ['create file', 'add file'], when: writable, run: () => void withFiles(() => tree?.startAdd('file')) },
+      { id: 'new-folder', title: 'New folder', group: 'Files', icon: FolderPlus, when: writable, run: () => void withFiles(() => tree?.startAdd('folder')) },
+      { id: 'rename-file', title: 'Rename or move this file', group: 'Files', icon: Pencil, aliases: ['move'], when: () => writable() && !!active, run: () => void withFiles(() => active && tree?.startRename(active.path)) },
+      { id: 'import', title: 'Import…', group: 'Files', icon: FolderOpen, aliases: ['upload', 'overleaf', 'zip', 'arxiv'], when: writable, run: () => (importRequest = { kind: 'pick' }) },
+      { id: 'download-zip', title: 'Download project (.zip)', group: 'Files', icon: Download, aliases: ['export'], when: has, run: () => void downloadZip() },
+      { id: 'download-pdf', title: 'Download PDF', group: 'Files', icon: Download, when: () => !!session?.pdf, run: () => void downloadPdf() },
+      { id: 'share', title: 'Share project', group: 'Project', icon: Share, aliases: ['share id', 'invite', 'copy id', 'project id'], when: has, run: () => (showShare = true) },
+      { id: 'insert-bold', title: 'Bold', group: 'Insert', keys: ['Mod+B'], editor: true, icon: Bold, aliases: ['textbf', 'strong'], when: () => canFormat && isTex, run: () => format({ kind: 'bold' }) },
+      { id: 'insert-italic', title: 'Italic', group: 'Insert', keys: ['Mod+I'], editor: true, icon: Italic, aliases: ['textit', 'emphasis'], when: () => canFormat && isTex, run: () => format({ kind: 'italic' }) },
+      { id: 'insert-section', title: 'Insert section heading', group: 'Insert', aliases: ['section', 'heading', 'chapter'], when: () => canFormat, run: () => format({ kind: 'section', level: 'section' }) },
+      { id: 'insert-subsection', title: 'Insert subsection heading', group: 'Insert', aliases: ['subsection', 'heading'], when: () => canFormat, run: () => format({ kind: 'section', level: 'subsection' }) },
+      { id: 'insert-itemize', title: 'Insert bulleted list', group: 'Insert', icon: List, aliases: ['itemize', 'bullets'], when: () => canFormat, run: () => format({ kind: 'itemize' }) },
+      { id: 'insert-enumerate', title: 'Insert numbered list', group: 'Insert', icon: ListOrdered, aliases: ['enumerate'], when: () => canFormat, run: () => format({ kind: 'enumerate' }) },
+      { id: 'insert-math', title: 'Insert inline math', group: 'Insert', icon: Sigma, aliases: ['math', 'formula', '$'], when: () => canFormat, run: () => format({ kind: 'math' }) },
+      { id: 'insert-equation', title: 'Insert equation', group: 'Insert', icon: SquareSigma, aliases: ['display math', 'formula'], when: () => canFormat, run: () => format({ kind: 'equation' }) },
+      { id: 'insert-symbol', title: 'Insert symbol…', group: 'Insert', icon: Omega, aliases: ['greek', 'alpha', 'arrow', 'symbol'], when: () => canFormat, run: () => (picker = 'symbol') },
+      { id: 'insert-figure', title: 'Insert figure…', group: 'Insert', icon: Image, aliases: ['image', 'includegraphics', 'picture'], when: () => canFormat, run: () => (picker = 'figure') },
+      { id: 'insert-table', title: 'Insert table…', group: 'Insert', icon: Table, aliases: ['tabular'], when: () => canFormat, run: () => (picker = 'table') },
+      { id: 'insert-cite', title: 'Insert citation…', group: 'Insert', icon: Quote, aliases: ['cite', 'bibliography', 'reference'], when: () => canFormat, run: () => (picker = 'cite') },
+      { id: 'insert-ref', title: 'Insert cross-reference…', group: 'Insert', icon: Link, aliases: ['ref', 'label'], when: () => canFormat, run: () => (picker = 'ref') },
+      { id: 'toggle-toolbar', title: 'Show or hide the formatting toolbar', group: 'View', icon: Eye, aliases: ['toolbar'], when: has, run: () => setPref('toolbar', !prefs.toolbar) },
+      { id: 'settings', title: 'Project settings', group: 'Project', icon: Settings, aliases: ['settings', 'members', 'roles', 'password', 'main file', 'engine'], when: has, run: () => (showSettings = true) },
+    ]);
+    const offFiles = registerSource({
+      id: 'files',
+      label: 'Files',
+      items: () =>
+        (session?.files ?? [])
+          .filter((f) => f.kind !== 'dir')
+          .map((f) => ({ id: `file:${f.id}`, title: f.path.split('/').pop() ?? f.path, detail: f.path, icon: f.kind === 'binary' ? FileImage : FileText, run: () => openFile(f) })),
+    });
+    const offOutline = registerSource({
+      id: 'outline',
+      label: 'Headings',
+      items: () =>
+        outline.map((e, i) => ({
+          id: `h:${i}`,
+          title: `${e.number} ${e.title}`.trim(),
+          detail: `${e.file}:${e.line}`,
+          icon: ListTree,
+          inOpenFile: e.file === active?.path,
+          run: () => reverse(e.file, e.line),
+        })),
+    });
+    setGotoLine((n) => {
+      if (active?.kind !== 'text') return void toast('Open a file first', 'info');
+      jump = { line: n, n: (jump?.n ?? 0) + 1 };
+    });
+    return () => {
+      off();
+      offFiles();
+      offOutline();
+      setGotoLine(null);
+    };
+  });
+
+  const moreItems = $derived.by((): MenuItem[] => {
+    const s = session;
+    if (!s) return [];
+    return [
+      ...(s.canWrite ? [{ label: 'Import…', icon: FolderOpen, onSelect: () => (importRequest = { kind: 'pick' }), testid: 'more-import' } as MenuItem] : []),
+      { label: 'Download project (.zip)', icon: Download, onSelect: () => void downloadZip() },
+      { label: 'Download PDF', icon: Download, onSelect: () => void downloadPdf(), disabled: !s.pdf },
+      'separator',
+      { label: 'History', icon: History, onSelect: () => openPanel('history') },
+      { label: layout.focus ? 'Leave focus mode' : 'Focus mode', icon: Maximize, hint: 'Mod+Shift+F', onSelect: toggleFocus },
+      { label: 'Reset layout', icon: PanelRight, onSelect: resetLayout },
+      'separator',
+      { label: 'Take the tour', icon: Help, onSelect: () => (showTour = true), testid: 'take-tour' },
+      { label: 'Keyboard shortcuts', icon: Keyboard, hint: 'Mod+Shift+/', onSelect: openShortcuts },
+      'separator',
+      { label: s.role === 'owner' ? 'Project settings' : 'Settings', icon: Settings, onSelect: () => (showSettings = true) },
+    ];
+  });
+
+  const compileItems = $derived.by((): MenuItem[] => {
+    const s = session;
+    if (!s) return [];
+    return [
+      { label: 'Compile now', icon: Play, hint: 'Mod+Enter', onSelect: () => void compileNow() },
+      ...(s.engine ? [{ label: 'Compile on this device only', icon: Play, hint: 'Mod+Shift+Enter', onSelect: () => void compileLocal(), testid: 'compile-local' } as MenuItem] : []),
+      { label: 'Download PDF', icon: Download, onSelect: () => void downloadPdf(), disabled: !s.pdf },
+    ];
   });
 </script>
 
 {#if error}
-  <div class="page"><div class="error" role="alert">{error}</div><a href="#/">← Back to projects</a></div>
+  <div class="ws-message"><div class="error" role="alert">{error}</div><a href="#/">← Back to projects</a></div>
 {:else if !session}
-  <div class="page"><p class="muted">Opening project…</p></div>
+  <div class="ws-message"><p class="muted">Opening project…</p></div>
 {:else}
   {@const s = session}
-  <div class="workspace" class:show-pdf={showPdf} data-testid="workspace">
-    <div class="toolbar">
-      <a href="#/" aria-label="All projects">←</a>
-      <strong data-testid="project-slug">{s.project.slug}</strong>
-      <span class={`pill ${s.role}`} data-testid="role-pill">{s.role}</span>
-      <button class="small" onclick={copyId} title="Copy the project ID to share it">Share ID</button>
-      <span class="spacer"></span>
-      <button class="primary small" onclick={compileNow} data-testid="compile-btn" disabled={s.compileStatus === 'compiling'}>
-        {s.compileStatus === 'compiling' ? 'Compiling…' : 'Recompile'}
-      </button>
-      {#if s.engine}<button class="small" onclick={compileLocal} title="Compile on this device only; does not share the result">Compile here</button>{/if}
-      {#if canUseFolders}
-        <span class="location">
-          {#if s.folderPending}
-            <button class="small primary" onclick={allowFolder} data-testid="allow-folder" title={`Let the app read and write "${s.location.kind === 'folder' ? s.location.label : ''}" again`}>Allow access to “{s.location.kind === 'folder' ? s.location.label : ''}”</button>
-          {/if}
-          <button class="small" onclick={() => (showLocation = !showLocation)} aria-expanded={showLocation} aria-haspopup="menu" data-testid="location-btn" title="Where this project's files live on this device">
-            {s.mirrorDir ? `📁 ${s.mirrorDir}` : 'In the app'} ▾
-          </button>
-          {#if showLocation}
-            <div class="location-menu" role="menu" data-testid="location-menu">
-              {#if s.mirrorDir}
-                <p class="muted">Files are in the folder <strong>{s.mirrorDir}</strong>. Edit them with any tool (Claude Code, Codex, an editor): changes sync with everyone.</p>
-                {#if isDesktop}<button role="menuitem" class="small" onclick={() => { showLocation = false; void s.revealFolder(); }}>Show in file manager</button>{/if}
-                <button role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use another folder…</button>
-                <button role="menuitem" class="small" onclick={unlinkFolder} data-testid="unlink-folder">Stop using the folder</button>
-              {:else}
-                <p class="muted">Files are stored in the app on this device. Put them in a folder to edit them with Claude Code, Codex or any editor.</p>
-                <button role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use a folder…</button>
-              {/if}
-            </div>
-          {/if}
-        </span>
-      {/if}
-      <button class="small" onclick={() => (showSearch = !showSearch)} aria-pressed={showSearch}>Search</button>
-      <button class="small" onclick={() => (showChanges = true)} data-testid="changes-btn" title="What changed, who changed it, and undo">Changes{s.changes.length ? ` (${Math.min(s.changes.length, 99)})` : ''}</button>
-      <button class="small" onclick={openHistory}>History</button>
-      {#if s.canWrite}<button class="small" onclick={() => (importRequest = { kind: 'pick' })} data-testid="import-btn" title="Import an Overleaf/GitHub zip, an arXiv tarball, a folder or files">Import…</button>{/if}
-      <button class="small" onclick={downloadZip}>Download .zip</button>
-      <button class="small" onclick={downloadPdf} disabled={!s.pdf}>PDF</button>
-      <button class="small" onclick={() => (showSettings = true)} data-testid="settings-btn">{s.role === 'owner' ? 'Project settings' : 'Settings'}</button>
-      <button class="small show-narrow" onclick={() => (showPdf = !showPdf)}>{showPdf ? 'Editor' : 'PDF'}</button>
-    </div>
-
-    <div class="pane" style="display: grid; grid-template-rows: auto minmax(0, 1fr)">
-      <div>
-        {#if showSearch}
-          <div class="searchpanel" data-testid="search-panel">
-            <input type="search" placeholder="Search project" bind:value={query} oninput={runSearch} aria-label="Search project" />
-            {#if s.canWrite}<input type="text" placeholder="Replace with" bind:value={replacement} aria-label="Replacement" />{/if}
-            <div class="row wrap">
-              <label class="row"><input type="checkbox" bind:checked={searchOpts.caseSensitive} onchange={runSearch} /> Aa</label>
-              <label class="row"><input type="checkbox" bind:checked={searchOpts.wholeWord} onchange={runSearch} /> word</label>
-              <label class="row"><input type="checkbox" bind:checked={searchOpts.regex} onchange={runSearch} /> .*</label>
-              {#if s.canWrite}<button class="small" onclick={runReplace} disabled={!matches.length}>Replace all ({matches.length})</button>{/if}
-            </div>
-            <div style="max-height: 180px; overflow: auto">
-              {#each matches.slice(0, 100) as m}
-                <button class="hit" onclick={() => { activeId = m.fileId; jump = { line: m.line, n: (jump?.n ?? 0) + 1 }; }}><strong>{m.path}:{m.line}</strong> <span class="muted">{m.preview}</span></button>
-              {/each}
-            </div>
+  <div
+    class="ws"
+    class:focus={layout.focus}
+    class:narrow
+    data-testid="workspace"
+    style:--side-w="{layout.sideWidth}px"
+  >
+    {#if !layout.focus}
+      <header class="ws-head">
+        <a class="back" href="#/" aria-label="All projects" data-tip="All projects"><Icon icon={ArrowLeft} /></a>
+        <div class="crumb">
+          <strong class="slug" data-testid="project-slug">{s.project.slug}</strong>
+          <span class="pill role {s.role}" data-testid="role-pill">{s.role}</span>
+        </div>
+        <span class="sp"></span>
+        {#if s.peers.length}
+          <AvatarStack
+            label="{s.peers.length} co-author{s.peers.length === 1 ? '' : 's'} online"
+            people={s.peers.map((p) => {
+              const file = s.fileOf(p.uname);
+              const where = file ? `${p.uname} · ${file}` : p.uname;
+              return {
+                name: p.uname,
+                tip: following === p.uname ? `Following ${where}` : `${where} (click to follow)`,
+                label: following === p.uname ? `Stop following ${p.uname}` : `Follow ${p.uname}${file ? `, in ${file}` : ''}`,
+                ring: following === p.uname,
+                onclick: () => follow(p.uname),
+              };
+            })}
+          />
+        {/if}
+        {#if narrow}
+          <div class="seg" role="group" aria-label="Show">
+            <button type="button" aria-pressed={narrowView === 'editor'} onclick={() => (narrowView = 'editor')}>Editor</button>
+            <button type="button" aria-pressed={narrowView === 'pdf'} onclick={() => (narrowView = 'pdf')}>PDF</button>
           </div>
         {/if}
-      </div>
-      <FileTree
-        files={s.files}
-        activeId={activeId}
-        canWrite={s.canWrite}
-        mainPath={settingsTick >= 0 ? mainPath : ''}
-        onOpen={openFile}
-        {onCreate}
-        {onRename}
-        {onDelete}
-        {onUpload}
-        onDownload={downloadFile}
-        onSetMain={setMain}
-      />
-    </div>
-
-    <div class="pane editor-pane" style="min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr)">
-      {#if active?.kind === 'text'}
-        {#key active.id}
-          <Editor session={s} fileId={active.id} readOnly={!s.canWrite} diagnostics={diagnostics} getIndex={() => index} jumpLine={jump} onForwardSearch={forward} />
-        {/key}
-      {:else if active?.kind === 'binary'}
-        <div style="padding: 16px">
-          <p class="muted">{active.path} ({active.size ?? 0} bytes)</p>
-          {#if imageUrl}<img src={imageUrl} alt={active.path} style="max-width: 100%" />{:else}<p class="muted">No preview.</p>{/if}
-        </div>
-      {:else}
-        <div style="padding: 16px">
-          {#if s.files.length === 0 && s.noPeerOnline && s.project.githubRepo}
-            <div class="notice" data-testid="bootstrap-banner">
-              <strong>No collaborator is online.</strong> This project is backed up on GitHub ({s.project.githubRepo}).
-              <div style="margin-top: 8px"><button class="primary" onclick={loadFromGithub} data-testid="load-github">Load the latest backup from GitHub</button></div>
-              <p class="muted" style="margin-bottom: 0">You need access to the repository (connect GitHub in Project settings). Your copy merges with your collaborators' automatically when they come online.</p>
-            </div>
-          {:else}
-            <p class="muted">Select or create a file to start writing.</p>
-          {/if}
-        </div>
-      {/if}
-    </div>
-
-    <div class="pdf-pane pane" style="display: grid; grid-template-rows: minmax(0, 1fr) auto">
-      <PdfView
-        pdf={s.pdf}
-        rev={s.pdfRev}
-        stale={s.stale}
-        compiledBy={s.compiledBy}
-        syncIndex={s.syncIndex}
-        {highlight}
-        onReverse={reverse}
-      />
-      <div class="diag" data-testid="diagnostics">
-        {#if compileError}<div class="error" style="margin: 6px">{compileError}</div>{/if}
-        {#if s.result && !s.result.ok && s.result.diagnostics.length === 0}
-          <div class="error" style="margin: 6px">Compilation failed. <details><summary>Log</summary><pre style="white-space: pre-wrap">{s.result.log.slice(-3000)}</pre></details></div>
-        {/if}
-        {#each s.result?.diagnostics ?? [] as d}
-          <button onclick={() => showDiag(d.file, d.line)}>
-            <span class={`sev-${d.severity}`}>{d.severity === 'error' ? '✖' : d.severity === 'warning' ? '▲' : 'ℹ'}</span>
-            <span class="muted">{d.file}{d.line ? `:${d.line}` : ''}</span>
-            <span>{d.message}</span>
+        <button type="button" class="hbtn" onclick={() => (showShare = true)} data-testid="share-btn" data-tip="Invite co-authors"><Icon icon={Share} /><span class="lbl">Share</span></button>
+        <div class="split-btn">
+          <button type="button" class="primary" onclick={compileNow} data-testid="compile-btn" disabled={s.compileStatus === 'compiling'}>
+            <Icon icon={Play} />{s.compileStatus === 'compiling' ? 'Compiling…' : 'Recompile'}
           </button>
-        {/each}
-        {#if s.engineNote && !s.engine}<div class="notice" style="margin: 6px">{s.engineNote}</div>{/if}
+          <Menu label="Compile options" items={compileItems} triggerClass="primary caret" tip="Compile options">
+            {#snippet trigger()}<Icon icon={ChevronDown} />{/snippet}
+          </Menu>
+        </div>
+        <IconButton icon={Download} label="Download PDF" disabled={!s.pdf} onclick={downloadPdf} />
+        <Menu label="More actions" items={moreItems} triggerClass="more" tip="More actions" testid="more-menu" triggerTestid="more-btn">
+          {#snippet trigger()}<Icon icon={Ellipsis} />{/snippet}
+        </Menu>
+      </header>
+    {/if}
+
+    <div class="ws-body">
+      {#if !layout.focus}
+        <nav class="rail" aria-label="Panels">
+          {#each RAIL as r (r.id)}
+            <IconButton
+              icon={r.icon}
+              label={r.id === 'changes' && unseen ? `Changes, ${unseen} new` : r.label}
+              tip={r.label}
+              tipSide="right"
+              size={36}
+              active={sideVisible && layout.panel === r.id}
+              aria-pressed={sideVisible && layout.panel === r.id}
+              badge={r.id === 'changes' && unseen ? Math.min(unseen, 99) : undefined}
+              data-testid={r.testid}
+              onclick={() => railClick(r.id)}
+            />
+          {/each}
+          <span class="sp"></span>
+          <IconButton icon={Settings} label={s.role === 'owner' ? 'Project settings' : 'Settings'} tipSide="right" size={36} data-testid="settings-btn" onclick={() => (showSettings = true)} />
+        </nav>
+
+        {#if sideVisible}
+          <aside class="side" class:overlay={narrow} aria-label="Side panel">
+            {#if layout.panel === 'files'}
+              <div class="files-panel">
+                <FileTree
+                  bind:this={tree}
+                  files={s.files}
+                  {activeId}
+                  canWrite={s.canWrite}
+                  mainPath={settingsTick >= 0 ? mainPath : ''}
+                  onOpen={openFile}
+                  {onCreate}
+                  {onRename}
+                  {onDelete}
+                  {onUpload}
+                  onDownload={downloadFile}
+                  onSetMain={setMain}
+                  presence={presenceByFile}
+                >
+                  {#snippet headerExtra()}
+                    {#if s.canWrite}<IconButton icon={FolderOpen} size={28} label="Import…" tip="Import a .zip, a folder or files" data-testid="import-btn" onclick={() => (importRequest = { kind: 'pick' })} />{/if}
+                  {/snippet}
+                </FileTree>
+                {#if canUseFolders}
+                  <div class="location">
+                    {#if s.folderPending}
+                      <button type="button" class="small primary" onclick={allowFolder} data-testid="allow-folder" data-tip={`Let the app read and write "${s.location.kind === 'folder' ? s.location.label : ''}" again`}>Allow access to “{s.location.kind === 'folder' ? s.location.label : ''}”</button>
+                    {/if}
+                    <button type="button" class="loc-btn" onclick={() => (showLocation = !showLocation)} aria-expanded={showLocation} aria-haspopup="menu" data-testid="location-btn" data-tip="Where this project's files live on this device">
+                      <Icon icon={FolderOpen} size={14} /><span class="loc-label">{s.mirrorDir ? `In the folder ${s.mirrorDir}` : 'In the app'}</span><Icon icon={ChevronDown} size={14} />
+                    </button>
+                    {#if showLocation}
+                      <div class="location-menu" role="menu" data-testid="location-menu">
+                        {#if s.mirrorDir}
+                          <p>Files are in the folder <strong>{s.mirrorDir}</strong>. Edit them with any tool (Claude Code, Codex, an editor): changes sync with everyone.</p>
+                          {#if isDesktop}<button type="button" role="menuitem" class="small" onclick={() => { showLocation = false; void s.revealFolder(); }}>Show in file manager</button>{/if}
+                          <button type="button" role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use another folder…</button>
+                          <button type="button" role="menuitem" class="small" onclick={unlinkFolder} data-testid="unlink-folder">Stop using the folder</button>
+                        {:else}
+                          <p>Files are stored in the app on this device. Put them in a folder to edit them with Claude Code, Codex or any editor.</p>
+                          <button type="button" role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use a folder…</button>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {:else if layout.panel === 'outline'}
+              <OutlinePanel entries={outline} current={currentOutline} onGo={reverse} />
+            {:else if layout.panel === 'search'}
+              <SearchPanel session={s} onOpen={gotoLine} />
+            {:else if layout.panel === 'changes'}
+              <ChangesPanel session={s} />
+            {:else if layout.panel === 'history'}
+              <HistoryPanel session={s} />
+            {:else if layout.panel === 'people'}
+              <PeoplePanel session={s} onShare={() => (showShare = true)} fileOf={(name) => s.fileOf(name)}>
+                {#snippet actions(p)}
+                  <button type="button" class="small" aria-pressed={following === p.name} onclick={() => follow(p.name)} data-testid="follow-{p.name}">{following === p.name ? 'Following' : 'Follow'}</button>
+                {/snippet}
+              </PeoplePanel>
+            {:else if layout.panel === 'backup'}
+              <BackupPanel session={s} />
+            {/if}
+          </aside>
+          {#if !narrow}
+            <Splitter label="Resize side panel" value={layout.sideWidth} min={SIDE_MIN} max={SIDE_MAX} onresize={resizeSide} testid="side-splitter" />
+          {/if}
+        {/if}
+      {/if}
+
+      <div class="main" bind:clientWidth={mainWidth} style:--split={showEditor && showPdf ? layout.split : showEditor ? 1 : 0}>
+        {#if showEditor}
+          <section class="editor-area" aria-label="Editor" onpointerdown={() => narrow && (overlayOpen = false)}>
+            <div class="ed-head">
+              {#if active}
+                <span class="path" title={active.path}>{active.path}</span>
+                {#if active.path === mainPath}<span class="pill honey">Main document</span>{/if}
+                {#if !s.canWrite}<span class="pill">Read-only</span>{/if}
+                {#each hereWithMe as p (p.name)}<span class="here" style:background={p.color} data-tip="{p.name} is in this file" data-testid="here-dot"><span class="sr-only">{p.name} is in this file</span></span>{/each}
+              {:else}
+                <span class="path muted">No file open</span>
+              {/if}
+              <span class="sp"></span>
+              {#if following}<span class="pill honey" data-testid="following">Following {following}<button type="button" class="unfollow" onclick={stopFollowing}>Stop</button></span>{/if}
+              {#if !showPdf && !narrow}<button type="button" class="small" onclick={togglePdf} data-testid="show-pdf"><Icon icon={PanelRight} size={14} />Show PDF</button>{/if}
+              <IconButton icon={layout.focus ? Minimize : Maximize} size={28} label={layout.focus ? 'Leave focus mode' : 'Focus mode'} tip={layout.focus ? 'Leave focus mode (Ctrl+Shift+F)' : 'Focus mode (Ctrl+Shift+F)'} data-testid="focus-btn" onclick={toggleFocus} />
+            </div>
+            {#if showToolbar && !layout.focus}<FormatToolbar onAction={format} />{/if}
+            <div class="ed-body">
+              {#if active?.kind === 'text'}
+                {#key active.id}
+                  <Editor bind:this={editorRef} session={s} fileId={active.id} readOnly={!s.canWrite} {diagnostics} getIndex={() => index} jumpLine={jump} onForwardSearch={forward} onCursor={(c) => (cursor = c)} onKeymapMode={(m) => (keymapMode = m)} onUserActivity={stopFollowing} />
+                {/key}
+              {:else if active?.kind === 'binary'}
+                <div class="binary">
+                  <p class="muted">{active.path} ({active.size ?? 0} bytes)</p>
+                  {#if imageUrl}<img src={imageUrl} alt={active.path} />{:else}<p class="muted">No preview for this file type.</p>{/if}
+                </div>
+              {:else}
+                <div class="blank">
+                  {#if s.files.length === 0 && s.noPeerOnline && s.project.githubRepo}
+                    <div class="notice" data-testid="bootstrap-banner">
+                      <strong>No collaborator is online.</strong> This project is backed up on GitHub ({s.project.githubRepo}).
+                      <div class="bb-act"><button type="button" class="primary" onclick={loadFromGithub} data-testid="load-github">Load the latest backup from GitHub</button></div>
+                      <p class="muted">You need access to the repository (connect GitHub in the Backup panel). Your copy merges with your collaborators' automatically when they come online.</p>
+                    </div>
+                  {:else if s.files.length === 0}
+                    <h2>An empty project</h2>
+                    <p class="muted">{s.canWrite ? 'Create a file in the Files panel (main.tex is a good start), or import an Overleaf .zip or a folder.' : 'Nothing here yet. Files appear as soon as a co-author adds them.'}</p>
+                  {:else}
+                    <p class="muted">Select a file in the Files panel to start writing.</p>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+            <ProblemsPanel
+              diagnostics={s.result?.diagnostics ?? []}
+              failed={!!s.result && !s.result.ok}
+              log={s.result?.log ?? ''}
+              {compileError}
+              note={s.engineNote && !s.engine ? s.engineNote : ''}
+              expanded={layout.problems}
+              onToggle={() => setLayout({ problems: !layout.problems })}
+              onGo={reverse}
+            >
+              {#snippet help(d)}
+                {@const h = helpFor(d, texts.get(d.file)?.split('\n')[d.line - 1] ?? '', texts.get(mainPath) ?? '')}
+                {#if h}
+                  <p class="help" data-testid="problem-help">{h.explanation}</p>
+                  {#if h.fix && s.canWrite}<button type="button" class="small primary fix" onclick={() => h.fix && addPackage(h.fix.usepackage)} data-testid="problem-fix">{h.fix.label}</button>{/if}
+                {/if}
+              {/snippet}
+            </ProblemsPanel>
+          </section>
+        {/if}
+        {#if showEditor && showPdf}
+          <Splitter label="Resize editor and PDF" value={layout.split * mainWidth} min={SPLIT_MIN * mainWidth} max={SPLIT_MAX * mainWidth} step={24} onresize={resizeSplit} ondblclick={() => setLayout({ split: 0.5 })} testid="split-splitter" />
+        {/if}
+        {#if showPdf}
+          <section class="pdf-area" aria-label="PDF">
+            <PdfView
+              pdf={s.pdf}
+              rev={s.pdfRev}
+              stale={s.stale}
+              compiledBy={s.compiledBy}
+              syncIndex={s.syncIndex}
+              editsSincePdf={s.editsSincePdf}
+              bind:zoom={() => layout.zoom, (z) => setLayout({ zoom: z })}
+              {highlight}
+              onReverse={reverse}
+              onHide={narrow ? undefined : togglePdf}
+            />
+          </section>
+        {/if}
       </div>
     </div>
 
-    <div class="statusbar" data-testid="statusbar">
-      <span data-testid="peer-count">{s.peers.length} peer{s.peers.length === 1 ? '' : 's'} online{s.peers.length ? `: ${s.peers.map((p) => p.uname).join(', ')}` : ''}</span>
-      <span>·</span>
-      <label class="compiler" title={COMPILE_MODES.find((m) => m.id === s.compileMode)?.hint}>Compiler:
-        <select value={s.compileMode} onchange={(e) => void s.setCompileMode((e.currentTarget as HTMLSelectElement).value as CompileMode)} data-testid="compile-mode">
-          {#each COMPILE_MODES as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
-        </select>
-      </label>
-      <span>·</span>
-      {#if s.compileMode === 'local'}
-        <span data-testid="leader">compiles here only</span>
-      {:else}
-        <span data-testid="leader">compiler: {s.leaderName ?? 'none available'}</span>
-      {/if}
-      {#if s.compiledBy}<span data-testid="compiled-by-status" class="muted">· PDF by {s.compiledBy}</span>{/if}
-      <span>·</span>
-      <span data-testid="compiler-state">
-        {#if s.compilerPhase === 'setting-up'}Setting up the {s.compilerName}{s.compilerDetail ? ` (${s.compilerDetail})` : ''}…
-        {:else if s.compilerPhase === 'packages'}{s.compilerName}: {s.compilerDetail}…
-        {:else if s.compilerName}{s.compilerName}{s.localOnlyCompiler ? ' (builds stay on this device)' : ''}
-        {:else}{s.engineKind === 'native' ? 'native TeX on this device' : s.engineKind === 'wasm' ? 'in-browser TeX' : 'no compiler here'}{/if}
-      </span>
-      {#if s.compileMode === 'peers' && !s.leaderName}
-        <span class="pill warn" role="status" data-testid="no-peer-compiler" title="Switch to Automatic (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">no peer can compile right now</span>
-      {/if}
-      {#if s.offline || s.paused}<span class="pill warn" data-testid="offline-pill">offline: editing locally, will merge when reconnected</span>{/if}
-      <button class="small ghost" onclick={() => s.setPaused(!s.paused)} data-testid="pause-sync">{s.paused ? 'Resume sync' : 'Work offline'}</button>
-      {#if s.noPeerOnline && !s.offline}<span class="pill">no collaborator online</span>{/if}
-      {#if s.revoked}<span class="pill bad">you no longer have access</span>{/if}
-      {#if s.mirrorDir}<span class="pill" title={`Files are in the folder ${s.mirrorDir}`}>folder</span>{/if}
-      {#if s.mirrorNotice}<span class="pill warn" role="status">{s.mirrorNotice}</span>{/if}
-      <span class="spacer"></span>
-      <span class="muted">{s.compileStatus}</span>
-    </div>
+    {#if !layout.focus}
+      <StatusBar session={s} {cursor} {keymapMode} onPeople={() => openPanel('people')} />
+    {:else}
+      <button type="button" class="leave-focus" onclick={toggleFocus}><Icon icon={Minimize} size={14} />Leave focus mode</button>
+    {/if}
   </div>
-
-  {#if toast}<div class="notice" role="status" style="position: fixed; right: 16px; bottom: 48px; box-shadow: var(--shadow)">{toast}</div>{/if}
 
   {#if importRequest}
     {#key importRequest}
@@ -548,63 +962,356 @@
     {/key}
   {/if}
 
-  {#if showChanges}
-    <ChangesPanel session={s} onClose={() => (showChanges = false)} />
+  {#if picker === 'cite'}
+    <PickerDialog title="Insert a citation" placeholder="Search by key, author, title or year" testid="cite-picker" items={index.cites.map((c) => ({ id: c.key, primary: c.key, secondary: [c.author, c.detail].filter(Boolean).join(' · ') || undefined, meta: c.year }))} onPick={(it) => insertSoon(() => tex.cite(it.id))} onClose={() => (picker = null)}>
+      {#snippet empty()}<p class="muted">This project has no bibliography yet. Add a <code>.bib</code> file with entries such as <code>@article{'{'}key, …{'}'}</code>, then try again.</p>{/snippet}
+    </PickerDialog>
+  {:else if picker === 'ref'}
+    <PickerDialog title="Insert a cross-reference" placeholder="Search labels" testid="ref-picker" items={index.labels.map((l) => ({ id: l, primary: l }))} onPick={(it) => insertSoon(() => tex.ref(it.id))} onClose={() => (picker = null)}>
+      {#snippet empty()}<p class="muted">No labels yet. Put <code>\label{'{'}sec:intro{'}'}</code> after a section, figure or equation to refer to it.</p>{/snippet}
+    </PickerDialog>
+  {:else if picker === 'figure'}
+    <PickerDialog title="Insert a figure" placeholder="Search project images" testid="figure-picker" items={imageFiles.map((f) => ({ id: f.path, primary: f.path }))} onPick={(it) => insertSoon(() => tex.figure(it.id))} onClose={() => (picker = null)}>
+      {#snippet empty()}<p class="muted">No images in this project yet. Upload a PNG, JPEG or PDF in the Files panel (or drop it there), then insert it here.</p>{/snippet}
+    </PickerDialog>
+  {:else if picker === 'table'}
+    <TableDialog onInsert={(r, c) => insertSoon(() => tex.table(r, c))} onClose={() => (picker = null)} />
+  {:else if picker === 'symbol'}
+    <SymbolPalette onInsert={(cmd) => insertSoon((_sel, ctx) => tex.symbol(cmd, ctx.inMath))} onClose={() => (picker = null)} />
+  {/if}
+
+  {#if showTour && !layout.focus}
+    <Tour onEnd={() => (showTour = false)} />
+  {/if}
+
+  {#if showShare}
+    <ShareDialog session={s} onClose={() => (showShare = false)} />
   {/if}
 
   {#if showSettings}
-    <ProjectSettings session={s} onClose={() => { showSettings = false; settingsTick++; }} onDeleted={() => go('/')} />
-  {/if}
-
-  {#if showHistory}
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="History">
-      <div class="card">
-        <div class="row"><h2 class="spacer">Local history</h2><button onclick={() => (showHistory = false)}>Close</button></div>
-        <p class="muted">Snapshots are kept on this device only. Restoring is an ordinary edit that syncs to everyone and can be undone.</p>
-        {#if snapshots.length === 0}<p class="muted">No snapshots yet.</p>{/if}
-        <table>
-          <tbody>
-            {#each snapshots as sn}
-              <tr>
-                <td>{new Date(sn.at).toLocaleString()}</td>
-                <td>{sn.files.length} files</td>
-                <td style="text-align: right"><button class="small" disabled={!s.canWrite} onclick={() => restore(sn.id)}>Restore</button></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <ProjectSettings
+      session={s}
+      onClose={() => {
+        showSettings = false;
+        settingsTick++;
+      }}
+      onDeleted={() => go('/')}
+    />
   {/if}
 {/if}
 
 <style>
-  .compiler select {
-    font: inherit;
-    padding: 0 2px;
+  .ws-message {
+    padding: 32px 24px;
+    display: grid;
+    gap: 12px;
+    justify-items: start;
+  }
+  .ws {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    background: var(--paper);
+  }
+  .ws.focus {
+    grid-template-rows: minmax(0, 1fr);
+    position: relative;
+  }
+
+  /* header */
+  .ws-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--header-h);
+    padding: 0 10px 0 6px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    min-width: 0;
+  }
+  .back {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-m);
+    color: var(--muted);
+  }
+  .back:hover {
+    background: var(--sunken);
+    color: var(--ink);
+  }
+  .crumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .slug {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .role {
+    text-transform: capitalize;
+  }
+  .sp {
+    flex: 1;
+  }
+  .hbtn {
+    gap: 6px;
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-m);
+    overflow: hidden;
+  }
+  .seg button {
+    min-height: 30px;
+    border: 0;
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .seg button[aria-pressed='true'] {
+    background: var(--sunken);
+    color: var(--ink);
+  }
+  .split-btn {
+    display: inline-flex;
+  }
+  .split-btn > button {
+    border-radius: var(--r-m) 0 0 var(--r-m);
+    gap: 6px;
+  }
+  .split-btn :global(.caret) {
+    min-height: var(--control-h);
+    padding: 0 8px;
+    border-radius: 0 var(--r-m) var(--r-m) 0;
+    border-left: 1px solid rgb(0 0 0 / 0.15);
+  }
+  .ws-head :global(.more) {
+    width: 32px;
+    min-height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+  }
+  .ws-head :global(.more:hover) {
+    background: var(--sunken);
+    color: var(--ink);
+  }
+
+  /* body */
+  .ws-body {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    min-width: 0;
+  }
+  .rail {
+    flex: none;
+    width: var(--rail-w);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 0;
+    background: var(--sunken);
+    border-right: 1px solid var(--line);
+  }
+  .rail :global(.hx-iconbtn.active) {
+    position: relative;
+  }
+  .rail :global(.hx-iconbtn.active::before) {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--honey);
+  }
+  .rail .sp {
+    flex: 1;
+  }
+  .side {
+    flex: none;
+    width: var(--side-w);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .side.overlay {
+    position: absolute;
+    left: var(--rail-w);
+    top: 0;
+    bottom: 0;
+    z-index: 15;
+    width: min(var(--side-w), calc(100% - var(--rail-w) - 24px));
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow-2);
+  }
+  .files-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .files-panel > :global(.filetree) {
+    flex: 1;
   }
   .location {
     position: relative;
-    display: inline-flex;
-    gap: 4px;
+    flex: none;
+    display: grid;
+    gap: 6px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--line);
+  }
+  .loc-btn {
+    justify-content: flex-start;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 8px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: var(--text-xs);
+  }
+  .loc-btn:hover {
+    border-color: var(--line);
+  }
+  .loc-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
   }
   .location-menu {
     position: absolute;
-    top: calc(100% + 4px);
-    right: 0;
+    left: 8px;
+    right: 8px;
+    bottom: calc(100% - 4px);
     z-index: 20;
-    width: min(320px, 90vw);
     display: flex;
     flex-direction: column;
     gap: 6px;
     padding: 10px;
-    background: var(--panel);
+    background: var(--raised);
     border: 1px solid var(--line);
-    border-radius: 6px;
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+    border-radius: var(--r-l);
+    box-shadow: var(--shadow-2);
   }
   .location-menu p {
     margin: 0 0 4px;
-    font-size: 0.85em;
+    font-size: var(--text-xs);
+    color: var(--muted);
+  }
+
+  /* editor + pdf */
+  .main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+  }
+  .editor-area {
+    flex: var(--split) 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+  }
+  .pdf-area {
+    flex: calc(1 - var(--split)) 1 0;
+    min-width: 0;
+    min-height: 0;
+  }
+  .ed-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 6px 0 14px;
+    border-bottom: 1px solid var(--line);
+    min-width: 0;
+  }
+  .path {
+    font: 500 var(--text-sm) var(--font-code);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ed-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+  }
+  .ed-body > :global(.editor-host) {
+    min-height: 0;
+  }
+  .binary,
+  .blank {
+    padding: 24px;
+    overflow: auto;
+  }
+  .binary img {
+    max-width: 100%;
+  }
+  .blank h2 {
+    margin: 0 0 6px;
+    font-size: var(--text-lg);
+  }
+  .blank .notice {
+    padding: 12px 14px;
+  }
+  .bb-act {
+    margin: 8px 0;
+  }
+  .editor-area :global(.help) {
+    margin: 4px 0 0;
+    font-size: var(--text-sm);
+    color: var(--ink);
+    max-width: 70ch;
+  }
+  .editor-area :global(.fix) {
+    margin-top: 6px;
+  }
+  .here {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .unfollow {
+    min-height: 0;
+    margin-left: 6px;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--honey-ink);
+    font-size: var(--text-xs);
+    text-decoration: underline;
+  }
+  .leave-focus {
+    position: absolute;
+    top: 8px;
+    right: 16px;
+    z-index: 30;
+    gap: 6px;
+    box-shadow: var(--shadow-2);
+  }
+  .ws.narrow .lbl {
+    display: none;
   }
 </style>

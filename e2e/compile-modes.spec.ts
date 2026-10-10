@@ -21,7 +21,7 @@ test('compiler preference: hand-off when the leader chooses "Use peers", peers n
   await E.page.goto('/#/');
   await joinProject(E.page, slug);
   await E.page.getByRole('treeitem', { name: 'main.tex' }).click();
-  for (const u of [O, E]) await expect(u.page.getByTestId('peer-count')).toContainText('1 peer', { timeout: 30_000 });
+  for (const u of [O, E]) await expect(u.page.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
 
   // whoever leads now switches to "Use peers": the other device takes over, without reopening anything
   await expect.poll(() => leaderText(O.page), { timeout: 30_000 }).not.toContain('none available');
@@ -41,7 +41,7 @@ test('compiler preference: hand-off when the leader chooses "Use peers", peers n
   // nobody eligible any more: the peers-only device says so
   await setMode(M.page, 'local');
   await expect(L.page.getByTestId('no-peer-compiler')).toBeVisible({ timeout: 30_000 });
-  await expect(M.page.getByTestId('leader')).toHaveText('compiles here only');
+  await expect(M.page.getByTestId('leader')).toHaveText('Compiles only on this device');
 
   // "This device only" compiles its own PDF after edits
   await M.page.locator('.cm-content').click();

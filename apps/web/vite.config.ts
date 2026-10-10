@@ -1,4 +1,5 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vite';
 
 // Server the dev UI talks to through this proxy (`make dev` sets the hosted one; e2e and `make dev-local` use the
@@ -9,7 +10,8 @@ const target = (process.env.HIVETEX_SERVER || 'http://localhost:3000').replace(/
 const remote = !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(target);
 
 export default defineConfig({
-  plugins: [svelte()],
+  // svelteTesting only acts under Vitest (browser build of Svelte, DOM cleanup between component tests).
+  plugins: [svelte(), svelteTesting()],
   define: { 'import.meta.env.VITE_DEV_PROXY_TARGET': JSON.stringify(target) },
   server: {
     port: 1420,
@@ -34,7 +36,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/@codemirror') || id.includes('node_modules/@lezer')) return 'codemirror';
+          // y-codemirror.next imports CodeMirror: keeping it out of the yjs chunk keeps the editor off the first load.
+          if (id.includes('node_modules/@codemirror') || id.includes('node_modules/@lezer') || id.includes('node_modules/y-codemirror')) return 'codemirror';
           if (id.includes('node_modules/yjs') || id.includes('node_modules/lib0') || id.includes('node_modules/y-')) return 'yjs';
         },
       },

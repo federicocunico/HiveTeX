@@ -21,16 +21,16 @@ Owners/editors can switch **"Let this device compile for the others"** off in *P
 
 ## Compiler preference (per device)
 
-Each device chooses how it takes part. The choice is in **Account → Compiler**, or in the **Compiler** menu of a
+Each device chooses how it takes part. The choice is in **Account → Compiler**, or in the **Compile** menu of a
 project's status bar, applies to every project, and takes effect at once:
 
 | Mode | Compiles here | Can lead (compile for others) | PDF shown |
 |---|---|---|---|
 | **Automatic** (default) | when it is the best connected device | yes, unless *Let this device compile for the others* is off (Project settings) | the leader's |
 | **Use peers** | never; no LaTeX needed, the in-browser compiler is not downloaded | no | the leader's |
-| **This device only** | after every edit (and *Compile here*) | no | this device's own |
+| **This device only** | after every edit (and *Compile on this device only*) | no | this device's own |
 
-- With **Use peers**, someone in the project must be able to compile. When nobody can, the status bar shows *no peer can
+- With **Use peers**, someone in the project must be able to compile. When nobody can, the status bar shows *No co-author can
   compile right now*: switch to *Automatic* (with LaTeX installed, or the in-browser compiler on the web), or ask a
   co-author with LaTeX to open the project.
 - **This device only** is for authors who want their own build (a different TeX distribution, or no shared builds).
@@ -42,16 +42,16 @@ project's status bar, applies to every project, and takes effect at once:
 1. After edits settle (1.2 s debounce, 5 s max wait) the leader snapshots the project, compiles incrementally and publishes
    `{stateHash, pdfHash, synctexHash, diagnostics, log}`; the PDF and SyncTeX file travel as content-addressed blobs.
 2. A request during a running compile queues exactly one follow-up run. **Recompile** is available to every role.
-3. Failed builds publish the parsed errors/warnings; the last good PDF stays visible. The preview shows *outdated* while
-   edits are newer than the displayed PDF.
-4. **Compile here** builds on the current device only (works offline) and does not distribute anything.
+3. Failed builds publish the parsed errors/warnings; the last good PDF stays visible. The PDF bar shows *Outdated: N edits since the
+   last compile* while edits are newer than the displayed PDF, and *Up to date* otherwise.
+4. **Compile on this device only** (in the menu next to Recompile, or Ctrl+Shift+Enter) builds on the current device only (works offline) and does not distribute anything.
 
 ## Engines
 
 | Where | Engine | Notes |
 |---|---|---|
 | Desktop | System **TeX Live / MiKTeX / MacTeX** (`latexmk` when available, else a built-in multi-pass fallback) (Tectonic alone is not used: its file reads cannot be verified) | persistent per-project work directory, only changed files are written, shell-escape disabled, no writes outside the project, reads outside the project refused (MiKTeX) or detected via the recorder with the result withheld (all distributions), `latexmk -norc` (project `latexmkrc` files are never used), wall-clock timeout (default 120 s), memory limit, whole process tree killed on timeout |
-| Browser | **SwiftLaTeX** pdfTeX/XeTeX (WebAssembly, in a worker) | needs a reachable **TeX file server** for packages (only package *file names* are requested; sources never leave the device). Configure it under *Settings*; without it the browser engine is disabled and never elected |
+| Browser | **SwiftLaTeX** pdfTeX/XeTeX (WebAssembly, in a worker) | needs a reachable **TeX file server** for packages (only package *file names* are requested; sources never leave the device). Configure it under *Account → Connections*; without it the browser engine is disabled and never elected |
 
 LuaLaTeX is desktop-only. A device that cannot run the project's engine is never elected.
 

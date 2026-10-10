@@ -1,0 +1,7 @@
+{
+  "name": "Thesis or report",
+  "description": "Chapters in separate files, table of contents, appendix",
+  "main": "main.tex",
+  "order": 3,
+  "layout": "report"
+}

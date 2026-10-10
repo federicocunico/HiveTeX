@@ -16,7 +16,7 @@ for (const r of refs) {
 console.log(`initial JS total: ${(total / 1024).toFixed(1)} KB gz (budget ${BUDGET / 1024} KB)`);
 let ok = total <= BUDGET;
 for (const f of readdirSync(join(dist, 'assets'))) {
-  if (/^(pdf|wasm-engine|fake-engine)/.test(f) && refs.some((r) => r.endsWith(f))) {
+  if (/^(pdf|wasm-engine|fake-engine|Landing|Workspace|codemirror)/.test(f) && refs.some((r) => r.endsWith(f))) {
     console.error(`lazy chunk ${f} is part of the initial load`);
     ok = false;
   }

@@ -85,32 +85,31 @@
   const ago = (t: number) => (t ? new Date(t).toLocaleString() : 'never');
 </script>
 
-<section data-testid="github-panel">
-  <h3 style="margin-top: 24px">GitHub backup</h3>
+<section class="gh" data-testid="github-panel">
   {#if error}<div class="error" role="alert">{error}</div>{/if}
   {#if info}<div class="notice" role="status">{info}</div>{/if}
 
   {#if !hasToken}
     <p class="muted">Connect your GitHub account to back this project up to a repository you choose. Your token stays on this device; the server never stores it.</p>
-    <button onclick={connect} disabled={busy} data-testid="github-connect">{busy ? 'Waiting for GitHub…' : 'Connect GitHub'}</button>
+    <button class="primary" onclick={connect} disabled={busy} data-testid="github-connect">{busy ? 'Waiting for GitHub…' : 'Connect GitHub'}</button>
   {:else}
     <p>Connected as <strong>{login ?? 'GitHub user'}</strong> on this device. <button class="small" onclick={disconnect}>Disconnect</button></p>
   {/if}
 
   {#if isOwner && !binding && hasToken}
-    <fieldset style="border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 8px">
+    <fieldset class="box">
       <legend>Link a repository</legend>
       <label class="row"><input type="radio" bind:group={mode} value="new" /> Create a new private repository</label>
       {#if mode === 'new'}<input type="text" bind:value={repoName} aria-label="New repository name" />{/if}
       <label class="row"><input type="radio" bind:group={mode} value="existing" /> Use an existing repository</label>
       {#if mode === 'existing'}<input type="text" bind:value={existing} placeholder="owner/repository" aria-label="Existing repository" />{/if}
-      <label class="field" style="margin-top: 8px">Branch <input type="text" bind:value={branch} /></label>
+      <label class="field">Branch <input type="text" bind:value={branch} /></label>
       <button class="primary" onclick={bind} disabled={busy || (mode === 'existing' && !existing.includes('/'))} data-testid="github-bind">Link repository</button>
     </fieldset>
   {/if}
 
   {#if binding}
-    <div data-testid="github-status" style="margin-top: 10px">
+    <div class="status" data-testid="github-status">
       <p>
         Backing up to <a href={`https://github.com/${binding.repo.owner}/${binding.repo.repo}/tree/${binding.branch}`} target="_blank" rel="noreferrer noopener">{binding.repo.owner}/{binding.repo.repo}@{binding.branch}</a>
         {#if isOwner}<button class="small" onclick={unlink}>Unlink</button>{/if}
@@ -127,13 +126,13 @@
     </div>
 
     {#if isOwner}
-      <fieldset style="border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 10px">
+      <fieldset class="box">
         <legend>When to back up</legend>
         <label class="row"><input type="checkbox" checked={policy.enabled} onchange={(e) => savePolicy({ enabled: e.currentTarget.checked })} /> Automatic backups</label>
         <div class="row wrap">
-          <label>After idle (minutes) <input type="number" min="1" style="width: 5em" value={policy.idleMinutes ?? ''} onchange={(e) => savePolicy({ idleMinutes: e.currentTarget.value ? Number(e.currentTarget.value) : null })} /></label>
-          <label>Every N changes <input type="number" min="1" style="width: 5em" value={policy.everyChanges ?? ''} onchange={(e) => savePolicy({ everyChanges: e.currentTarget.value ? Number(e.currentTarget.value) : null })} /></label>
-          <label>At most every (minutes) <input type="number" min="1" style="width: 5em" value={policy.minIntervalMinutes} onchange={(e) => savePolicy({ minIntervalMinutes: Math.max(1, Number(e.currentTarget.value) || 5) })} /></label>
+          <label>After idle (minutes) <input type="number" min="1" value={policy.idleMinutes ?? ''} onchange={(e) => savePolicy({ idleMinutes: e.currentTarget.value ? Number(e.currentTarget.value) : null })} /></label>
+          <label>Every N changes <input type="number" min="1" value={policy.everyChanges ?? ''} onchange={(e) => savePolicy({ everyChanges: e.currentTarget.value ? Number(e.currentTarget.value) : null })} /></label>
+          <label>At most every (minutes) <input type="number" min="1" value={policy.minIntervalMinutes} onchange={(e) => savePolicy({ minIntervalMinutes: Math.max(1, Number(e.currentTarget.value) || 5) })} /></label>
         </div>
         <label class="row"><input type="checkbox" checked={policy.includePdf} onchange={(e) => savePolicy({ includePdf: e.currentTarget.checked })} /> Also commit the compiled PDF</label>
       </fieldset>
@@ -142,3 +141,43 @@
     <p class="muted">The owner has not linked a GitHub repository.</p>
   {/if}
 </section>
+
+<style>
+  .gh {
+    display: grid;
+    gap: 10px;
+  }
+  .gh p {
+    margin: 0;
+  }
+  .gh :global(.error),
+  .gh :global(.notice) {
+    padding: 6px 10px;
+  }
+  .box {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-m);
+  }
+  .box legend {
+    padding: 0 4px;
+    font-weight: 500;
+    font-size: var(--text-sm);
+  }
+  .box input[type='number'] {
+    width: 5em;
+  }
+  .box input[type='text'] {
+    width: 100%;
+  }
+  .status {
+    display: grid;
+    gap: 6px;
+  }
+  .status .muted {
+    font-size: var(--text-xs);
+  }
+</style>

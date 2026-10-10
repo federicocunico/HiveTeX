@@ -1,8 +1,12 @@
 <script lang="ts">
   import { type ChangeSet, patchHunks } from '@hivetex/sync';
   import type { ProjectSession } from '../lib/session.svelte.js';
+  import { ChevronDown, ChevronRight, FolderOpen, Pencil, Undo, User } from '../ui/icons.js';
+  import Icon from '../ui/Icon.svelte';
+  import PanelHead from './workspace/PanelHead.svelte';
 
-  let { session, onClose }: { session: ProjectSession; onClose: () => void } = $props();
+  /** Every change to the project, newest first, grouped by who made it, with per-file diffs and undo. */
+  let { session }: { session: ProjectSession } = $props();
 
   let open = $state<string | null>(null);
   let openFile = $state<string | null>(null);
@@ -17,8 +21,9 @@
     return new Date(t).toLocaleString();
   };
 
-  const badge = (c: ChangeSet) =>
-    c.source.kind === 'folder' ? '📁' : c.source.kind === 'peer' ? '👤' : c.source.kind === 'undo' ? '↶' : '✎';
+  const icon = (c: ChangeSet) => (c.source.kind === 'folder' ? FolderOpen : c.source.kind === 'peer' ? User : c.source.kind === 'undo' ? Undo : Pencil);
+  const sourceLabel = (c: ChangeSet) =>
+    c.source.kind === 'folder' ? 'In the folder on this device' : c.source.kind === 'peer' ? 'Co-author' : c.source.kind === 'undo' ? 'Undo' : 'In this app';
 
   const opLabel: Record<string, string> = { edit: 'edited', create: 'created', delete: 'deleted', rename: 'renamed', binary: 'replaced' };
 
@@ -36,73 +41,77 @@
       busy = null;
     }
   }
-
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape') onClose();
-  }
 </script>
 
-<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="changes-title" data-testid="changes-panel" tabindex="-1" onkeydown={onKey}>
-  <div class="card changes-card">
-    <div class="row">
-      <h2 id="changes-title" class="spacer">Changes</h2>
-      <button onclick={onClose}>Close</button>
-    </div>
-    <p class="muted">
-      Every change to the project, grouped by who made it: 📁 edits made in the folder on this device (for example by
-      Claude Code or Codex), ✎ edits in this app, 👤 edits by co-authors. Changes sync automatically; nothing is locked.
-      Kept on this device only.
-    </p>
-    {#if message}<div class="notice" role="status" data-testid="changes-message">{message}</div>{/if}
-    {#if session.changes.length === 0}
-      <p class="muted">No changes recorded on this device yet.</p>
-    {/if}
-    <ul class="sets">
-      {#each session.changes as c (c.id)}
-        <li class="set" data-testid="change-set" data-source={c.source.kind}>
-          <div class="row">
-            <button class="ghost head" aria-expanded={open === c.id} onclick={() => (open = open === c.id ? null : c.id)}>
-              <span aria-hidden="true">{badge(c)}</span>
+<section class="panel" aria-labelledby="changes-title" data-testid="changes-panel">
+  <PanelHead title="Changes" id="changes-title" />
+  <p class="intro">
+    Every change, grouped by who made it: edits in this app, by co-authors, or in the project folder on this device
+    (for example by Claude Code). Nothing is locked. Kept on this device only.
+  </p>
+  {#if message}<div class="notice" role="status" data-testid="changes-message">{message}</div>{/if}
+  {#if session.changes.length === 0}
+    <p class="empty">No changes recorded on this device yet.</p>
+  {/if}
+  <ul class="sets">
+    {#each session.changes as c (c.id)}
+      <li class="set" data-testid="change-set" data-source={c.source.kind}>
+        <div class="row">
+          <button type="button" class="head" aria-expanded={open === c.id} onclick={() => (open = open === c.id ? null : c.id)}>
+            <Icon icon={open === c.id ? ChevronDown : ChevronRight} size={14} />
+            <span class="src" data-tip={sourceLabel(c)}><Icon icon={icon(c)} size={14} /></span>
+            <span class="who">
               <strong>{c.source.name}</strong>
-              <span class="muted">· {c.files.length} file{c.files.length === 1 ? '' : 's'} · {ago(c.endedAt)}</span>
-            </button>
-            <span class="spacer"></span>
-            {#if session.canWrite}
-              <button class="small" disabled={busy === c.id} onclick={() => undo(c)} data-testid="undo-change">Undo</button>
-            {/if}
-          </div>
-          {#if open === c.id}
-            <ul class="files">
-              {#each c.files as f (f.fileId + f.op)}
-                <li>
-                  <button class="ghost" onclick={() => (openFile = openFile === c.id + f.fileId ? null : c.id + f.fileId)}>
-                    <code>{f.path}</code> {opLabel[f.op]}{f.from ? ` (from ${f.from})` : ''}
-                    {#if f.added !== undefined}<span class="add">+{f.added}</span> <span class="del">−{f.removed}</span>{/if}
-                  </button>
-                  {#if openFile === c.id + f.fileId && f.patch}
-                    <div class="diff" data-testid="change-diff">
-                      {#each patchHunks(f.patch) as hunk, i}
-                        {#if i > 0}<div class="sep">…</div>{/if}
-                        <pre>{#each hunk as part}<span class={part.op === 1 ? 'ins' : part.op === -1 ? 'rem' : ''}>{part.text}</span>{/each}</pre>
-                      {/each}
-                    </div>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-            {#if c.partial?.length}<p class="muted">Partially undone: {c.partial.join(', ')}</p>{/if}
+              <span class="meta">{c.files.length} file{c.files.length === 1 ? '' : 's'} · {ago(c.endedAt)}</span>
+            </span>
+          </button>
+          {#if session.canWrite}
+            <button type="button" class="undo" disabled={busy === c.id} onclick={() => undo(c)} data-testid="undo-change">Undo</button>
           {/if}
-        </li>
-      {/each}
-    </ul>
-  </div>
-</div>
+        </div>
+        {#if open === c.id}
+          <ul class="files">
+            {#each c.files as f (f.fileId + f.op)}
+              <li>
+                <button type="button" class="file" onclick={() => (openFile = openFile === c.id + f.fileId ? null : c.id + f.fileId)}>
+                  <code>{f.path}</code> {opLabel[f.op]}{f.from ? ` (from ${f.from})` : ''}
+                  {#if f.added !== undefined}<span class="add">+{f.added}</span> <span class="del">−{f.removed}</span>{/if}
+                </button>
+                {#if openFile === c.id + f.fileId && f.patch}
+                  <div class="diff" data-testid="change-diff">
+                    {#each patchHunks(f.patch) as hunk, i (i)}
+                      {#if i > 0}<div class="sep">…</div>{/if}
+                      <pre>{#each hunk as part, j (j)}<span class={part.op === 1 ? 'ins' : part.op === -1 ? 'rem' : ''}>{part.text}</span>{/each}</pre>
+                    {/each}
+                  </div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if c.partial?.length}<p class="meta">Partially undone: {c.partial.join(', ')}</p>{/if}
+        {/if}
+      </li>
+    {/each}
+  </ul>
+</section>
 
 <style>
-  .changes-card {
-    width: min(760px, 100%);
-    max-height: 85vh;
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     overflow: auto;
+  }
+  .intro,
+  .empty {
+    margin: 0 14px 10px;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .notice {
+    margin: 0 10px 8px;
+    padding: 6px 10px;
+    font-size: var(--text-sm);
   }
   .sets,
   .files {
@@ -112,42 +121,88 @@
   }
   .set {
     border-top: 1px solid var(--line);
-    padding: 6px 0;
+    padding: 6px 8px;
   }
-  .files {
-    padding-left: 22px;
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .head {
-    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    justify-content: flex-start;
     gap: 6px;
-    align-items: center;
+    padding: 4px;
+    border: 0;
+    background: none;
+    font-weight: 400;
     text-align: left;
   }
+  .src {
+    display: inline-flex;
+    color: var(--muted);
+  }
+  .who {
+    display: grid;
+    min-width: 0;
+  }
+  .who strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .meta {
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+  .undo {
+    min-height: 26px;
+    padding: 0 8px;
+    font-size: var(--text-xs);
+  }
+  .files {
+    padding-left: 24px;
+  }
+  .file {
+    min-height: 0;
+    padding: 3px 4px;
+    border: 0;
+    background: none;
+    font-weight: 400;
+    font-size: var(--text-xs);
+    text-align: left;
+    white-space: normal;
+    justify-content: flex-start;
+  }
   .add {
-    color: #2a9d55;
+    color: var(--ok);
   }
   .del {
-    color: #c0392b;
+    color: var(--bad);
   }
   .diff pre {
     white-space: pre-wrap;
     font-size: 12px;
     margin: 4px 0;
     padding: 6px;
-    background: var(--panel);
-    border-radius: 4px;
+    background: var(--sunken);
+    border-radius: var(--r-s);
     max-height: 320px;
     overflow: auto;
   }
   .ins {
-    background: rgba(42, 157, 85, 0.22);
+    background: var(--ok-soft);
+    color: var(--ok);
   }
   .rem {
-    background: rgba(192, 57, 43, 0.22);
+    background: var(--bad-soft);
+    color: var(--bad);
     text-decoration: line-through;
   }
   .sep {
-    color: var(--muted, #888);
+    color: var(--muted);
     font-size: 12px;
   }
 </style>
