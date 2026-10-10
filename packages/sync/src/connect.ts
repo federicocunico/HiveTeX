@@ -1,5 +1,5 @@
-import { type StoredDeviceKeys, fromB64u, open, seal, sign, toB64u, verifyTicket } from '@p2platex/crypto';
-import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@p2platex/protocol';
+import { type StoredDeviceKeys, fromB64u, open, seal, sign, toB64u, verifyTicket } from '@hivetex/crypto';
+import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@hivetex/protocol';
 import { fromUtf8, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
 import { type LinkSignal, RtcLink, type RtcFactory } from './rtc.js';

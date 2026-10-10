@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { DEFAULT_POLICY } from '@p2platex/github';
+  import { DEFAULT_POLICY } from '@hivetex/github';
   import { onMount } from 'svelte';
   import { auth } from '../lib/auth.svelte.js';
   import { connectGithub, disconnectGithub, getGithubToken, githubLink } from '../lib/github.js';

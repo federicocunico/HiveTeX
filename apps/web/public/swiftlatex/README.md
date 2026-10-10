@@ -4,7 +4,7 @@ Prebuilt `swiftlatexpdftex` and `swiftlatexxetex` (pdfTeX / XeTeX compiled to We
 SwiftLaTeX project, release `v20022022`:
 https://github.com/SwiftLaTeX/SwiftLaTeX/releases/tag/v20022022
 
-License: GNU AGPL v3 (SwiftLaTeX, copyright SwiftLab). p2platex is AGPL-3.0-or-later, so this is compatible.
+License: GNU AGPL v3 (SwiftLaTeX, copyright SwiftLab). HiveTeX is AGPL-3.0-or-later, so this is compatible.
 
 SHA-256:
 019ccf66c2981cc3a371ca8983f8a0f191952e28b5df3c0b41c2e3ed80f9be65 *swiftlatexpdftex.js

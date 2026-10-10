@@ -1,4 +1,4 @@
-/** Apply SQL migrations to Neon: DATABASE_URL=... pnpm --filter @p2platex/server migrate (honors NEON_HTTP_ENDPOINT). */
+/** Apply SQL migrations to Neon: DATABASE_URL=... pnpm --filter @hivetex/server migrate (honors NEON_HTTP_ENDPOINT). */
 import { runMigrations } from '../src/db/migrate.js';
 
 const url = process.env.DATABASE_URL;

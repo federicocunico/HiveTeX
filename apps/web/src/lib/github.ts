@@ -1,4 +1,4 @@
-import { open as openEnvelope } from '@p2platex/crypto';
+import { open as openEnvelope } from '@hivetex/crypto';
 import { api, isDesktop } from './api.js';
 import { localKeys } from './keys.js';
 import { secure } from './secure.js';
@@ -17,7 +17,7 @@ const KEY = 'github-tokens';
 
 async function load(): Promise<Tokens | null> {
   try {
-    const raw = isDesktop ? await secure.get(KEY) : sessionStorage.getItem(`p2platex.${KEY}`);
+    const raw = isDesktop ? await secure.get(KEY) : sessionStorage.getItem(`hivetex.${KEY}`);
     return raw ? (JSON.parse(raw) as Tokens) : null;
   } catch {
     return null;
@@ -29,8 +29,8 @@ async function save(t: Tokens | null) {
     if (isDesktop) {
       if (t) await secure.set(KEY, JSON.stringify(t));
       else await secure.delete(KEY);
-    } else if (t) sessionStorage.setItem(`p2platex.${KEY}`, JSON.stringify(t));
-    else sessionStorage.removeItem(`p2platex.${KEY}`);
+    } else if (t) sessionStorage.setItem(`hivetex.${KEY}`, JSON.stringify(t));
+    else sessionStorage.removeItem(`hivetex.${KEY}`);
   } catch {
     /* storage unavailable: the user will be asked to reconnect */
   }

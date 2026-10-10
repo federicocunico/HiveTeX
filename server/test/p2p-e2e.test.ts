@@ -1,12 +1,12 @@
-import { generateDeviceKeys } from '@p2platex/crypto';
+import { generateDeviceKeys } from '@hivetex/crypto';
 import {
   BlobManager,
   ConnectionManager,
   Mesh,
   MemoryPersistence,
   ProjectModel,
-} from '@p2platex/sync';
-import { FakeRtcNetwork, inProcessSocket } from '@p2platex/sync/testing';
+} from '@hivetex/sync';
+import { FakeRtcNetwork, inProcessSocket } from '@hivetex/sync/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/client.js';
 import { MemorySignalBackend, createSignalSession } from '../src/signal/hub.js';

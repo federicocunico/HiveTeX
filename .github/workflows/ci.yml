@@ -37,9 +37,9 @@ jobs:
       - name: Lint, type-check and unit tests
         run: pnpm turbo build lint test
       - name: Svelte type-check
-        run: pnpm --filter @p2platex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
+        run: pnpm --filter @hivetex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
       - name: Web bundle budget
-        run: pnpm --filter @p2platex/web build && pnpm --filter @p2platex/web size
+        run: pnpm --filter @hivetex/web build && pnpm --filter @hivetex/web size
       - name: Dependency audit
         run: pnpm audit --audit-level=high
       - name: Install browser for e2e

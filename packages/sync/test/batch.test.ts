@@ -1,4 +1,4 @@
-import { ROOT_DOC_ID } from '@p2platex/protocol';
+import { ROOT_DOC_ID } from '@hivetex/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MemoryPersistence } from '../src/persistence.js';
 import { ProjectModel } from '../src/model.js';

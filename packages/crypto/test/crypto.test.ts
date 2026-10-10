@@ -45,7 +45,7 @@ describe('verifyTicket', () => {
     const trusted = [{ kid: 'k1', jwk: { ...(await exportJWK(publicKey)), alg: 'EdDSA' } }];
     const mint = (claims: object, o: { kid?: string; exp?: number; iat?: number; key?: CryptoKey } = {}) =>
       new SignJWT({ v: 1, pid: 'p', uid: 'u', uname: 'n', dev: 'd', devX: 'x', devE: 'e', role: 'editor', ep: 1, ...claims })
-        .setProtectedHeader({ alg: 'EdDSA', kid: o.kid ?? 'k1', typ: 'p2platex-ticket' })
+        .setProtectedHeader({ alg: 'EdDSA', kid: o.kid ?? 'k1', typ: 'hivetex-ticket' })
         .setIssuedAt(o.iat ?? Math.floor(Date.now() / 1000))
         .setExpirationTime(o.exp ?? Math.floor(Date.now() / 1000) + 900)
         .sign(o.key ?? privateKey);

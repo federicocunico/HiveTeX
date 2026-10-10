@@ -71,7 +71,7 @@ test('compiles in the browser and shows the PDF with an up-to-date indicator (7.
   await createProject(u.page, uniq('compile-'));
   await addFile(u.page, 'main.tex');
   await u.page.getByRole('treeitem', { name: 'main.tex' }).click();
-  await typeInEditor(u.page, '\\documentclass{article}\n\\begin{document}\nHello from p2platex.\n\\end{document}\n');
+  await typeInEditor(u.page, '\\documentclass{article}\n\\begin{document}\nHello from hivetex.\n\\end{document}\n');
 
   await expect(u.page.getByTestId('statusbar')).toContainText('in-browser TeX');
   await expect(u.page.getByTestId('leader')).toContainText('this device');

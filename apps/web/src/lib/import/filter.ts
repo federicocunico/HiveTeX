@@ -1,4 +1,4 @@
-import { DEFAULT_IGNORES, createIgnoreMatcher } from '@p2platex/sync';
+import { DEFAULT_IGNORES, createIgnoreMatcher } from '@hivetex/sync';
 
 export class ImportError extends Error {}
 

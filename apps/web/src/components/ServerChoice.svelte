@@ -22,7 +22,7 @@
 <div class="server" data-testid="server-choice">
   {#if editing}
     <form onsubmit={save} class="row" style="gap: 6px; align-items: flex-end">
-      <label class="field" style="flex: 1; margin: 0">Server <small>the address of your p2platex deployment</small>
+      <label class="field" style="flex: 1; margin: 0">Server <small>the address of your HiveTeX deployment</small>
         <input type="text" bind:value placeholder="https://your-app.vercel.app" autocomplete="url" data-testid="server-url" required />
       </label>
       <button class="small" type="submit" data-testid="server-save">Use</button>

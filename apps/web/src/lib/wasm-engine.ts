@@ -1,4 +1,4 @@
-import type { CompileEngine, CompileInput, CompileOutput } from '@p2platex/compile';
+import type { CompileEngine, CompileInput, CompileOutput } from '@hivetex/compile';
 import { safeStorage } from './api.js';
 
 /**
@@ -72,7 +72,7 @@ class Runner {
 
 /** Checks that the configured TeX file server answers; without it the in-browser engine cannot load packages. */
 export async function texServerReachable(): Promise<boolean> {
-  const key = 'p2platex.texserver';
+  const key = 'hivetex.texserver';
   try {
     const cached = JSON.parse(sessionStorage.getItem(key) ?? 'null') as { ok: boolean; at: number; url: string } | null;
     if (cached && cached.url === texliveEndpoint() && Date.now() - cached.at < 10 * 60_000) return cached.ok;
@@ -95,7 +95,7 @@ export async function texServerReachable(): Promise<boolean> {
 }
 
 export async function loadWasmEngine(_project: string): Promise<(CompileEngine & { supports: EngineName[] }) | null> {
-  if (safeStorage('p2platex.fakeEngine') === '1') return (await import('./fake-engine.js')).fakeEngine as CompileEngine & { supports: EngineName[] };
+  if (safeStorage('hivetex.fakeEngine') === '1') return (await import('./fake-engine.js')).fakeEngine as CompileEngine & { supports: EngineName[] };
   if (typeof Worker === 'undefined' || typeof WebAssembly === 'undefined') return null;
   if (!(await texServerReachable())) return null;
   const runners: Partial<Record<EngineName, Runner>> = {};

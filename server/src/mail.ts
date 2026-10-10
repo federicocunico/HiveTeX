@@ -19,7 +19,7 @@ export class MemoryMailer implements Mailer {
 }
 
 /** Gmail SMTP using a dedicated account + App Password (2-step verification required). */
-export async function createGmailMailer(user: string, appPassword: string, fromName = 'p2platex'): Promise<Mailer> {
+export async function createGmailMailer(user: string, appPassword: string, fromName = 'HiveTeX'): Promise<Mailer> {
   const nodemailer = await import('nodemailer');
   const transport = nodemailer.createTransport({
     host: 'smtp.gmail.com',
@@ -56,7 +56,7 @@ export function smtpFromEnv(env: NodeJS.ProcessEnv = process.env): SmtpSettings 
       port,
       secure: env.SMTP_SECURE ? env.SMTP_SECURE === '1' || env.SMTP_SECURE === 'true' : port === 465,
       ...(env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD ?? '' } : {}),
-      from: env.SMTP_FROM ?? env.GMAIL_USER ?? 'p2platex@localhost',
+      from: env.SMTP_FROM ?? env.GMAIL_USER ?? 'hivetex@localhost',
     };
   }
   if (env.GMAIL_USER && env.GMAIL_APP_PASSWORD) {
@@ -65,7 +65,7 @@ export function smtpFromEnv(env: NodeJS.ProcessEnv = process.env): SmtpSettings 
   return null;
 }
 
-export async function createSmtpMailer(s: SmtpSettings, fromName = 'p2platex'): Promise<Mailer> {
+export async function createSmtpMailer(s: SmtpSettings, fromName = 'HiveTeX'): Promise<Mailer> {
   const nodemailer = await import('nodemailer');
   const transport = nodemailer.createTransport({
     host: s.host,

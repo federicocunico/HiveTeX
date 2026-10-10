@@ -5,7 +5,7 @@ import {
   toB64u,
   verify,
   verifyTicket,
-} from '@p2platex/crypto';
+} from '@hivetex/crypto';
 import {
   HANDSHAKE_DOMAIN,
   MsgType,
@@ -13,7 +13,7 @@ import {
   type TicketClaims,
   type TrustedKey,
   VIEWER_ALLOWED,
-} from '@p2platex/protocol';
+} from '@hivetex/protocol';
 import { decodeFrame, encodeFrame, jsonBytes, parseJson, utf8 } from './frames.js';
 import type { ChannelName, PeerTransport } from './transport.js';
 

@@ -112,7 +112,7 @@
   }
 
   let loaded: Promise<void> = Promise.resolve();
-  const cacheKey = 'p2platex.projects';
+  const cacheKey = 'hivetex.projects';
 
   async function load() {
     loading = true;

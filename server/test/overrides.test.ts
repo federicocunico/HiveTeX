@@ -46,7 +46,7 @@ describe('local emulator overrides are opt-in', () => {
 
   it('generates a ticket key only for the dev stack', async () => {
     await expect(ensureDevTicketKey({})).rejects.toThrow(/TICKET_SIGNING_JWK/);
-    const env: NodeJS.ProcessEnv = { P2PLATEX_DEV_STACK: '1' };
+    const env: NodeJS.ProcessEnv = { HIVETEX_DEV_STACK: '1' };
     expect(await ensureDevTicketKey(env)).toBe(true);
     expect(JSON.parse(env.TICKET_PUBLIC_JWKS ?? '[]')[0].kid).toBe('dev');
     expect(await ensureDevTicketKey({ TICKET_SIGNING_JWK: '{}' })).toBe(false);

@@ -1,1 +1,1 @@
-export const name = '@p2platex/ui';
+export const name = '@hivetex/ui';

@@ -47,7 +47,7 @@
       if (!u) return void (updateMsg = 'You are up to date.');
       updateMsg = `Version ${u.version} is available. Downloading…`;
       await u.downloadAndInstall();
-      updateMsg = 'Update installed. Restart p2platex to use it.';
+      updateMsg = 'Update installed. Restart HiveTeX to use it.';
     } catch (e) {
       updateMsg = e instanceof Error ? e.message : 'Could not check for updates';
     }
@@ -64,7 +64,7 @@
         const t = new URL(texUrl.trim());
         if (t.protocol !== 'https:' && t.hostname !== 'localhost') throw new Error('The TeX server URL must use https://');
         safeStorage('texliveUrl', t.href.endsWith('/') ? t.href : `${t.href}/`);
-        sessionStorage.removeItem('p2platex.texserver');
+        sessionStorage.removeItem('hivetex.texserver');
       } else safeStorage('texliveUrl', null);
       info = 'Saved. Reload the app for the new settings to take effect.';
     } catch (err) {
@@ -90,7 +90,7 @@
   <form class="card" onsubmit={saveConnection} style="max-width: 420px; margin-top: 16px">
     <h2>Connections</h2>
     {#if isDesktop}
-      <label class="field">p2platex server <small>the hosted control plane (accounts, project lookup, connection setup)</small>
+      <label class="field">HiveTeX server <small>the hosted control plane (accounts, project lookup, connection setup)</small>
         <input type="text" bind:value={serverUrl} placeholder="https://your-app.vercel.app" />
       </label>
     {/if}

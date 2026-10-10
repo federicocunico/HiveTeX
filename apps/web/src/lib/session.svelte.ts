@@ -10,8 +10,8 @@ import {
   measurePerformance,
   parseSyncTeXGz,
   type SyncIndex,
-} from '@p2platex/compile';
-import type { Role, TicketClaims, TrustedKey } from '@p2platex/protocol';
+} from '@hivetex/compile';
+import type { Role, TicketClaims, TrustedKey } from '@hivetex/protocol';
 import {
   BlobManager,
   ChangeLog,
@@ -28,8 +28,8 @@ import {
   type WebSocketLike,
   tauriRtcFactory,
   sha256Hex,
-} from '@p2platex/sync';
-import { BackupAgent, GitHubClient, importRepo, type Binding } from '@p2platex/github';
+} from '@hivetex/sync';
+import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
 import { applyImport, planFor } from './import/apply.js';
 import { classify } from './import/classify.js';
@@ -121,7 +121,7 @@ export class ProjectSession {
   }
 
   async open() {
-    this.store = await IndexedDbPersistence.open(`p2platex-project-${this.project.id}`);
+    this.store = await IndexedDbPersistence.open(`hivetex-project-${this.project.id}`);
     this.model = new ProjectModel(this.store);
     await this.model.init();
     this.refreshFiles();
@@ -137,16 +137,16 @@ export class ProjectSession {
       reg = await ensureRegistered(this.user.id, navigator.userAgent.slice(0, 48));
       const k = await api<{ keys: TrustedKey[] }>('GET', '/keys');
       this.trusted = k.keys;
-      sessionStorage.setItem('p2platex.trusted', JSON.stringify(this.trusted));
+      sessionStorage.setItem('hivetex.trusted', JSON.stringify(this.trusted));
     } catch {
       this.offline = true;
       try {
-        this.trusted = JSON.parse(sessionStorage.getItem('p2platex.trusted') ?? '[]');
+        this.trusted = JSON.parse(sessionStorage.getItem('hivetex.trusted') ?? '[]');
       } catch {
         this.trusted = [];
       }
       // Offline-first: work locally with a throwaway identity until the control plane is reachable.
-      const { generateDeviceKeys } = await import('@p2platex/crypto');
+      const { generateDeviceKeys } = await import('@hivetex/crypto');
       reg = { keys: await generateDeviceKeys(), deviceId: `offline-${crypto.randomUUID()}` };
     }
     this.keys = reg.keys;
@@ -159,7 +159,7 @@ export class ProjectSession {
       trusted: this.trusted,
       getTicket: () => this.ticket,
       // test hook only: shortens the revocation grace period in end-to-end tests
-      ...(Number(localStorage.getItem('p2platex.epochGraceMs')) ? { epochGraceMs: Number(localStorage.getItem('p2platex.epochGraceMs')) } : {}),
+      ...(Number(localStorage.getItem('hivetex.epochGraceMs')) ? { epochGraceMs: Number(localStorage.getItem('hivetex.epochGraceMs')) } : {}),
     });
     this.blobs = new BlobManager(this.mesh, this.store);
     this.mesh.onPeerJoin(() => this.refreshPeers());
@@ -301,7 +301,7 @@ export class ProjectSession {
     const power: 'mains' | 'battery' = 'mains';
     const batteryPct = 100;
 
-    const noOptOut = localStorage.getItem('p2platex.compileForOthers') !== '0';
+    const noOptOut = localStorage.getItem('hivetex.compileForOthers') !== '0';
     this.election = new Election(
       this.mesh,
       {
@@ -420,7 +420,7 @@ export class ProjectSession {
   }
 
   setCompileForOthers(on: boolean) {
-    localStorage.setItem('p2platex.compileForOthers', on ? '1' : '0');
+    localStorage.setItem('hivetex.compileForOthers', on ? '1' : '0');
     this.election.update({ optOut: !on });
   }
 
@@ -486,7 +486,7 @@ export class ProjectSession {
   private startManager() {
     if (this.manager || this.paused || !this.deviceId || this.deviceId.startsWith('offline-')) return;
     // Some system webviews (notably WebKitGTK on Linux) lack WebRTC: the desktop app then uses the Rust stack.
-    const useRust = isDesktop && (typeof RTCPeerConnection === 'undefined' || localStorage.getItem('p2platex.rtc') === 'rust');
+    const useRust = isDesktop && (typeof RTCPeerConnection === 'undefined' || localStorage.getItem('hivetex.rtc') === 'rust');
     let rtcFactory: RtcFactory = (ice) => new RTCPeerConnection({ iceServers: ice as RTCIceServer[] }) as unknown as ReturnType<RtcFactory>;
     if (useRust) {
       rtcFactory = (ice) => {
@@ -538,7 +538,7 @@ export class ProjectSession {
     if (c.kind === 'text') {
       const existing = this.model.find(path);
       if (existing?.kind === 'text') {
-        const { applyTextDiff } = await import('@p2platex/sync');
+        const { applyTextDiff } = await import('@hivetex/sync');
         applyTextDiff(await this.model.openText(existing.id), c.text);
       } else await this.model.createTextNow(path, c.text);
     } else await this.addBinary(path, bytes);

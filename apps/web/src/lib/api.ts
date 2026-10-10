@@ -75,7 +75,7 @@ export class ApiError extends Error {
 }
 
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'X-Requested-With': 'p2platex' };
+  const headers: Record<string, string> = { 'X-Requested-With': 'hivetex' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
   let res: Response;

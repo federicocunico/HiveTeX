@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Bundles the control plane for the Vercel function (`api/index.ts` imports the result). The workspace packages
- * (@p2platex/*) ship TypeScript source, which Vercel does not compile inside node_modules, so they are inlined here
+ * (@hivetex/*) ship TypeScript source, which Vercel does not compile inside node_modules, so they are inlined here
  * with their own dependencies; the server's direct npm dependencies stay external so Vercel traces them (argon2 is native).
  */
 import { build } from 'esbuild';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The server's own npm dependencies stay external (Vercel installs and traces them); everything else is inlined.
-const serverDeps = Object.keys(JSON.parse(readFileSync(join(root, 'server/package.json'), 'utf8')).dependencies ?? {}).filter((d) => !d.startsWith('@p2platex/'));
+const serverDeps = Object.keys(JSON.parse(readFileSync(join(root, 'server/package.json'), 'utf8')).dependencies ?? {}).filter((d) => !d.startsWith('@hivetex/'));
 const isServerDep = (p) => serverDeps.some((d) => p === d || p.startsWith(d + '/'));
 await build({
   entryPoints: [join(root, 'server/src/index.ts')],

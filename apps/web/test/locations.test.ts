@@ -19,7 +19,7 @@ describe('per-device project locations', () => {
   it('migrates the old localStorage mirror entries once', async () => {
     const f = new IDBFactory();
     const data = new Map([
-      ['p2platex.mirror.abc', 'C:\\Users\\me\\thesis'],
+      ['hivetex.mirror.abc', 'C:\\Users\\me\\thesis'],
       ['other', 'x'],
     ]);
     const storage = {
@@ -32,7 +32,7 @@ describe('per-device project locations', () => {
     };
     expect(await migrateLegacyMirrors(storage, f)).toBe(1);
     expect(await getLocation('abc', f)).toEqual({ kind: 'folder', label: 'thesis', desktopPath: 'C:\\Users\\me\\thesis' });
-    expect(data.has('p2platex.mirror.abc')).toBe(false);
+    expect(data.has('hivetex.mirror.abc')).toBe(false);
     expect(await migrateLegacyMirrors(storage, f)).toBe(0);
     expect(folderLabel('/home/me/paper/')).toBe('paper');
   });

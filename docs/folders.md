@@ -33,7 +33,7 @@ they become the project's files). Then **Create project**.
   form is prefilled with its ID. Enter the project password and the folder is used for it.
 
 What gets imported follows the mirror rules: `.git/`, `.claude/`, `.cursor/`, `.vscode/`, `node_modules/`, LaTeX build
-files and `.p2platexignore` patterns stay out. Files larger than 50 MB are skipped with a notice.
+files and `.hivetexignore` patterns stay out. Files larger than 50 MB are skipped with a notice.
 
 ## The Location menu
 
@@ -46,9 +46,9 @@ In a project, the toolbar button **📁 folder ▾** (or **In the app ▾**) sho
 
 The projects page shows a **📁 badge** next to projects that use a folder on this device.
 
-## The `.p2platex.json` marker
+## The `.hivetex.json` marker
 
-A folder used by a project contains a small `.p2platex.json`:
+A folder used by a project contains a small `.hivetex.json`:
 
 ```json
 {
@@ -60,6 +60,9 @@ A folder used by a project contains a small `.p2platex.json`:
 This is how **Open folder…** recognizes a project folder. The GitHub backup writes the same marker (plus the list of
 files it manages), so cloning the backup repository and opening the clone takes you to the project. The marker is
 bookkeeping: it is never a project file and never synced as one. You can commit it.
+
+Folders and repositories from before HiveTeX was renamed (from p2platex) keep working: `.p2platex.json` and
+`.p2platexignore` are still read. The marker is replaced by `.hivetex.json` the next time the folder is bound or backed up.
 
 ## Edits made while the app was closed
 

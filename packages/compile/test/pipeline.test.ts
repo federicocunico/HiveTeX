@@ -1,5 +1,5 @@
-import { BlobManager } from '@p2platex/sync';
-import { type Node, Net } from '@p2platex/sync/testkit';
+import { BlobManager } from '@hivetex/sync';
+import { type Node, Net } from '@hivetex/sync/testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   type CompileEngine,

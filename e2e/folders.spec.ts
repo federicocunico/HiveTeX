@@ -67,7 +67,7 @@ test('web folders: create in a folder, external edits sync, reopen re-binds, sto
   await page.getByRole('treeitem', { name: 'main.tex' }).click();
   await typeInEditor(page, 'Written in the app.');
   await expect.poll(() => readExternal(page, dir, 'main.tex'), { timeout: 10_000 }).toContain('Written in the app.');
-  await expect.poll(async () => JSON.parse((await readExternal(page, dir, '.p2platex.json')) ?? '{}').project?.slug).toBe(slug);
+  await expect.poll(async () => JSON.parse((await readExternal(page, dir, '.hivetex.json')) ?? '{}').project?.slug).toBe(slug);
 
   // folder -> project (an AI tool rewrites the file); no lock, no staging
   await writeExternal(page, dir, 'main.tex', 'Rewritten by the AI tool.\n');

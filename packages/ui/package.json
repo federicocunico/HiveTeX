@@ -1,5 +1,5 @@
 {
-  "name": "@p2platex/ui",
+  "name": "@hivetex/ui",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,5 +9,5 @@
     "lint": "biome lint src",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@p2platex/protocol": "workspace:*" }
+  "dependencies": { "@hivetex/protocol": "workspace:*" }
 }

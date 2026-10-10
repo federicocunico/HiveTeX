@@ -1,5 +1,5 @@
 export interface Config {
-  /** Public origin of the web app, e.g. https://p2platex.vercel.app */
+  /** Public origin of the web app, e.g. https://hivetex.vercel.app */
   appOrigin: string;
   /** Extra origins allowed to call the API (desktop webview). */
   extraOrigins: string[];

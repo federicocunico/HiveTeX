@@ -178,7 +178,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
-            app.manage(PickedFolders::load(dir.join("picked-folders.json")));
+            let picked = dir.join("picked-folders.json");
+            adopt_legacy_file(&picked, LEGACY_IDENTIFIER);
+            app.manage(PickedFolders::load(picked));
             Ok(())
         })
         .manage(MirrorState::default())
@@ -211,10 +213,50 @@ pub fn run() {
             secret_delete
         ])
         .run(tauri::generate_context!())
-        .expect("error while running p2platex");
+        .expect("error while running HiveTeX");
 }
 
-/// Desktop UI tests: the "picked" folder is `$P2PLATEX_TEST_PICK_DIR`, or the sub-folder named in its `.next-pick`
+/// Bundle identifier before the product was renamed (p2platex): its app-data folder is a sibling of the current one.
+const LEGACY_IDENTIFIER: &str = "app.p2platex.desktop";
+
+/// Copies `file` from the previous identifier's app-data folder when the current one has none yet (once: after the
+/// copy, the current file exists). Folders the user picked under the old name stay allowed.
+fn adopt_legacy_file(file: &std::path::Path, legacy_identifier: &str) {
+    if file.exists() {
+        return;
+    }
+    let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else { return };
+    let Some(legacy) = dir.parent().map(|p| p.join(legacy_identifier).join(name)) else { return };
+    if legacy.is_file() {
+        let _ = std::fs::create_dir_all(dir);
+        let _ = std::fs::copy(&legacy, file);
+    }
+}
+
+#[cfg(test)]
+mod legacy_tests {
+    #[test]
+    fn picked_folders_are_adopted_from_the_previous_identifier_once() {
+        let base = std::env::temp_dir().join(format!("hivetex-legacy-{}", std::process::id()));
+        let old = base.join("app.p2platex.desktop");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("picked-folders.json"), "[\"C:/thesis\"]").unwrap();
+        let new_file = base.join("app.hivetex.desktop").join("picked-folders.json");
+        super::adopt_legacy_file(&new_file, "app.p2platex.desktop");
+        assert_eq!(std::fs::read_to_string(&new_file).unwrap(), "[\"C:/thesis\"]");
+        // later changes under the new name are never overwritten by the old file
+        std::fs::write(&new_file, "[]").unwrap();
+        super::adopt_legacy_file(&new_file, "app.p2platex.desktop");
+        assert_eq!(std::fs::read_to_string(&new_file).unwrap(), "[]");
+        // nothing to adopt: no file is created
+        let other = base.join("fresh").join("picked-folders.json");
+        super::adopt_legacy_file(&other, "missing.identifier");
+        assert!(!other.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+/// Desktop UI tests: the "picked" folder is `$HIVETEX_TEST_PICK_DIR`, or the sub-folder named in its `.next-pick`
 /// file (consumed), so a test can choose a different folder for each pick. Only compiled with `--features test-picker`.
 #[cfg(feature = "test-picker")]
 mod test_picker {
@@ -224,7 +266,7 @@ mod test_picker {
         // `--test-pick-dir <dir>` (WebDriver drivers forward app arguments, not always the environment) or the variable.
         let mut args = std::env::args_os().skip_while(|a| a != "--test-pick-dir");
         let from_args = args.nth(1);
-        let base = PathBuf::from(from_args.or_else(|| std::env::var_os("P2PLATEX_TEST_PICK_DIR"))?);
+        let base = PathBuf::from(from_args.or_else(|| std::env::var_os("HIVETEX_TEST_PICK_DIR"))?);
         let next = base.join(".next-pick");
         let dir = match std::fs::read_to_string(&next) {
             Ok(name) => {

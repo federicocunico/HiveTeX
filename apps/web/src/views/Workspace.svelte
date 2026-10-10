@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { type PdfPosition, forwardSearch, parseSyncTeXGz, reverseSearch } from '@p2platex/compile';
-  import type { FileEntry, HistorySnapshot } from '@p2platex/sync';
+  import { type PdfPosition, forwardSearch, parseSyncTeXGz, reverseSearch } from '@hivetex/compile';
+  import type { FileEntry, HistorySnapshot } from '@hivetex/sync';
   import { onDestroy, onMount } from 'svelte';
   import ChangesPanel from '../components/ChangesPanel.svelte';
   import FileTree from '../components/FileTree.svelte';
@@ -64,10 +64,10 @@
       try {
         const r = await api<{ project: ProjectInfo }>('GET', `/projects/${projectId}`);
         info = r.project;
-        localStorage.setItem(`p2platex.proj.${projectId}`, JSON.stringify(info));
+        localStorage.setItem(`hivetex.proj.${projectId}`, JSON.stringify(info));
       } catch (e) {
         if (e instanceof ApiError && e.status === 0) {
-          const raw = localStorage.getItem(`p2platex.proj.${projectId}`);
+          const raw = localStorage.getItem(`hivetex.proj.${projectId}`);
           if (raw) info = JSON.parse(raw) as ProjectInfo;
         } else throw e;
       }
@@ -77,12 +77,12 @@
       const s = new ProjectSession(info, auth.user);
       await s.open();
       session = s;
-      if (localStorage.getItem('p2platex.test') === '1') (window as unknown as { __p2p: unknown }).__p2p = {
+      if (localStorage.getItem('hivetex.test') === '1') (window as unknown as { __p2p: unknown }).__p2p = {
           session: s,
           compile: { parseSyncTeXGz, forwardSearch, reverseSearch },
           // e2e: simulate an external tool editing the bound folder (same origin the folder mirror uses)
           folderEdit: async (path: string, text: string) => {
-            const { applyTextDiff, MIRROR_ORIGIN } = await import('@p2platex/sync');
+            const { applyTextDiff, MIRROR_ORIGIN } = await import('@hivetex/sync');
             const f = s.model.find(path);
             if (f) applyTextDiff(await s.model.openText(f.id), text, MIRROR_ORIGIN);
           },

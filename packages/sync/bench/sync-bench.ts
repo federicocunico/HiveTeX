@@ -1,5 +1,5 @@
 /**
- * Group-scale sync benchmark: `pnpm --filter @p2platex/sync bench` (or `make bench`).
+ * Group-scale sync benchmark: `pnpm --filter @hivetex/sync bench` (or `make bench`).
  * Measures, for 2..16 fully connected peers on the in-memory transport, how long a keystroke takes to reach every
  * other peer, how many messages each keystroke costs, and how fast concurrent typing by everyone converges.
  * Run once with immediate delivery (cost of the sync stack itself) and once with simulated one-way latency

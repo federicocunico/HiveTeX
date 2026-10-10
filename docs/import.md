@@ -1,6 +1,6 @@
 # Importing existing projects
 
-You can bring existing LaTeX sources into p2platex when you **create a project** (the *Start from existing sources*
+You can bring existing LaTeX sources into HiveTeX when you **create a project** (the *Start from existing sources*
 fields) or, if you are an owner or editor, **inside an open project** with **Import…** in the toolbar. Uploading or
 dropping files and folders on the file tree goes through the same steps.
 

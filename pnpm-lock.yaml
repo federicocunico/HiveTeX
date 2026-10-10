@@ -8,7 +8,7 @@ importers:
 
   .:
     dependencies:
-      '@p2platex/server':
+      '@hivetex/server':
         specifier: workspace:*
         version: link:server
       hono:
@@ -72,19 +72,19 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.14
         version: 6.43.14
-      '@p2platex/compile':
+      '@hivetex/compile':
         specifier: workspace:*
         version: link:../../packages/compile
-      '@p2platex/crypto':
+      '@hivetex/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
-      '@p2platex/github':
+      '@hivetex/github':
         specifier: workspace:*
         version: link:../../packages/github
-      '@p2platex/protocol':
+      '@hivetex/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@p2platex/sync':
+      '@hivetex/sync':
         specifier: workspace:*
         version: link:../../packages/sync
       '@tauri-apps/api':
@@ -130,14 +130,14 @@ importers:
 
   packages/compile:
     dependencies:
-      '@p2platex/protocol':
+      '@hivetex/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@p2platex/sync':
+      '@hivetex/sync':
         specifier: workspace:*
         version: link:../sync
     devDependencies:
-      '@p2platex/crypto':
+      '@hivetex/crypto':
         specifier: workspace:*
         version: link:../crypto
       '@types/node':
@@ -149,15 +149,15 @@ importers:
 
   packages/crypto:
     dependencies:
+      '@hivetex/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@noble/curves':
         specifier: ^2.4.0
         version: 2.4.0
       '@noble/hashes':
         specifier: ^2.4.0
         version: 2.4.0
-      '@p2platex/protocol':
-        specifier: workspace:*
-        version: link:../protocol
       jose:
         specifier: ^6.2.12
         version: 6.2.12
@@ -168,14 +168,14 @@ importers:
 
   packages/github:
     dependencies:
-      '@p2platex/crypto':
+      '@hivetex/crypto':
         specifier: workspace:*
         version: link:../crypto
-      '@p2platex/protocol':
+      '@hivetex/protocol':
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
-      '@p2platex/sync':
+      '@hivetex/sync':
         specifier: workspace:*
         version: link:../sync
       '@types/node':
@@ -193,10 +193,10 @@ importers:
 
   packages/sync:
     dependencies:
-      '@p2platex/crypto':
+      '@hivetex/crypto':
         specifier: workspace:*
         version: link:../crypto
-      '@p2platex/protocol':
+      '@hivetex/protocol':
         specifier: workspace:*
         version: link:../protocol
       diff-match-patch:
@@ -239,12 +239,18 @@ importers:
 
   packages/ui:
     dependencies:
-      '@p2platex/protocol':
+      '@hivetex/protocol':
         specifier: workspace:*
         version: link:../protocol
 
   server:
     dependencies:
+      '@hivetex/crypto':
+        specifier: workspace:*
+        version: link:../packages/crypto
+      '@hivetex/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
       '@hono/node-server':
         specifier: ^2.1.4
         version: 2.1.4(hono@4.13.13)
@@ -254,12 +260,6 @@ importers:
       '@node-rs/argon2':
         specifier: ^2.2.2
         version: 2.2.2
-      '@p2platex/crypto':
-        specifier: workspace:*
-        version: link:../packages/crypto
-      '@p2platex/protocol':
-        specifier: workspace:*
-        version: link:../packages/protocol
       '@upstash/ratelimit':
         specifier: ^2.2.0
         version: 2.2.0(@upstash/redis@1.39.0)
@@ -291,7 +291,7 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
-      '@p2platex/sync':
+      '@hivetex/sync':
         specifier: workspace:*
         version: link:../packages/sync
       '@types/node':

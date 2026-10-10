@@ -1,7 +1,7 @@
-import type { CompileEngine, CompileInput, CompileOutput } from '@p2platex/compile';
+import type { CompileEngine, CompileInput, CompileOutput } from '@hivetex/compile';
 
 /**
- * Deterministic stand-in for a TeX engine, enabled only by `localStorage['p2platex.fakeEngine'] = '1'`.
+ * Deterministic stand-in for a TeX engine, enabled only by `localStorage['hivetex.fakeEngine'] = '1'`.
  * It renders the main file's text into a minimal valid PDF so end-to-end tests of election, distribution,
  * preview and staleness do not depend on a TeX installation or network access.
  */

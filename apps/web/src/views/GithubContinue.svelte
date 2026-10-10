@@ -34,7 +34,7 @@
     <p class="muted">Linking your GitHub account…</p>
   {:else if status === 'ok'}
     <div class="notice" role="status" data-testid="github-continue-ok">{message || 'GitHub linked.'}</div>
-    <p class="muted">You can close this window and go back to p2platex (web or desktop): the backup settings update automatically.</p>
+    <p class="muted">You can close this window and go back to HiveTeX (web or desktop): the backup settings update automatically.</p>
   {:else}
     <div class="error" role="alert" data-testid="github-continue-error">{message}</div>
     <p class="muted">Nothing was linked. Start again from <em>Project settings → GitHub</em>, signed in with your own account.</p>

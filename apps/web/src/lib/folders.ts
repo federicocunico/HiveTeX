@@ -1,4 +1,4 @@
-import { type FolderMarker, MARKER_FILE, parseMarker } from '@p2platex/sync';
+import { type FolderMarker, LEGACY_MARKER_FILE, MARKER_FILE, parseMarker } from '@hivetex/sync';
 import { isDesktop } from './api.js';
 import { folderAccessSupported, pickDirectory } from './fs-access.js';
 import { type Location, folderLabel, setLocation } from './locations.js';
@@ -18,22 +18,34 @@ export async function pickProjectFolder(title = 'Choose a folder'): Promise<Pick
   return handle ? { label: handle.name, handle } : null;
 }
 
-/** Reads the `.p2platex.json` marker of a picked folder (null when the folder is not a project folder yet). */
+/**
+ * Reads the `.hivetex.json` marker of a picked folder, or its name from before the product was renamed
+ * (null when the folder is not a project folder yet). Binding the folder later replaces an old marker.
+ */
 export async function readFolderMarker(f: PickedFolder): Promise<FolderMarker | null> {
+  const names = [MARKER_FILE, LEGACY_MARKER_FILE];
   if ('handle' in f) {
-    try {
-      const file = await (await f.handle.getFileHandle(MARKER_FILE)).getFile();
-      return parseMarker(new Uint8Array(await file.arrayBuffer()));
-    } catch {
-      return null;
+    for (const name of names) {
+      try {
+        const file = await (await f.handle.getFileHandle(name)).getFile();
+        const marker = parseMarker(new Uint8Array(await file.arrayBuffer()));
+        if (marker) return marker;
+      } catch {
+        /* not there */
+      }
     }
+    return null;
   }
   const { invoke } = await import('@tauri-apps/api/core');
   const id = `marker-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   await invoke('mirror_bind', { id, dir: f.desktopPath });
   try {
-    const b64 = await invoke<string | null>('mirror_read', { id, path: MARKER_FILE });
-    return b64 === null ? null : parseMarker(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+    for (const name of names) {
+      const b64 = await invoke<string | null>('mirror_read', { id, path: name });
+      const marker = b64 === null ? null : parseMarker(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+      if (marker) return marker;
+    }
+    return null;
   } finally {
     await invoke('mirror_unbind', { id });
   }

@@ -1,5 +1,5 @@
-import type { StoredDeviceKeys } from '@p2platex/crypto';
-import { MsgType, ROOT_DOC_ID, type TicketClaims, type TrustedKey } from '@p2platex/protocol';
+import type { StoredDeviceKeys } from '@hivetex/crypto';
+import { MsgType, ROOT_DOC_ID, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import {
   Awareness,
   applyAwarenessUpdate,

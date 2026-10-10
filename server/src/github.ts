@@ -1,4 +1,4 @@
-import { generateDeviceKeys, seal } from '@p2platex/crypto';
+import { generateDeviceKeys, seal } from '@hivetex/crypto';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import * as v from 'valibot';
@@ -125,7 +125,7 @@ githubRoutes.delete('/link', async (c) => {
   return c.json({ ok: true });
 });
 
-const ghHeaders = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'p2platex' });
+const ghHeaders = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'hivetex' });
 
 interface Tokens {
   access_token: string;
@@ -137,7 +137,7 @@ interface Tokens {
 async function exchange(f: typeof fetch, g: GithubConfig, extra: Record<string, string>): Promise<Tokens> {
   const res = await f('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'p2platex' },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'hivetex' },
     body: JSON.stringify({ client_id: g.clientId, client_secret: g.clientSecret, ...extra }),
     signal: AbortSignal.timeout(8000),
   });

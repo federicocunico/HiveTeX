@@ -1,6 +1,6 @@
 # Real-time performance
 
-p2platex promises real-time collaboration: an edit should appear on every co-author's screen within a blink, for
+HiveTeX promises real-time collaboration: an edit should appear on every co-author's screen within a blink, for
 a realistic group of authors. This page records what was measured, how, and how to measure it again.
 
 ## Results (2026-10-09, Windows 11, Node 22, Chromium 1.64)
@@ -25,7 +25,7 @@ spec) and that every user ends with identical text containing all 70 concurrent 
 
 ### Sync stack at group scale: `make bench`
 
-In-memory transport, full mesh. "Immediate delivery" shows the cost of p2platex's sync stack itself. The second table
+In-memory transport, full mesh. "Immediate delivery" shows the cost of HiveTeX's sync stack itself. The second table
 simulates 20 ms one-way network latency (Windows rounds `setTimeout(20)` up to ~31 ms).
 
 Sync stack only:

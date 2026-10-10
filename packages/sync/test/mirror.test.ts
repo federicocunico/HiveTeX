@@ -98,12 +98,12 @@ describe('local folder mirror (9.3)', () => {
     await waitFor(async () => bt.toString() === 'AAA\nBBB-edited\nCCC\nDDD');
   });
 
-  it('ignores build artifacts, tool folders and patterns from .p2platexignore', async () => {
+  it('ignores build artifacts, tool folders and patterns from .hivetexignore', async () => {
     net = await Net.create();
     const [a, b] = [await net.add('alice', 'owner'), await net.add('bob', 'editor')];
     await net.link(a, b);
     const dir = await tmp();
-    await writeFile(join(dir, '.p2platexignore'), 'drafts/\nscratch.tex\n');
+    await writeFile(join(dir, '.hivetexignore'), 'drafts/\nscratch.tex\n');
     await bind(a, dir);
     for (const [p, c] of [
       ['main.aux', 'x'],
@@ -119,7 +119,7 @@ describe('local folder mirror (9.3)', () => {
     }
     await waitFor(() => !!b.model.find('keep.tex'));
     await sleep(300);
-    expect(b.model.list().map((f) => f.path).sort()).toEqual(['.p2platexignore', 'keep.tex']);
+    expect(b.model.list().map((f) => f.path).sort()).toEqual(['.hivetexignore', 'keep.tex']);
   });
 
   it('reverts local changes made by a read-only member and tells them', async () => {
@@ -182,16 +182,16 @@ describe('project folders (local-folder-projects)', () => {
     net = await Net.create();
     const [a] = [await net.add('alice', 'owner')];
     const dir = await tmp();
-    await writeFile(join(dir, '.p2platex.json'), JSON.stringify({ version: 1, paths: ['main.tex'] }));
+    await writeFile(join(dir, '.hivetex.json'), JSON.stringify({ version: 1, paths: ['main.tex'] }));
     await a.model.createTextNow('main.tex', 'x');
     const blobs = new BlobManager(a.mesh, a.store);
     const m = new MirrorSync({ model: a.model, mesh: a.mesh, blobs, fs: nodeFs(dir), getRole: () => 'owner', debounceMs: 30, marker: { id: 'p123', slug: 'my-paper' } });
     mirrors.push(m);
     await m.start();
-    const marker = JSON.parse((await read(dir, '.p2platex.json')) as string);
+    const marker = JSON.parse((await read(dir, '.hivetex.json')) as string);
     expect(marker).toMatchObject({ version: 2, project: { id: 'p123', slug: 'my-paper' }, paths: ['main.tex'] });
     await new Promise((r) => setTimeout(r, 150));
-    expect(a.model.find('.p2platex.json')).toBeUndefined();
+    expect(a.model.find('.hivetex.json')).toBeUndefined();
   });
 
   it('merges edits made in the folder while the app was closed with co-author edits made meanwhile', async () => {
@@ -233,4 +233,38 @@ describe('project folders (local-folder-projects)', () => {
     await waitFor(() => notices.some((n) => n.includes('huge.bin')), 8000);
     expect(a.model.find('huge.bin')).toBeUndefined();
   }, 20_000);
+});
+
+describe('folders from before the rename (p2platex)', () => {
+  it('replaces the old marker, keeping its fields, and never syncs either one', async () => {
+    net = await Net.create();
+    const [a] = [await net.add('alice', 'owner')];
+    const dir = await tmp();
+    await writeFile(join(dir, '.p2platex.json'), JSON.stringify({ version: 2, project: { id: 'p123', slug: 'my-paper' }, paths: ['main.tex'] }));
+    await a.model.createTextNow('main.tex', 'x');
+    const blobs = new BlobManager(a.mesh, a.store);
+    const m = new MirrorSync({ model: a.model, mesh: a.mesh, blobs, fs: nodeFs(dir), getRole: () => 'owner', debounceMs: 30, marker: { id: 'p123', slug: 'my-paper' } });
+    mirrors.push(m);
+    await m.start();
+    expect(JSON.parse((await read(dir, '.hivetex.json')) as string)).toMatchObject({ project: { id: 'p123' }, paths: ['main.tex'] });
+    expect(await read(dir, '.p2platex.json')).toBeNull();
+    await sleep(150);
+    expect(a.model.find('.hivetex.json')).toBeUndefined();
+    expect(a.model.find('.p2platex.json')).toBeUndefined();
+  });
+
+  it('applies the patterns of an old .p2platexignore', async () => {
+    net = await Net.create();
+    const [a, b] = [await net.add('alice', 'owner'), await net.add('bob', 'editor')];
+    await net.link(a, b);
+    const dir = await tmp();
+    await writeFile(join(dir, '.p2platexignore'), 'drafts/\n');
+    await bind(a, dir);
+    await mkdir(join(dir, 'drafts'), { recursive: true });
+    await writeFile(join(dir, 'drafts/idea.tex'), 'secret idea');
+    await writeFile(join(dir, 'keep.tex'), 'keep me');
+    await waitFor(() => !!b.model.find('keep.tex'));
+    await sleep(300);
+    expect(b.model.find('drafts/idea.tex')).toBeUndefined();
+  });
 });

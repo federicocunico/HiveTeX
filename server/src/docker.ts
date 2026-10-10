@@ -16,7 +16,7 @@ import { createSignalSession } from './signal/hub.js';
 /** Dev stack only: an ephemeral ticket key when none is configured (tickets just stop verifying after a restart). */
 export async function ensureDevTicketKey(env: NodeJS.ProcessEnv = process.env) {
   if (env.TICKET_SIGNING_JWK) return false;
-  if (env.P2PLATEX_DEV_STACK !== '1') throw new Error('TICKET_SIGNING_JWK is required');
+  if (env.HIVETEX_DEV_STACK !== '1') throw new Error('TICKET_SIGNING_JWK is required');
   const { publicKey, privateKey } = await generateKeyPair('EdDSA', { extractable: true });
   const kid = env.TICKET_KID ?? 'dev';
   env.TICKET_KID = kid;
@@ -62,7 +62,7 @@ export async function startDocker(port = Number(process.env.PORT ?? 3000)) {
       ws.on('close', () => void h.onClose());
     });
   });
-  console.log(`[stack] p2platex API (production wiring) on http://0.0.0.0:${port}`);
+  console.log(`[stack] HiveTeX API (production wiring) on http://0.0.0.0:${port}`);
   return server;
 }
 

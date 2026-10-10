@@ -11,12 +11,12 @@ COPY packages/sync/package.json packages/sync/
 COPY packages/compile/package.json packages/compile/
 COPY packages/github/package.json packages/github/
 COPY packages/ui/package.json packages/ui/
-RUN pnpm install --frozen-lockfile --filter "@p2platex/web..." --ignore-scripts
+RUN pnpm install --frozen-lockfile --filter "@hivetex/web..." --ignore-scripts
 COPY packages packages
 COPY apps/web apps/web
 ARG VITE_TEXLIVE_URL=
 ENV VITE_TEXLIVE_URL=$VITE_TEXLIVE_URL
-RUN pnpm --filter @p2platex/web build
+RUN pnpm --filter @hivetex/web build
 
 FROM nginx:1.27-alpine
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template

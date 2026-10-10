@@ -9,9 +9,9 @@ export const uniq = (p: string) => `${p}${Date.now().toString(36)}${n++}`.toLowe
 export async function newUser(context: BrowserContext, prefix = 'user') {
   const page = await context.newPage();
   await page.addInitScript(() => {
-    localStorage.setItem('p2platex.test', '1');
-    localStorage.setItem('p2platex.fakeEngine', '1');
-    localStorage.setItem('p2platex.epochGraceMs', '4000');
+    localStorage.setItem('hivetex.test', '1');
+    localStorage.setItem('hivetex.fakeEngine', '1');
+    localStorage.setItem('hivetex.epochGraceMs', '4000');
   });
   const username = uniq(prefix);
   await page.goto('/#/register');

@@ -1,19 +1,19 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "p2platex",
+  "productName": "HiveTeX",
   "version": "0.1.1",
-  "identifier": "app.p2platex.desktop",
+  "identifier": "app.hivetex.desktop",
   "build": {
-    "beforeDevCommand": "npx pnpm@10 --filter @p2platex/web dev",
+    "beforeDevCommand": "npx pnpm@10 --filter @hivetex/web dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npx pnpm@10 --filter @p2platex/web build",
+    "beforeBuildCommand": "npx pnpm@10 --filter @hivetex/web build",
     "frontendDist": "../../web/dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "p2platex",
+        "title": "HiveTeX",
         "width": 1280,
         "height": 800,
         "dragDropEnabled": false

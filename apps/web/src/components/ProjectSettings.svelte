@@ -24,7 +24,7 @@
   let confirmDelete = $state(false);
   let engine = $state(String(session.model.settings.get('engine') ?? 'pdflatex'));
   let main = $state(String(session.model.settings.get('main') ?? 'main.tex'));
-  let compileForOthers = $state(localStorage.getItem('p2platex.compileForOthers') !== '0');
+  let compileForOthers = $state(localStorage.getItem('hivetex.compileForOthers') !== '0');
   const isOwner = $derived(session.role === 'owner');
   const pid = session.project.id;
 

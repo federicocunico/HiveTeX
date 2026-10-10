@@ -29,7 +29,7 @@ describe('GitHub backup push (10.2)', () => {
     const state = gh.repo('octocat/paper').files('main');
     expect(state['main.tex']).toBe('v1');
     expect(state['figs/a.png']).toBe('PNG');
-    expect(JSON.parse(state['.p2platex.json'] as string).paths).toEqual(['figs/a.png', 'main.tex']);
+    expect(JSON.parse(state['.hivetex.json'] as string).paths).toEqual(['figs/a.png', 'main.tex']);
     const head = gh.repo('octocat/paper').refs.get('main') as string;
     expect(gh.repo('octocat/paper').commits.get(head)?.message).toContain(BACKUP_TRAILER);
   });
@@ -38,7 +38,7 @@ describe('GitHub backup push (10.2)', () => {
     gh.repo('octocat/paper', { empty: true });
     const project = { id: 'p-123', slug: 'my-paper-2026' };
     await pushBackup(client, repo, 'main', files({ 'main.tex': 'v1' }), { message: 'm', project });
-    const marker = JSON.parse(gh.repo('octocat/paper').files('main')['.p2platex.json'] as string);
+    const marker = JSON.parse(gh.repo('octocat/paper').files('main')['.hivetex.json'] as string);
     expect(marker).toEqual({ version: 2, project, paths: ['main.tex'] });
     const got = await importRepo(client, repo, 'main');
     expect([...got.keys()]).toEqual(['main.tex']); // the marker is bookkeeping, never a project file
@@ -75,7 +75,7 @@ describe('GitHub backup push (10.2)', () => {
     expect(target.LICENSE).toBe('MIT');
   });
 
-  it('never force-pushes: foreign commits on the bound branch divert the backup to p2platex/backup', async () => {
+  it('never force-pushes: foreign commits on the bound branch divert the backup to hivetex/backup', async () => {
     const r = gh.repo('octocat/paper', { empty: true });
     const first = await pushBackup(client, repo, 'main', files({ 'a.tex': 'A' }), { message: 'm' });
     const foreign = gh.foreignCommit('octocat/paper', 'main', { 'README.md': 'edited online' });
@@ -91,7 +91,7 @@ describe('GitHub backup push (10.2)', () => {
     expect(r.files(BACKUP_BRANCH)['a.tex']).toBe('A3');
   });
 
-  it('continues normally when the head was pushed by another p2platex device', async () => {
+  it('continues normally when the head was pushed by another HiveTeX device', async () => {
     const r = gh.repo('octocat/paper', { empty: true });
     const a = await pushBackup(client, repo, 'main', files({ 'a.tex': 'A' }), { message: 'device 1' });
     const b = await pushBackup(client, repo, 'main', files({ 'a.tex': 'B' }), { message: 'device 2', lastSha: a.commit });
@@ -133,5 +133,31 @@ describe('GitHub import (10.6 groundwork)', () => {
     gh.repo('octocat/paper', { empty: true });
     await pushBackup(client, repo, 'main', files({ 'a.tex': 'A' }), { message: 'm' });
     await expect(importRepo(client, repo, 'nope')).rejects.toThrow(/not found/);
+  });
+});
+
+describe('repositories from before the rename (p2platex)', () => {
+  it('treats old backup commits as its own, reads the old manifest and replaces it', async () => {
+    const r = gh.repo('octocat/paper', { empty: true });
+    // a backup made under the previous name
+    gh.foreignCommit(
+      'octocat/paper',
+      'main',
+      { 'a.tex': 'A', 'old.tex': 'O', '.p2platex.json': JSON.stringify({ version: 2, paths: ['a.tex', 'old.tex'] }) },
+      'backup\n\nX-P2platex-Backup: 1',
+    );
+    const res = await pushBackup(client, repo, 'main', files({ 'a.tex': 'A2' }), { message: 'm', lastSha: 'an-older-backup' });
+    expect(res.branch).toBe('main'); // not diverted to hivetex/backup
+    const state = r.files('main');
+    expect(state['old.tex']).toBeUndefined(); // deletion mirrored using the old manifest's paths
+    expect(state['.p2platex.json']).toBeUndefined();
+    expect(JSON.parse(state['.hivetex.json'] as string).paths).toEqual(['a.tex']);
+  });
+
+  it('never imports the old bookkeeping files', async () => {
+    gh.repo('octocat/paper', { empty: true });
+    gh.foreignCommit('octocat/paper', 'main', { 'main.tex': 'x', '.p2platex.json': '{}', '.p2platex': 'managed', '.hivetex.json': '{}' });
+    const got = await importRepo(client, repo, 'main');
+    expect([...got.keys()]).toEqual(['main.tex']);
   });
 });

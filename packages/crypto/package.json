@@ -1,5 +1,5 @@
 {
-  "name": "@p2platex/crypto",
+  "name": "@hivetex/crypto",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,7 @@
   "dependencies": {
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
-    "@p2platex/protocol": "workspace:*",
+    "@hivetex/protocol": "workspace:*",
     "jose": "^6.2.12"
   },
   "devDependencies": {

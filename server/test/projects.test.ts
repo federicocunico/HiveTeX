@@ -1,4 +1,4 @@
-import { generateDeviceKeys, verifyTicket } from '@p2platex/crypto';
+import { generateDeviceKeys, verifyTicket } from '@hivetex/crypto';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/client.js';
@@ -272,7 +272,7 @@ describe('cross-origin access for the desktop app', () => {
     const c = await register(env, 'desk');
     const login = await env.app.request('/api/auth/login', {
       method: 'POST',
-      headers: { Origin: 'http://tauri.localhost', 'X-Requested-With': 'p2platex', 'Content-Type': 'application/json' },
+      headers: { Origin: 'http://tauri.localhost', 'X-Requested-With': 'hivetex', 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier: 'desk', password: PW, kind: 'desktop' }),
     });
     expect(login.status).toBe(200);

@@ -14,7 +14,7 @@
   const publicRoutes = ['/login', '/register', '/forgot', '/reset', '/verify'];
 
   // A GitHub authorization that lands here signed out continues after sign-in (same tab only).
-  const PENDING_GH = 'p2platex.github-continue';
+  const PENDING_GH = 'hivetex.github-continue';
 
   $effect(() => {
     if (!auth.ready) return;
@@ -55,9 +55,9 @@
   <div class="shell">
     {#if !projectId}
       <header class="topbar">
-        <a class="brand" href="#/">p2platex</a>
+        <a class="brand" href="#/">HiveTeX</a>
         <span class="spacer"></span>
-        <a href={sourceUrl} target="_blank" rel="noreferrer noopener" title="p2platex is free software under the AGPL-3.0">Source</a>
+        <a href={sourceUrl} target="_blank" rel="noreferrer noopener" title="hivetex is free software under the AGPL-3.0">Source</a>
         {#if auth.user}
           <a href="#/">Projects</a>
           {#if auth.user.isAdmin}<a href="#/admin">Admin</a>{/if}
@@ -84,5 +84,5 @@
       {/if}
     </main>
   </div>
-  <footer class="sr-only">p2platex is open source (AGPL-3.0): {sourceUrl}</footer>
+  <footer class="sr-only">HiveTeX is open source (AGPL-3.0): {sourceUrl}</footer>
 {/if}

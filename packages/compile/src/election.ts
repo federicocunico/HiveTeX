@@ -1,4 +1,4 @@
-import type { Mesh, PeerInfo } from '@p2platex/sync';
+import type { Mesh, PeerInfo } from '@hivetex/sync';
 import { type CapabilityRecord, type TexEngine, score } from './capability.js';
 
 export const HEARTBEAT_MS = 2000;

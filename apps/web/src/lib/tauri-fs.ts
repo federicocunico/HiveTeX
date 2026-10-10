@@ -1,4 +1,4 @@
-import type { FsAdapter } from '@p2platex/sync';
+import type { FsAdapter } from '@hivetex/sync';
 
 const toB64 = (b: Uint8Array) => {
   let s = '';

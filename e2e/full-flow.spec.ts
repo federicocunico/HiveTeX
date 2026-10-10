@@ -77,9 +77,9 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
   const reopen = async (ctx: typeof ctxO) => {
     const page = await ctx.newPage();
     await page.addInitScript(() => {
-      localStorage.setItem('p2platex.test', '1');
-      localStorage.setItem('p2platex.fakeEngine', '1');
-      localStorage.setItem('p2platex.epochGraceMs', '4000');
+      localStorage.setItem('hivetex.test', '1');
+      localStorage.setItem('hivetex.fakeEngine', '1');
+      localStorage.setItem('hivetex.epochGraceMs', '4000');
     });
     await page.goto('/#/');
     await page.getByRole('link', { name: new RegExp(slug) }).click();

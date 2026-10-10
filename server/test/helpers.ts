@@ -67,7 +67,7 @@ export class Client {
 
   async req(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
     const h: Record<string, string> = {
-      'x-requested-with': 'p2platex',
+      'x-requested-with': 'hivetex',
       'x-forwarded-for': this.ip,
       origin: 'http://localhost:1420',
       ...headers,

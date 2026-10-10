@@ -1,4 +1,4 @@
-import { ROOT_DOC_ID } from '@p2platex/protocol';
+import { ROOT_DOC_ID } from '@hivetex/protocol';
 import DiffMatchPatch from 'diff-match-patch';
 import { PeerConnection } from './connection.js';
 import { MIRROR_ORIGIN } from './mirror.js';

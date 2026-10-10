@@ -8,7 +8,7 @@ COPY server/package.json server/
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/crypto/package.json packages/crypto/
 COPY packages/sync/package.json packages/sync/
-RUN pnpm install --frozen-lockfile --filter "@p2platex/server..." --ignore-scripts
+RUN pnpm install --frozen-lockfile --filter "@hivetex/server..." --ignore-scripts
 COPY packages/protocol packages/protocol
 COPY packages/crypto packages/crypto
 COPY packages/sync packages/sync

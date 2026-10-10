@@ -1,5 +1,5 @@
 {
-  "name": "@p2platex/sync",
+  "name": "@hivetex/sync",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,8 +11,8 @@
     "bench": "tsx bench/sync-bench.ts"
   },
   "dependencies": {
-    "@p2platex/crypto": "workspace:*",
-    "@p2platex/protocol": "workspace:*",
+    "@hivetex/crypto": "workspace:*",
+    "@hivetex/protocol": "workspace:*",
     "diff-match-patch": "^1.0.5",
     "fast-diff": "^1.3.0",
     "ignore": "^7.0.12",

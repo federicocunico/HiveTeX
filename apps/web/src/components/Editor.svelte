@@ -6,7 +6,7 @@
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
   import { Compartment, EditorState } from '@codemirror/state';
   import { EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
-  import type { Diagnostic } from '@p2platex/compile';
+  import type { Diagnostic } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
   import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
   import * as Y from 'yjs';

@@ -1,4 +1,4 @@
-import { sha256Hex } from '@p2platex/sync';
+import { sha256Hex } from '@hivetex/sync';
 import type { EngineKind, TexEngine } from './capability.js';
 import type { CompileEngine, CompileInput, CompileOutput } from './pipeline.js';
 

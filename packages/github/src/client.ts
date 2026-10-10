@@ -59,7 +59,7 @@ export class GitHubClient {
     return this.req<{ full_name: string; default_branch: string; owner: { login: string } }>('POST', '/user/repos', {
       name,
       private: isPrivate,
-      description: 'LaTeX project backup from p2platex',
+      description: 'LaTeX project backup from HiveTeX',
       auto_init: false,
     });
   }
@@ -100,9 +100,9 @@ export class GitHubClient {
   }
   /** Seeds an empty repository (the Git Data API cannot write to a repo without commits). */
   async seedEmptyRepo({ owner, repo }: RepoRef, branch: string): Promise<void> {
-    await this.req('PUT', `/repos/${owner}/${repo}/contents/.p2platex`, {
-      message: 'Initialize p2platex backup',
-      content: btoa('managed by p2platex\n'),
+    await this.req('PUT', `/repos/${owner}/${repo}/contents/.hivetex`, {
+      message: 'Initialize HiveTeX backup',
+      content: btoa('managed by HiveTeX\n'),
       branch,
     });
   }

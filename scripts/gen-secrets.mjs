@@ -11,7 +11,7 @@ export function generateTicketKeys(kid = process.env.TICKET_KID || 'k1') {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const priv = privateKey.export({ format: 'jwk' });
   const pub = { ...publicKey.export({ format: 'jwk' }), alg: 'EdDSA', use: 'sig', kid };
-  const msg = Buffer.from('p2platex');
+  const msg = Buffer.from('hivetex');
   const ok = verify(null, msg, createPublicKey({ key: pub, format: 'jwk' }), sign(null, msg, createPrivateKey({ key: priv, format: 'jwk' })));
   if (!ok) throw new Error('generated ticket keys failed the sign/verify self-check');
   return { signingJwk: JSON.stringify(priv), publicJwks: JSON.stringify([{ kid, jwk: pub }]), kid };

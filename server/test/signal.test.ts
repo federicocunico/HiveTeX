@@ -1,5 +1,5 @@
-import { type StoredDeviceKeys, generateDeviceKeys, open, seal, sign, toB64u } from '@p2platex/crypto';
-import { signalAuthMessage } from '@p2platex/protocol';
+import { type StoredDeviceKeys, generateDeviceKeys, open, seal, sign, toB64u } from '@hivetex/crypto';
+import { signalAuthMessage } from '@hivetex/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cloudflareTurn } from '../src/signal/turn.js';
 import { MemorySignalBackend, createSignalSession } from '../src/signal/hub.js';

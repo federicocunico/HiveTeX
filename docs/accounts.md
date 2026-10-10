@@ -25,10 +25,10 @@ Admins are created **out of band** — never through the API:
 
 ```bash
 # production (Neon)
-DATABASE_URL=postgres://… pnpm --filter @p2platex/server seed-admin <username>
+DATABASE_URL=postgres://… pnpm --filter @hivetex/server seed-admin <username>
 
 # local development database (embedded Postgres in .data/pg)
-DATA_DIR=.data/pg pnpm --filter @p2platex/server seed-admin <username>
+DATA_DIR=.data/pg pnpm --filter @hivetex/server seed-admin <username>
 ```
 
 The user must already have registered. After signing in, an admin opens **Admin** in the top bar. Admin actions require

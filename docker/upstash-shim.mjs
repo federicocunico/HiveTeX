@@ -1,5 +1,5 @@
 // Upstash REST emulator front for the local stack. serverless-redis-http (SRH) covers ordinary commands but not
-// Upstash's pub/sub streaming endpoint, which p2platex signaling uses (`redis.subscribe`). This shim implements
+// Upstash's pub/sub streaming endpoint, which HiveTeX signaling uses (`redis.subscribe`). This shim implements
 // `POST /subscribe/<channel>` (Server-Sent Events over a real Redis SUBSCRIBE) and forwards everything else to SRH.
 // No dependencies: plain Node 22.
 import { createServer } from 'node:http';

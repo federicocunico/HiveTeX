@@ -1,5 +1,5 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
-import { TICKET_TYP, type TicketClaims, type TrustedKey } from '@p2platex/protocol';
+import { TICKET_TYP, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import { type JWK, importJWK, jwtVerify } from 'jose';
 
 const enc = new TextEncoder();
@@ -105,7 +105,7 @@ async function aesKey(secret: Uint8Array, info: string, usage: 'encrypt' | 'decr
   );
 }
 
-const ENVELOPE_INFO = 'p2platex/envelope/v1';
+const ENVELOPE_INFO = 'hivetex/envelope/v1';
 
 /**
  * Seals a message for a peer device (X25519 -> HKDF -> AES-256-GCM). `aad` binds the envelope to

@@ -1,4 +1,4 @@
-import { BLOB_CHUNK_SIZE, MAX_BLOB_BYTES, MsgType } from '@p2platex/protocol';
+import { BLOB_CHUNK_SIZE, MAX_BLOB_BYTES, MsgType } from '@hivetex/protocol';
 import { jsonBytes, parseJson, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
 import { sha256Hex } from './model.js';

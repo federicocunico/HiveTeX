@@ -56,12 +56,12 @@ export const VIEWER_ALLOWED: ReadonlySet<number> = new Set([
   MsgType.APP,
 ]);
 
-export const HANDSHAKE_DOMAIN = 'p2platex/v1';
+export const HANDSHAKE_DOMAIN = 'hivetex/v1';
 export const ROOT_DOC_ID = 'root';
 export const fileDocId = (fileId: string) => `f:${fileId}`;
 
 /** Domain separation for the signaling relay's key-possession proof (device signs the server's nonce). */
-export const SIGNAL_DOMAIN = 'p2platex/signal/v1';
+export const SIGNAL_DOMAIN = 'hivetex/signal/v1';
 
 /** Bytes a device signs to prove it holds the key named in its ticket when joining the signaling relay. */
 export function signalAuthMessage(pid: string, dev: string, nonce: string): string {

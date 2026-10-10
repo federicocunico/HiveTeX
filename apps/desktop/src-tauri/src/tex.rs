@@ -565,7 +565,7 @@ mod tests {
         d
     }
 
-    const DOC: &str = "\\documentclass{article}\\begin{document}Hello \\LaTeX{} p2platex\\end{document}\n";
+    const DOC: &str = "\\documentclass{article}\\begin{document}Hello \\LaTeX{} hivetex\\end{document}\n";
 
     #[test]
     fn safe_paths() {

@@ -21,7 +21,7 @@ No real credential is needed. The defaults in `docker/.env.stack` are developmen
 | `make ps` / `make logs` | `docker compose ps` / `docker compose logs -f` | status / follow logs (`make logs S=api` for one service) |
 | `make down` | `docker compose down` | stops containers and keeps the data |
 | `make reset` | `docker compose down -v` | stops and **deletes** the database and Redis volumes |
-| `make migrate-local` | `pnpm --filter @p2platex/server migrate` with the stack env | re-applies migrations from the host (the API also runs them at start) |
+| `make migrate-local` | `pnpm --filter @hivetex/server migrate` with the stack env | re-applies migrations from the host (the API also runs them at start) |
 | `make test-stack` | see the Makefile | starts the stack with rate limits off and runs the Playwright suite against it |
 
 ## Services and ports
@@ -49,7 +49,7 @@ The server reads these variables. All of them are unset on Vercel, where behavio
 
 - `NEON_HTTP_ENDPOINT`: sends the Neon HTTP driver to the local proxy.
 - `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` / `SMTP_FROM`: an explicit SMTP server instead of Gmail.
-- `P2PLATEX_DEV_STACK=1`: generates an ephemeral ticket signing key when `TICKET_SIGNING_JWK` is empty. Tickets
+- `HIVETEX_DEV_STACK=1`: generates an ephemeral ticket signing key when `TICKET_SIGNING_JWK` is empty. Tickets
   stop verifying after an API restart, so reload the browser if peers stop connecting.
 - `E2E_NO_LIMITS=1`, set by `make test-stack`: disables rate limiting, because the e2e suite registers many accounts
   from one IP. A plain `make up` keeps the real limits, so you can test them.

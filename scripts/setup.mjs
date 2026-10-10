@@ -247,21 +247,27 @@ function updaterKey() {
   step('GitHub secret: updater signing key');
   const list = gh(['secret', 'list'], { capture: true }).stdout ?? '';
   if (/^TAURI_SIGNING_PRIVATE_KEY\s/m.test(list)) return note('TAURI_SIGNING_PRIVATE_KEY: present');
-  const keyFile = join(homedir(), '.tauri', 'p2platex.key');
+  const keyFile = join(homedir(), '.tauri', 'hivetex.key');
   if (!existsSync(keyFile)) {
-    note('no key at ~/.tauri/p2platex.key: generate one with `npx @tauri-apps/cli signer generate -w ~/.tauri/p2platex.key`,');
+    note('no key at ~/.tauri/hivetex.key: generate one with `npx @tauri-apps/cli signer generate -w ~/.tauri/hivetex.key`,');
     note('put its public key in apps/desktop/src-tauri/tauri.conf.json (plugins.updater.pubkey), then re-run.');
     return;
   }
-  change('set TAURI_SIGNING_PRIVATE_KEY from ~/.tauri/p2platex.key');
+  change('set TAURI_SIGNING_PRIVATE_KEY from ~/.tauri/hivetex.key');
   if (!dryRun) gh(['secret', 'set', 'TAURI_SIGNING_PRIVATE_KEY'], { input: readFileSync(keyFile, 'utf8'), capture: true });
 }
 
 function serverVariable(url) {
   step('GitHub variable: default server for the installers');
-  if (!url) return change('set P2PLATEX_API_BASE to the production URL');
-  change(`set P2PLATEX_API_BASE = ${url}`);
-  if (!dryRun) gh(['variable', 'set', 'P2PLATEX_API_BASE', '--body', url], { capture: true });
+  if (!url) return change('set HIVETEX_API_BASE to the production URL');
+  change(`set HIVETEX_API_BASE = ${url}`);
+  if (!dryRun) gh(['variable', 'set', 'HIVETEX_API_BASE', '--body', url], { capture: true });
+  // The variable's name before the product was renamed: no longer read by the release workflow.
+  const vars = gh(['variable', 'list'], { capture: true }).stdout ?? '';
+  if (/^P2PLATEX_API_BASE\s/m.test(vars)) {
+    change('remove the old P2PLATEX_API_BASE variable');
+    if (!dryRun) gh(['variable', 'delete', 'P2PLATEX_API_BASE'], { capture: true, allowFail: true });
+  }
 }
 
 // ---------- main ----------

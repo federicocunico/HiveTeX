@@ -3,7 +3,7 @@
 //!   in : {"rid": 1, "cmd": "rtc_create", "args": {...}}
 //!   out: {"rid": 1, "result": ...} | {"rid": 1, "error": "..."} | {"event": "rtc://x", "payload": {...}}
 
-use p2platex_desktop_lib::rtc::{Emit, IceServer, RtcState};
+use hivetex_desktop_lib::rtc::{Emit, IceServer, RtcState};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};

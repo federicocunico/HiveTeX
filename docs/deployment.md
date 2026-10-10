@@ -49,7 +49,7 @@ npx vercel@latest integration add upstash/upstash-kv -m primaryRegion=iad1
 make deploy-prod CONFIRM=1                   # runs `make check`, then vercel deploy --prod
 ```
 
-- **Migrations run in the Vercel build** (`vercel.json` `buildCommand` runs `pnpm --filter @p2platex/server migrate`
+- **Migrations run in the Vercel build** (`vercel.json` `buildCommand` runs `pnpm --filter @hivetex/server migrate`
   first), so every deploy brings the schema up to date, and a failing migration fails the deploy. Preview deployments
   use the same database here, so migrations must stay additive.
 - **Sensitive variables cannot be read back.** The Marketplace marks `DATABASE_URL` and the `KV_*` values sensitive, so
@@ -73,7 +73,7 @@ dashboards during the first weeks.
   Linux (AppImage, deb) installers, plus the signed `latest.json` used by *Account → Check for updates*.
 - **Secret and variable.** The job needs the `TAURI_SIGNING_PRIVATE_KEY` repository secret, and refuses a tag whose
   version differs from `tauri.conf.json` (fix it with `make version VERSION=X.Y.Z`). The variable
-  `P2PLATEX_API_BASE` sets the server the installers use by default.
+  `HIVETEX_API_BASE` sets the server the installers use by default.
 - **Dry run.** *Actions → Desktop → Run workflow* builds the same installers as workflow artifacts, without a release
   and without needing the key.
 - **Local builds.** `make desktop-build` builds installers on the current machine (needs Rust).

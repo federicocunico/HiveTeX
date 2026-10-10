@@ -94,8 +94,8 @@ test('a member with repo access loads the project from GitHub when nobody is onl
   // the owner comes back: both copies merge into ONE main.tex
   const back = await ownerCtx.newPage();
   await back.addInitScript(() => {
-    localStorage.setItem('p2platex.test', '1');
-    localStorage.setItem('p2platex.fakeEngine', '1');
+    localStorage.setItem('hivetex.test', '1');
+    localStorage.setItem('hivetex.fakeEngine', '1');
   });
   await back.goto('/#/');
   await back.getByRole('link', { name: new RegExp(slug) }).click();
@@ -115,7 +115,7 @@ test('a forwarded GitHub authorization link cannot link the victim to the sender
   const victim = await newUser(victimCtx, 'vic');
   // The attacker starts a flow for their own account and device key...
   const start = await attacker.page.request.post('/api/github/start', {
-    headers: { 'X-Requested-With': 'p2platex', 'Content-Type': 'application/json' },
+    headers: { 'X-Requested-With': 'hivetex', 'Content-Type': 'application/json' },
     data: { handoff: 'e2e-handoff-0123456789', pub: 'A'.repeat(43) },
   });
   const state = new URL((await start.json()).url).searchParams.get('state') as string;
@@ -123,7 +123,7 @@ test('a forwarded GitHub authorization link cannot link the victim to the sender
   await victim.page.goto(`/api/github/callback?code=e2e-code&state=${state}`);
   await expect(victim.page.getByTestId('github-continue-error')).toContainText('another account');
   await expect(victim.page).not.toHaveURL(/code=/); // the code does not stay in the address bar
-  const h = await attacker.page.request.get('/api/github/handoff/e2e-handoff-0123456789', { headers: { 'X-Requested-With': 'p2platex' } });
+  const h = await attacker.page.request.get('/api/github/handoff/e2e-handoff-0123456789', { headers: { 'X-Requested-With': 'hivetex' } });
   expect((await h.json()).ready).toBe(false);
   await attackerCtx.close();
   await victimCtx.close();

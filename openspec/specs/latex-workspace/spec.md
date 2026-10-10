@@ -76,18 +76,18 @@ The desktop app, and the web app on browsers supporting the File System Access A
 - **THEN** the request is refused and no file outside user-picked folders is read or written
 
 #### Scenario: Edits while the app was closed
-- **WHEN** an AI tool edits files in a bound folder while p2platex is not running, and the member then opens the project
+- **WHEN** an AI tool edits files in a bound folder while HiveTeX is not running, and the member then opens the project
 - **THEN** those edits are merged into the project as the member's edits, alongside anything co-authors changed meanwhile
 
 ### Requirement: Mirror ignores build artifacts
-The local folder mirror SHALL ignore build artifacts and tool metadata (e.g. `.aux`, `.log`, `.synctex.gz`, `.git/`, `.claude/`, `.cursor/`, `node_modules/`), the project marker `.p2platex.json`, and any patterns in a project-level ignore file.
+The local folder mirror SHALL ignore build artifacts and tool metadata (e.g. `.aux`, `.log`, `.synctex.gz`, `.git/`, `.claude/`, `.cursor/`, `node_modules/`), the project marker `.hivetex.json`, and any patterns in a project-level ignore file.
 
 #### Scenario: Aux files
 - **WHEN** a local tool writes `main.aux` into the bound folder
 - **THEN** the file is not added to the shared project
 
 #### Scenario: Marker file
-- **WHEN** a folder is bound and `.p2platex.json` is written or edited in it
+- **WHEN** a folder is bound and `.hivetex.json` is written or edited in it
 - **THEN** the marker is not added to the shared project
 
 ### Requirement: Local-only AI usage

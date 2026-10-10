@@ -3,7 +3,7 @@ import { parseServerUrl } from '../src/lib/api.js';
 
 describe('server address (desktop sign-in screen)', () => {
   it('accepts https origins and strips paths', () => {
-    expect(parseServerUrl('https://p2platex.example.com')).toBe('https://p2platex.example.com');
+    expect(parseServerUrl('https://hivetex.example.com')).toBe('https://hivetex.example.com');
     expect(parseServerUrl(' https://p2p.vercel.app/api/x?y=1 ')).toBe('https://p2p.vercel.app');
     expect(parseServerUrl('p2p.vercel.app')).toBe('https://p2p.vercel.app'); // scheme added
   });

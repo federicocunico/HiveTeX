@@ -1,5 +1,5 @@
-import type { BlobManager, Mesh, PeerInfo, ProjectModel } from '@p2platex/sync';
-import { sha256Hex } from '@p2platex/sync';
+import type { BlobManager, Mesh, PeerInfo, ProjectModel } from '@hivetex/sync';
+import { sha256Hex } from '@hivetex/sync';
 import type { EngineKind, TexEngine } from './capability.js';
 import type { Election } from './election.js';
 import { type Diagnostic, parseLog } from './logparser.js';

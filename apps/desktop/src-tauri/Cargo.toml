@@ -1,12 +1,12 @@
 [package]
-name = "p2platex-desktop"
+name = "hivetex-desktop"
 version = "0.1.1"
 edition = "2021"
-default-run = "p2platex-desktop"
+default-run = "hivetex-desktop"
 license = "AGPL-3.0-or-later"
 
 [lib]
-name = "p2platex_desktop_lib"
+name = "hivetex_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -44,6 +44,6 @@ keyring = { version = "3", features = ["sync-secret-service"] }
 tauri-plugin-updater = "2"
 
 [features]
-# Automated desktop UI tests only: `mirror_pick` returns the folder named by P2PLATEX_TEST_PICK_DIR instead of opening
+# Automated desktop UI tests only: `mirror_pick` returns the folder named by HIVETEX_TEST_PICK_DIR instead of opening
 # the native dialog (WebDriver cannot drive OS dialogs). Never enabled in release builds.
 test-picker = []

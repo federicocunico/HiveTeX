@@ -23,7 +23,7 @@ export interface TicketClaims {
 }
 
 export const TICKET_TTL_SEC = 15 * 60;
-export const TICKET_TYP = 'p2platex-ticket';
+export const TICKET_TYP = 'hivetex-ticket';
 
 export interface TrustedKey {
   kid: string;

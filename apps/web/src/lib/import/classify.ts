@@ -1,4 +1,4 @@
-import { isTextPath } from '@p2platex/sync';
+import { isTextPath } from '@hivetex/sync';
 
 export type Classified =
   | { kind: 'text'; text: string; converted: boolean }

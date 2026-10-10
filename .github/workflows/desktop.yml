@@ -56,7 +56,7 @@ jobs:
         run: |
           corepack enable
           pnpm install --frozen-lockfile
-          pnpm --filter @p2platex/web build
+          pnpm --filter @hivetex/web build
       - name: Detect TeX
         shell: bash
         run: |
@@ -130,10 +130,10 @@ jobs:
         if: runner.os == 'Linux'
         # The app keeps device keys in the OS keychain (Secret Service): give it an unlocked keyring on a session bus.
         run: |
-          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && xvfb-run -a pnpm --filter @p2platex/desktop e2e'
+          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && xvfb-run -a pnpm --filter @hivetex/desktop e2e'
       - name: Desktop UI tests (Windows)
         if: runner.os == 'Windows'
-        run: pnpm --filter @p2platex/desktop e2e
+        run: pnpm --filter @hivetex/desktop e2e
 
   # Desktop installers for Windows (exe/msi), macOS (universal dmg) and Linux (AppImage/deb).
   # - Tag v* -> draft GitHub Release with installers and the signed auto-update manifest (latest.json).
@@ -172,7 +172,7 @@ jobs:
         if: env.IS_TAG == 'true' && env.HAS_UPDATER_KEY != 'true'
         shell: bash
         run: |
-          echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY repository secret (gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/p2platex.key)"; exit 1
+          echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY repository secret (gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/hivetex.key)"; exit 1
       - name: Build options
         shell: bash
         run: |
@@ -220,11 +220,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Default server baked into the installers (testers can change it on the sign-in screen).
-          VITE_API_BASE: ${{ vars.P2PLATEX_API_BASE }}
+          VITE_API_BASE: ${{ vars.HIVETEX_API_BASE }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
-          releaseName: "p2platex ${{ github.ref_name }}"
+          releaseName: "hivetex ${{ github.ref_name }}"
           releaseBody: "Installers for Windows, macOS and Linux. See the README section \"Release v0.1 and test with others\" for first-launch notes."
           releaseDraft: true
           args: ${{ env.TAURI_ARGS }}
@@ -234,7 +234,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          VITE_API_BASE: ${{ vars.P2PLATEX_API_BASE }}
+          VITE_API_BASE: ${{ vars.HIVETEX_API_BASE }}
         with:
           projectPath: apps/desktop
           args: ${{ env.TAURI_ARGS }}
@@ -242,7 +242,7 @@ jobs:
         if: env.IS_TAG != 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: p2platex-${{ matrix.os }}
+          name: hivetex-${{ matrix.os }}
           # installers only (not the unpacked AppDir / .app folders)
           path: |
             apps/desktop/src-tauri/target/release/bundle/*/*.exe

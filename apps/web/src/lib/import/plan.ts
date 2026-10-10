@@ -1,4 +1,4 @@
-import { type BatchOp, type FileEntry, sha256Hex } from '@p2platex/sync';
+import { type BatchOp, type FileEntry, sha256Hex } from '@hivetex/sync';
 import type { Engine } from './detect.js';
 import type { ImportBundle, PreparedFile } from './sources.js';
 

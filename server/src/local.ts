@@ -88,7 +88,7 @@ export async function startLocal(opts: LocalOptions = {}) {
       ws.on('close', () => void h.onClose());
     });
   });
-  console.log(`p2platex local API on http://localhost:${port}`);
+  console.log(`hivetex local API on http://localhost:${port}`);
   return { server, deps, close: () => server.close() };
 }
 

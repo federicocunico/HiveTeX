@@ -1,9 +1,9 @@
 # Working with Claude Code, Codex, Cursor and other local tools
 
-p2platex never sends your sources to an AI service. Instead, a project can **live in a normal folder** on your device
+HiveTeX never sends your sources to an AI service. Instead, a project can **live in a normal folder** on your device
 (desktop app, or Chrome/Edge on the web), so any tool that edits files can work on it — and its edits flow to your
 collaborators like any other edit. See [Projects in folders](folders.md) for opening a cloned folder as a project,
-the `.p2platex.json` marker and per-device locations.
+the `.hivetex.json` marker and per-device locations.
 
 ## Use a folder
 
@@ -32,7 +32,7 @@ review what an agent did and to roll back what you don't want. History stays on 
 ## What is (not) mirrored
 
 Ignored by default: `.git/`, `.claude/`, `.cursor/`, `.agents/`, `.vscode/`, `node_modules/`, LaTeX build files (`*.aux`,
-`*.log`, `*.synctex.gz`, `*.bbl`, …), `.DS_Store`. Add your own patterns (gitignore syntax) to a `.p2platexignore` file in the
+`*.log`, `*.synctex.gz`, `*.bbl`, …), `.DS_Store`. Add your own patterns (gitignore syntax) to a `.hivetexignore` file in the
 project root.
 
 You can `git init` inside the folder for local version control — `.git/` is never synchronized.
@@ -50,9 +50,9 @@ You can `git init` inside the folder for local version control — `.git/` is ne
 ## Using OpenRouter or other model gateways
 
 Anything that works on a folder works here: point your agent or editor extension at the linked folder and configure its
-model provider (e.g. an OpenRouter key) in *that* tool. p2platex stays out of the loop.
+model provider (e.g. an OpenRouter key) in *that* tool. HiveTeX stays out of the loop.
 
 ## Verified behavior
 
 `packages/sync/test/mirror.test.ts` plays the role of the external tool against a real directory: edits appear on peers,
-remote edits reach the disk in < 1 s, build artifacts and `.p2platexignore` patterns are skipped, a viewer's changes are reverted.
+remote edits reach the disk in < 1 s, build artifacts and `.hivetexignore` patterns are skipped, a viewer's changes are reverted.

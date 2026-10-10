@@ -1,6 +1,6 @@
 /**
  * Desktop app UI tests over WebDriver (tauri-driver). Run through `run.mjs`: the app is a debug build with the
- * `test-picker` feature, so "choosing a folder" returns $P2PLATEX_TEST_PICK_DIR/<name written in .next-pick>.
+ * `test-picker` feature, so "choosing a folder" returns $HIVETEX_TEST_PICK_DIR/<name written in .next-pick>.
  */
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { Keys, Session } from './webdriver.mjs';
 
-const pickBase = process.env.P2PLATEX_TEST_PICK_DIR;
+const pickBase = process.env.HIVETEX_TEST_PICK_DIR;
 const PW = 'correct horse battery staple';
 const PROJECT_PW = 'project-secret-1';
 let n = 0;
@@ -78,14 +78,14 @@ async function home() {
 }
 
 before(async () => {
-  b = await Session.create(`http://127.0.0.1:${process.env.P2PLATEX_DRIVER_PORT ?? 4446}`, {
+  b = await Session.create(`http://127.0.0.1:${process.env.HIVETEX_DRIVER_PORT ?? 4446}`, {
     browserName: 'wry',
-    'tauri:options': { application: process.env.P2PLATEX_APP, args: ['--test-pick-dir', pickBase] },
+    'tauri:options': { application: process.env.HIVETEX_APP, args: ['--test-pick-dir', pickBase] },
   });
   await until(async () => (await b.execute(() => document.readyState)) === 'complete', 'app loaded');
   await b.execute(() => {
-    localStorage.setItem('p2platex.test', '1');
-    localStorage.setItem('p2platex.fakeEngine', '1');
+    localStorage.setItem('hivetex.test', '1');
+    localStorage.setItem('hivetex.fakeEngine', '1');
     location.hash = '#/register';
     location.reload();
   });
@@ -120,7 +120,7 @@ test('create a project from a cloned folder: the tree comes from disk and edits 
   await (await byTestId('from-folder-create')).click();
   await until(() => treeHas('intro.tex'), 'imported tree');
   assert.equal(await treeHas('HEAD'), null, 'tool folders are not imported');
-  assert.match(readDisk(dir, '.p2platex.json') ?? '', new RegExp(slug));
+  assert.match(readDisk(dir, '.hivetex.json') ?? '', new RegExp(slug));
 
   // an external tool edits the file on disk -> visible in the app
   await (await treeHas('intro.tex')).click();
@@ -151,7 +151,7 @@ test('link a folder to a project, then open that folder again from the projects 
   await (await byTestId('location-btn')).click();
   await (await byTestId('link-folder')).click();
   await until(async () => (await textOf('location-btn')).includes(dir), 'folder in use');
-  await until(() => JSON.parse(readDisk(dir, '.p2platex.json') ?? '{}').project?.slug === slug, 'marker written');
+  await until(() => JSON.parse(readDisk(dir, '.hivetex.json') ?? '{}').project?.slug === slug, 'marker written');
 
   // import a folder of sources into the project (also through the confined picker)
   const src = uniq('src-');

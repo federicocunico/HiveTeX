@@ -1,5 +1,5 @@
 {
-  "name": "p2platex",
+  "name": "hivetex",
   "private": true,
   "version": "0.1.1",
   "type": "module",
@@ -25,7 +25,7 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
-    "@p2platex/server": "workspace:*",
+    "@hivetex/server": "workspace:*",
     "hono": "^4.9.0"
   }
 }

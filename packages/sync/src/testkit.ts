@@ -1,5 +1,5 @@
-import { type StoredDeviceKeys, generateDeviceKeys } from '@p2platex/crypto';
-import { type Role, TICKET_TYP, type TrustedKey } from '@p2platex/protocol';
+import { type StoredDeviceKeys, generateDeviceKeys } from '@hivetex/crypto';
+import { type Role, TICKET_TYP, type TrustedKey } from '@hivetex/protocol';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 
 export class TestAuthority {

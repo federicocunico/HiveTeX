@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { type PdfPosition, type SyncIndex, reverseSearch } from '@p2platex/compile';
+  import { type PdfPosition, type SyncIndex, reverseSearch } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
 
   let {

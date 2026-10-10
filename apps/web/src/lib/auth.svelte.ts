@@ -10,7 +10,7 @@ export interface User {
 
 export const auth = $state<{ user: User | null; ready: boolean; offline: boolean }>({ user: null, ready: false, offline: false });
 
-const CACHE_KEY = 'p2platex.user';
+const CACHE_KEY = 'hivetex.user';
 
 function cacheUser(u: User | null) {
   try {

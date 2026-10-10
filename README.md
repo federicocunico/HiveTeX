@@ -1,4 +1,4 @@
-# p2platex
+# HiveTeX
 
 Free, decentralized, peer-to-peer collaborative LaTeX editor. Sources live only on co-authors' devices
 (synced as CRDTs over WebRTC); the best connected machine compiles the PDF for everyone.
@@ -61,7 +61,7 @@ here is free; Vercel Hobby is for non-commercial use. Run the commands from the 
     - **Windows:** SmartScreen shows "Windows protected your PC": click *More info* → *Run anyway*.
     - **macOS:** open the `.dmg` and drag the app to Applications. If macOS blocks it, open *System Settings → Privacy &
       Security* and click *Open Anyway*.
-    - **Linux:** run `chmod +x p2platex_*.AppImage` and start it, or install the `.deb`. Device keys need a keychain
+    - **Linux:** run `chmod +x HiveTeX_*.AppImage` and start it, or install the `.deb`. Device keys need a keychain
       (GNOME Keyring or KWallet), which standard desktops have.
     - **Desktop, any OS:** the sign-in screen shows the server. Use *Change* if it isn't your deployment.
 
@@ -82,13 +82,13 @@ command is shown on the right.
 |---|---|---|
 | `make` | | list all targets |
 | `make install` | `pnpm install` | install dependencies |
-| `make dev` | `pnpm turbo run dev --filter=@p2platex/server --filter=@p2platex/web` | API on :3000 (embedded Postgres, console mailer) + web on :1420 |
+| `make dev` | `pnpm turbo run dev --filter=@hivetex/server --filter=@hivetex/web` | API on :3000 (embedded Postgres, console mailer) + web on :1420 |
 | `make test` | `pnpm turbo run test` | unit + integration tests of every package |
 | `make e2e` | `pnpm exec playwright test` | end-to-end tests (starts a local API with an embedded database) |
 | `make check` | build, lint, svelte-check, tests, bundle budget, e2e | what CI runs |
 | `make up` / `make down` / `make reset` | `docker compose up -d --build --wait` … | full local stack with the production code path ([docs/local-stack.md](docs/local-stack.md)) |
 | `make test-stack` | | e2e suite against the Docker stack |
-| `make desktop-dev` / `make desktop-test` | `pnpm --filter @p2platex/desktop tauri dev` / `cargo test --lib` | desktop app (desktop tests compile real LaTeX if a TeX distribution is installed) |
+| `make desktop-dev` / `make desktop-test` | `pnpm --filter @hivetex/desktop tauri dev` / `cargo test --lib` | desktop app (desktop tests compile real LaTeX if a TeX distribution is installed) |
 | `make desktop-e2e` | `node apps/desktop/e2e/run.mjs` | desktop UI tests over WebDriver (`tauri-driver`; see [docs/folders.md](docs/folders.md#desktop-ui-tests)) |
 | `make deploy-preview` / `make deploy-prod CONFIRM=1` | `npx vercel deploy [--prod]` | deploy to Vercel ([docs/deployment.md](docs/deployment.md)) |
 

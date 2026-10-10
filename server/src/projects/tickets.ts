@@ -1,5 +1,5 @@
 import { SignJWT, importJWK } from 'jose';
-import { TICKET_TTL_SEC, TICKET_TYP, type TicketClaims } from '@p2platex/protocol';
+import { TICKET_TTL_SEC, TICKET_TYP, type TicketClaims } from '@hivetex/protocol';
 import type { Config } from '../config.js';
 
 export type SignableClaims = Omit<TicketClaims, 'iat' | 'exp'>;

@@ -23,12 +23,12 @@ account/organization and selects the repositories it may access — the app can 
 
 *Project settings → GitHub backup*:
 
-1. **Connect GitHub**: opens GitHub in your browser. After you authorize, GitHub returns to the p2platex web app
+1. **Connect GitHub**: opens GitHub in your browser. After you authorize, GitHub returns to the HiveTeX web app
    (`#/github-continue`). The app completes the link **with the account you are signed in with there**; if needed, it asks
    you to sign in first and then continues. The server exchanges the code only if that account is the one that started the
    link, and hands the tokens to the starting device *encrypted to its device key* via a one-time, two-minute hand-off.
    Only your GitHub login is stored. Tokens live in the OS credential store (desktop) or session storage (browser).
-   * **Desktop users**: GitHub opens in your system browser. Be signed in to the same p2platex account there (the page
+   * **Desktop users**: GitHub opens in your system browser. Be signed in to the same HiveTeX account there (the page
      asks if you are not).
    * **Security**: a forwarded "Connect GitHub" link cannot link someone else's GitHub account to yours. Completion fails
      with "started by another account" and nothing is exchanged.
@@ -44,11 +44,11 @@ account/organization and selects the repositories it may access — the app can 
 * **One writer at a time**: among online owners/editors who hold a valid token, owners go first, then the lowest device id.
   Counters and settings live in the shared project, so a takeover is seamless. If the writer's token expires, another device steps in.
 * Commits go **directly from the device to `api.github.com`** with the Git Data API: only blobs that differ from the remote
-  tree are uploaded; deletions of files p2platex previously committed are mirrored; foreign files are left alone.
+  tree are uploaded; deletions of files HiveTeX previously committed are mirrored; foreign files are left alone.
 * The commit message lists the contributing usernames and the time range.
-* **Never a force-push.** If the bound branch received commits that p2platex did not make, or moved during a push, the
-  snapshot is committed to `p2platex/backup` instead and owners see a notice.
-* `.p2platex.json` in the repo lists the paths managed by p2platex.
+* **Never a force-push.** If the bound branch received commits that HiveTeX did not make, or moved during a push, the
+  snapshot is committed to `hivetex/backup` instead and owners see a notice.
+* `.hivetex.json` in the repo lists the paths managed by HiveTeX.
 
 ## Starting from GitHub
 
@@ -59,4 +59,4 @@ when they come online; identical duplicates are removed automatically.
 ## Verifying a fresh App
 
 `apps/web` e2e tests (`e2e/github.spec.ts`) run the whole flow against an in-process fake of the GitHub API. To check a real App:
-connect, link a scratch repository, press **Back up now**, and confirm the commit and the `.p2platex.json` file appear.
+connect, link a scratch repository, press **Back up now**, and confirm the commit and the `.hivetex.json` file appear.

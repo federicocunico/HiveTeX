@@ -1,5 +1,5 @@
 {
-  "name": "@p2platex/compile",
+  "name": "@hivetex/compile",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,14 +10,14 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@p2platex/protocol": "workspace:*",
-    "@p2platex/sync": "workspace:*"
+    "@hivetex/protocol": "workspace:*",
+    "@hivetex/sync": "workspace:*"
   },
   "exports": {
     ".": "./src/index.ts"
   },
   "devDependencies": {
-    "@p2platex/crypto": "workspace:*",
+    "@hivetex/crypto": "workspace:*",
     "@types/node": "^26.6.4",
     "jose": "^6.2.12"
   }

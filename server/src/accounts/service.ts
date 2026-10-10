@@ -26,8 +26,10 @@ export async function sendVerifyEmail(deps: Deps, user: Recipient) {
   const token = await issueEmailToken(deps, user.id, 'verify');
   await deps.mailer.send({
     to: user.email,
-    subject: 'Verify your p2platex email',
-    text: `Hi ${user.username},\n\nConfirm your email: ${deps.config.appOrigin}/#/verify?token=${token}\n\nThis link expires in 24 hours.`,
+    subject: 'Verify your HiveTeX email',
+    text: `Hi ${user.username},\n\nConfirm your email: ${deps.config.appOrigin}/#/verify?token=${token}\n\nThis link expires in 24 hours.
+
+— HiveTeX`,
   });
 }
 
@@ -35,8 +37,10 @@ export async function sendResetEmail(deps: Deps, user: Recipient) {
   const token = await issueEmailToken(deps, user.id, 'reset');
   await deps.mailer.send({
     to: user.email,
-    subject: 'Reset your p2platex password',
-    text: `Hi ${user.username},\n\nReset your password: ${deps.config.appOrigin}/#/reset?token=${token}\n\nThis link is single-use and expires in 30 minutes. If you did not request it, ignore this message.`,
+    subject: 'Reset your HiveTeX password',
+    text: `Hi ${user.username},\n\nReset your password: ${deps.config.appOrigin}/#/reset?token=${token}\n\nThis link is single-use and expires in 30 minutes. If you did not request it, ignore this message.
+
+— HiveTeX`,
   });
 }
 

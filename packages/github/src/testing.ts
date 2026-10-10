@@ -1,6 +1,6 @@
 import { gitBlobSha } from './client.js';
 
-/** In-memory GitHub Git Data API (the subset p2platex uses) for tests. */
+/** In-memory GitHub Git Data API (the subset HiveTeX uses) for tests. */
 export class FakeGitHub {
   repos = new Map<string, FakeRepo>();
   user = { login: 'octocat', id: 1 };

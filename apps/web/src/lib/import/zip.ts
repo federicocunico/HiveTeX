@@ -1,4 +1,4 @@
-import type { ProjectModel } from '@p2platex/sync';
+import type { ProjectModel } from '@hivetex/sync';
 import { strToU8, unzipSync, zipSync } from 'fflate';
 import { ImportError, safePath } from './filter.js';
 import { type ImportFile, LIMITS } from './limits.js';

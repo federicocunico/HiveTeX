@@ -1,5 +1,5 @@
-import { BlobManager } from '@p2platex/sync';
-import { Net, type Node } from '@p2platex/sync/testkit';
+import { BlobManager } from '@hivetex/sync';
+import { Net, type Node } from '@hivetex/sync/testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BackupAgent, DEFAULT_POLICY, decide, emptyMeta } from '../src/index.js';
 import { FakeGitHub } from '../src/testing.js';

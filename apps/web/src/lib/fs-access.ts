@@ -1,4 +1,4 @@
-import { DEFAULT_IGNORES, type FsAdapter, createIgnoreMatcher } from '@p2platex/sync';
+import { DEFAULT_IGNORES, type FsAdapter, createIgnoreMatcher } from '@hivetex/sync';
 
 /**
  * Folder access for the web app on Chromium browsers (File System Access API): the same FsAdapter contract the

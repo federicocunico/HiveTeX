@@ -52,5 +52,5 @@ export function decide(policy: BackupPolicy, meta: BackupMeta, now: number, manu
 export function commitMessage(meta: BackupMeta, now: number): string {
   const who = meta.contributors.length ? meta.contributors.join(', ') : 'unknown';
   const fmt = (t: number) => (t ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') : '?');
-  return `p2platex backup: ${who} (${fmt(meta.firstChangeAt)} – ${fmt(Math.max(meta.lastChangeAt, now))} UTC)`;
+  return `hivetex backup: ${who} (${fmt(meta.firstChangeAt)} – ${fmt(Math.max(meta.lastChangeAt, now))} UTC)`;
 }

@@ -1,4 +1,4 @@
-import { generateDeviceKeys, open } from '@p2platex/crypto';
+import { generateDeviceKeys, open } from '@hivetex/crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { schema } from '../src/db/client.js';
 import { MemoryKv } from '../src/kv.js';

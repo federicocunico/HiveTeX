@@ -16,7 +16,7 @@ export type Location =
       handle?: FileSystemDirectoryHandle;
     };
 
-const DB = 'p2platex-locations';
+const DB = 'hivetex-locations';
 const STORE = 'locations';
 
 function openDb(factory: IDBFactory): Promise<IDBDatabase> {
@@ -88,17 +88,17 @@ export async function allLocations(factory = defaultFactory()): Promise<Record<s
 
 export const folderLabel = (pathOrName: string) => pathOrName.split(/[\\/]/).filter(Boolean).pop() ?? pathOrName;
 
-/** Moves the old `p2platex.mirror.<projectId>` localStorage entries (desktop paths) into the registry, once. */
+/** Moves the old `hivetex.mirror.<projectId>` localStorage entries (desktop paths) into the registry, once. */
 export async function migrateLegacyMirrors(storage: Pick<Storage, 'length' | 'key' | 'getItem' | 'removeItem'> = localStorage, factory = defaultFactory()) {
   if (!factory) return 0;
   const keys: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const k = storage.key(i);
-    if (k?.startsWith('p2platex.mirror.')) keys.push(k);
+    if (k?.startsWith('hivetex.mirror.')) keys.push(k);
   }
   for (const k of keys) {
     const path = storage.getItem(k);
-    if (path) await setLocation(k.slice('p2platex.mirror.'.length), { kind: 'folder', label: folderLabel(path), desktopPath: path }, factory);
+    if (path) await setLocation(k.slice('hivetex.mirror.'.length), { kind: 'folder', label: folderLabel(path), desktopPath: path }, factory);
     storage.removeItem(k);
   }
   return keys.length;

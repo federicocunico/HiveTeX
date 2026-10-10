@@ -1,4 +1,4 @@
-import { type StoredDeviceKeys, generateDeviceKeys } from '@p2platex/crypto';
+import { type StoredDeviceKeys, generateDeviceKeys } from '@hivetex/crypto';
 import { api, isDesktop } from './api.js';
 import { secure } from './secure.js';
 
@@ -13,7 +13,7 @@ interface Stored {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open('p2platex-device', 1);
+    const r = indexedDB.open('hivetex-device', 1);
     r.onupgradeneeded = () => r.result.createObjectStore('keys');
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);

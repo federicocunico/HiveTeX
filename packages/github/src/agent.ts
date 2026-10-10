@@ -1,4 +1,4 @@
-import { type BlobManager, type Mesh, type PeerInfo, type ProjectModel, PeerConnection } from '@p2platex/sync';
+import { type BlobManager, type Mesh, type PeerInfo, type ProjectModel, PeerConnection } from '@hivetex/sync';
 import { type PushResult, pushBackup } from './backup.js';
 import { GitHubClient, GitHubError, type RepoRef } from './client.js';
 import { type BackupMeta, type BackupPolicy, DEFAULT_POLICY, commitMessage, decide, emptyMeta } from './policy.js';
@@ -21,7 +21,7 @@ export interface AgentOptions {
   blobs: BlobManager;
   self: { dev: string; uname: string };
   getRole: () => 'owner' | 'editor' | 'viewer';
-  /** Project identity for the repository's `.p2platex.json` marker. */
+  /** Project identity for the repository's `.hivetex.json` marker. */
   project?: { id: string; slug: string };
   /** Returns a valid GitHub user token for this device, or null if the user has not connected GitHub. */
   getToken: () => Promise<string | null>;

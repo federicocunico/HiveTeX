@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { fromB64u, verify } from '@p2platex/crypto';
-import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@p2platex/protocol';
+import { fromB64u, verify } from '@hivetex/crypto';
+import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@hivetex/protocol';
 import { importJWK, jwtVerify } from 'jose';
 import type { Deps } from '../deps.js';
 

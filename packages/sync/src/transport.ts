@@ -1,4 +1,4 @@
-import { BUFFER_HIGH_WATER, FRAGMENT_SIZE } from '@p2platex/protocol';
+import { BUFFER_HIGH_WATER, FRAGMENT_SIZE } from '@hivetex/protocol';
 
 export type ChannelName = 'sync' | 'bulk';
 

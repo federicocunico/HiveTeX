@@ -8,7 +8,7 @@ Status after investigating the failed run [`CI` #37941941428](https://github.com
 
 | Problem | Cause | Fix |
 |---|---|---|
-| `CI / test` failed at *Lint, type-check and unit tests* | `@p2platex/compile` › `pipeline.test.ts` › "compiles … on the leader only" expected 0 compiles on a non-leader and got 1. The test used a 50 ms election heartbeat, so a peer counted as gone after 150 ms. On the 2-vCPU runner, with turbo running every package's tests in parallel, a short event-loop stall made a non-leader elect itself and compile once. Production uses 2 s × 3 beats plus a 1.5 s settle, so the app was not affected. | Test timing raised to a 100 ms heartbeat (300 ms timeout) and a 400 ms settle. Passes 4 parallel copies locally and a full Linux reproduction of the CI job. |
+| `CI / test` failed at *Lint, type-check and unit tests* | `@hivetex/compile` › `pipeline.test.ts` › "compiles … on the leader only" expected 0 compiles on a non-leader and got 1. The test used a 50 ms election heartbeat, so a peer counted as gone after 150 ms. On the 2-vCPU runner, with turbo running every package's tests in parallel, a short event-loop stall made a non-leader elect itself and compile once. Production uses 2 s × 3 beats plus a 1.5 s settle, so the app was not affected. | Test timing raised to a 100 ms heartbeat (300 ms timeout) and a 400 ms settle. Passes 4 parallel copies locally and a full Linux reproduction of the CI job. |
 | `CI / test` failed again: `server` › `projects.test.ts` "Hook timed out in 10000ms" | Every server test boots an in-memory PGlite database and applies the migrations in `beforeEach` (about 1.5 s locally, over 10 s on the loaded runner) | `server/vitest.config.ts`: 60 s hook and test timeouts |
 | `CI / e2e` failed: "layout … at phone width" | At 390 px the header (username + "Sign out") overflowed whenever the random test username was long enough, so the test was flaky | Header wraps and truncates long usernames (`app.css`); the test now always uses a 28-char username (fails without the fix, passes with it) |
 | `CI / e2e` `full-flow.spec.ts` timed out (4 min) waiting for the joined peer to receive the file tree | Intermittent WebRTC connection set-up between three browsers on a 2-vCPU runner (known flakiness, see below) | CI retries flaky e2e tests up to 2 times (still reported as flaky) and `actionTimeout` is 30 s so a stuck step fails fast |
@@ -23,13 +23,13 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
 ## Still missing (needs you: accounts, secrets or decisions)
 
 ### Secrets and variables (Settings → Secrets and variables → Actions)
-- [x] `TAURI_SIGNING_PRIVATE_KEY` is set from `~/.tauri/p2platex.key` (empty password, matches the committed public key).
+- [x] `TAURI_SIGNING_PRIVATE_KEY` is set from `~/.tauri/hivetex.key` (empty password, matches the committed public key).
       Keep a backup of that file: without it, installed apps cannot verify future updates.
 - [ ] Optional macOS signing/notarization: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
       `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Without them, builds are ad-hoc signed: macOS asks once
       (*Open Anyway*).
 - [ ] Optional Windows code signing (not wired yet). Without it, SmartScreen warns on first install.
-- [ ] Repository variable `P2PLATEX_API_BASE` (the deployed control-plane URL), once the server is deployed. Release
+- [ ] Repository variable `HIVETEX_API_BASE` (the deployed control-plane URL), once the server is deployed. Release
       builds bake it in as `VITE_API_BASE`; v0.1.0 was built without it, so testers set the server on the sign-in screen.
 
 ### Deployment (no workflow exists yet)

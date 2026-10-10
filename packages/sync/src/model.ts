@@ -1,4 +1,4 @@
-import { ROOT_DOC_ID, fileDocId } from '@p2platex/protocol';
+import { ROOT_DOC_ID, fileDocId } from '@hivetex/protocol';
 import diff from 'fast-diff';
 import * as Y from 'yjs';
 import { DocPersister, type HistorySnapshot, type PersistOptions, type Persistence } from './persistence.js';

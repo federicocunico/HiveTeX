@@ -17,10 +17,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const desktop = resolve(here, '..');
 const root = resolve(desktop, '../..');
 const win = process.platform === 'win32';
-const exe = join(desktop, 'src-tauri/target/debug', win ? 'p2platex-desktop.exe' : 'p2platex-desktop');
+const exe = join(desktop, 'src-tauri/target/debug', win ? 'hivetex-desktop.exe' : 'hivetex-desktop');
 const children = [];
 // Not 4444 (tauri-driver's default; the Docker stack's Neon proxy listens there) nor 4445 (its native driver).
-const DRIVER_PORT = process.env.P2PLATEX_DRIVER_PORT ?? '4446';
+const DRIVER_PORT = process.env.HIVETEX_DRIVER_PORT ?? '4446';
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: 'inherit', shell: win, ...opts });
@@ -46,7 +46,7 @@ function start(cmd, args, env = {}) {
   return c;
 }
 
-const pickDir = mkdtempSync(join(tmpdir(), 'p2platex-desktop-e2e-'));
+const pickDir = mkdtempSync(join(tmpdir(), 'hivetex-desktop-e2e-'));
 let code = 1;
 try {
   if (!process.env.SKIP_BUILD) {
@@ -57,17 +57,17 @@ try {
   }
   if (!existsSync(exe)) throw new Error(`app not built: ${exe}`);
   if (!process.env.SKIP_SERVER) {
-    start('npx', ['pnpm@10', '--filter', '@p2platex/server', 'dev'], { MEMORY_DB: '1', PORT: '3000', E2E_NO_LIMITS: '1' });
+    start('npx', ['pnpm@10', '--filter', '@hivetex/server', 'dev'], { MEMORY_DB: '1', PORT: '3000', E2E_NO_LIMITS: '1' });
   }
   await waitFor('http://localhost:3000/api/health');
   const driverArgs = ['--port', DRIVER_PORT];
   if (win && process.env.MSEDGEDRIVER) driverArgs.push('--native-driver', process.env.MSEDGEDRIVER);
-  start('tauri-driver', driverArgs, { P2PLATEX_TEST_PICK_DIR: pickDir });
+  start('tauri-driver', driverArgs, { HIVETEX_TEST_PICK_DIR: pickDir });
   await waitFor(`http://127.0.0.1:${DRIVER_PORT}/status`, 30_000);
   const r = spawnSync(process.execPath, ['--test', '--test-concurrency=1', join(here, 'desktop.test.mjs')], {
     stdio: 'inherit',
     cwd: root,
-    env: { ...process.env, P2PLATEX_APP: exe, P2PLATEX_TEST_PICK_DIR: pickDir, P2PLATEX_DRIVER_PORT: DRIVER_PORT },
+    env: { ...process.env, HIVETEX_APP: exe, HIVETEX_TEST_PICK_DIR: pickDir, HIVETEX_DRIVER_PORT: DRIVER_PORT },
   });
   code = r.status ?? 1;
 } catch (e) {

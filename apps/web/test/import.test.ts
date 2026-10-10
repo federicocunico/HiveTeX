@@ -1,4 +1,4 @@
-import { MemoryPersistence, ProjectModel, sha256Hex } from '@p2platex/sync';
+import { MemoryPersistence, ProjectModel, sha256Hex } from '@hivetex/sync';
 import { gzipSync, strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { applyImport, planFor } from '../src/lib/import/apply.js';

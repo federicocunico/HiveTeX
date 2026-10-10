@@ -1,4 +1,4 @@
-import type { ProjectModel } from '@p2platex/sync';
+import type { ProjectModel } from '@hivetex/sync';
 import { type ApplyChoices, type ApplyResult, type BlobWriter, type ImportPlan, buildOps, planImport } from './plan.js';
 import type { ImportBundle } from './sources.js';
 

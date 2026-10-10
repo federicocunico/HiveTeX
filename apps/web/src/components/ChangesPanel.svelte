@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { type ChangeSet, patchHunks } from '@p2platex/sync';
+  import { type ChangeSet, patchHunks } from '@hivetex/sync';
   import type { ProjectSession } from '../lib/session.svelte.js';
 
   let { session, onClose }: { session: ProjectSession; onClose: () => void } = $props();

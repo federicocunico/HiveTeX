@@ -1,6 +1,6 @@
 /**
  * Promote an existing account to platform admin. Never exposed via the API.
- *   DATABASE_URL=postgres://... pnpm --filter @p2platex/server seed-admin <username>
+ *   DATABASE_URL=postgres://... pnpm --filter @hivetex/server seed-admin <username>
  *   DATA_DIR=.data/pg ...        (local PGlite database)
  */
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { FileEntry } from '@p2platex/sync';
+  import type { FileEntry } from '@hivetex/sync';
   import { type LooseItem, itemsFromDrop, itemsFromFiles } from '../lib/import/sources.js';
 
   let {

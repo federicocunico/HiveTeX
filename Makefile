@@ -1,4 +1,4 @@
-# p2platex developer commands. Run `make` (or `make help`) for the list.
+# HiveTeX developer commands. Run `make` (or `make help`) for the list.
 # Requires GNU Make (3.81+). On Windows run it from Git Bash; install with `scoop install make` or `choco install make`.
 # Every target is a thin wrapper: the equivalent pnpm / docker / vercel command is shown in the recipe.
 
@@ -31,7 +31,7 @@ HINT_git    := install Git: https://git-scm.com/downloads
 ## ---------- Development ----------
 
 help: ## Show this help
-	@echo "p2platex make targets:"
+	@echo "hivetex make targets:"
 	@grep -E '^(## |[a-zA-Z0-9_-]+:.*## )' $(MAKEFILE_LIST) | sed -e 's/^## \(.*\)/\n\1/' -e 's/^\([a-zA-Z0-9_-]*\):.*## \(.*\)/  \1|\2/' | awk -F'|' 'NF==2 { printf "  %-16s %s\n", substr($$1,3), $$2; next } { print }'
 	@echo ""
 	@echo "Variables: PROFILES=turn,texlive (stack)  S=<service> (logs)  ADMIN=<username> (seed-admin)  CONFIRM=1 (deploy-prod)"
@@ -40,7 +40,7 @@ install: require-pnpm ## Install all workspace dependencies (pnpm install)
 	$(PNPM) install
 
 dev: require-pnpm ## Run the API (embedded DB, :3000) and web app (:1420) with hot reload
-	$(PNPM) turbo run dev --filter=@p2platex/server --filter=@p2platex/web
+	$(PNPM) turbo run dev --filter=@hivetex/server --filter=@hivetex/web
 
 build: require-pnpm ## Build / type-check every package (turbo build)
 	$(PNPM) turbo run build
@@ -49,21 +49,21 @@ lint: require-pnpm ## Lint every package (biome via turbo)
 	$(PNPM) turbo run lint
 
 typecheck: require-pnpm ## Svelte type-check of the web app
-	$(PNPM) --filter @p2platex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
+	$(PNPM) --filter @hivetex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
 
 test: require-pnpm ## Unit and integration tests of every package (turbo test)
 	$(PNPM) turbo run test
 
 size: require-pnpm ## Check the web bundle budget
-	$(PNPM) --filter @p2platex/web build
-	$(PNPM) --filter @p2platex/web size
+	$(PNPM) --filter @hivetex/web build
+	$(PNPM) --filter @hivetex/web size
 
 e2e: require-pnpm ## End-to-end tests (starts the embedded-DB API and Vite automatically)
 	$(PNPM) exec playwright install chromium
 	$(PNPM) exec playwright test
 
 bench: require-pnpm ## Sync benchmark: keystroke latency, messages per edit, convergence for 2-16 peers (LATENCY_MS=20)
-	$(PNPM) --filter @p2platex/sync bench
+	$(PNPM) --filter @hivetex/sync bench
 
 check: build lint typecheck test size e2e ## Everything CI runs except the dependency audit; fails on the first error
 
@@ -76,16 +76,16 @@ clean: ## Remove build outputs and test artifacts (keeps node_modules and local 
 ## ---------- Desktop (Tauri, runs on the host) ----------
 
 desktop-dev: require-pnpm require-cargo ## Run the desktop app in dev mode
-	$(PNPM) --filter @p2platex/desktop tauri dev
+	$(PNPM) --filter @hivetex/desktop tauri dev
 
 desktop-test: require-cargo ## Rust tests of the desktop shell
 	cd apps/desktop/src-tauri && cargo test --lib && cargo build --examples
 
 desktop-e2e: require-pnpm require-cargo ## Desktop UI tests: debug app (test-picker) + tauri-driver + WebDriver (see docs/folders.md)
-	$(PNPM) --filter @p2platex/desktop e2e
+	$(PNPM) --filter @hivetex/desktop e2e
 
 desktop-build: require-pnpm require-cargo ## Build desktop installers for this OS
-	$(PNPM) --filter @p2platex/desktop tauri build
+	$(PNPM) --filter @hivetex/desktop tauri build
 
 ## ---------- Local stack (Docker, production code path; see docs/local-stack.md) ----------
 
@@ -110,7 +110,7 @@ reset: require-docker ## Stop the stack and DELETE its database and Redis volume
 
 migrate-local: require-pnpm ## Apply migrations to the stack database from the host
 	DATABASE_URL=postgres://postgres:postgres@db.localtest.me:5432/main NEON_HTTP_ENDPOINT=http://localhost:4444/sql \
-		$(PNPM) --filter @p2platex/server migrate
+		$(PNPM) --filter @hivetex/server migrate
 
 test-stack: require-docker require-pnpm ## Run the e2e suite against the stack (rate limits off while it runs)
 	E2E_NO_LIMITS=1 $(COMPOSE) up -d --build --wait --remove-orphans

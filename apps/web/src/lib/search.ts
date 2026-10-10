@@ -1,4 +1,4 @@
-import { type ProjectModel, applyTextDiff } from '@p2platex/sync';
+import { type ProjectModel, applyTextDiff } from '@hivetex/sync';
 
 export interface SearchOptions {
   regex?: boolean;

@@ -1,4 +1,4 @@
-import { BUFFER_HIGH_WATER, FRAGMENT_SIZE } from '@p2platex/protocol';
+import { BUFFER_HIGH_WATER, FRAGMENT_SIZE } from '@hivetex/protocol';
 import { describe, expect, it } from 'vitest';
 import { DataChannelTransport, fakeChannelPair } from '../src/transport.js';
 

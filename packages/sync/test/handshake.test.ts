@@ -1,4 +1,4 @@
-import { MsgType } from '@p2platex/protocol';
+import { MsgType } from '@hivetex/protocol';
 import { describe, expect, it } from 'vitest';
 import { PeerConnection } from '../src/connection.js';
 import { jsonBytes } from '../src/frames.js';

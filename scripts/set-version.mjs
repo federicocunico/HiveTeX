@@ -32,6 +32,6 @@ for (const f of ['package.json', 'apps/web/package.json', 'apps/desktop/package.
 // Cargo.toml: the version line of [package].
 edit('apps/desktop/src-tauri/Cargo.toml', (s) => s.replace(/(\[package\][^[]*?\nversion\s*=\s*")[^"]*(")/, `$1${version}$2`));
 // Cargo.lock: our own crate's entry, so builds do not rewrite the lock file.
-edit('apps/desktop/src-tauri/Cargo.lock', (s) => s.replace(/(name = "p2platex-desktop"\r?\nversion = ")[^"]*(")/, `$1${version}$2`));
+edit('apps/desktop/src-tauri/Cargo.lock', (s) => s.replace(/(name = "hivetex-desktop"\r?\nversion = ")[^"]*(")/, `$1${version}$2`));
 
 console.log(`Version set to ${version}. Commit, then: make release VERSION=${version} CONFIRM=1`);

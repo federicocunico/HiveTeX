@@ -1,4 +1,4 @@
-import { MemoryPersistence, ProjectModel } from '@p2platex/sync';
+import { MemoryPersistence, ProjectModel } from '@hivetex/sync';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { buildIndex, completeAt, scanBib, scanLabels } from '../src/lib/latex.js';

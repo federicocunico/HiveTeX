@@ -18,7 +18,7 @@ export const requestContext: MiddlewareHandler<Env> = async (c, next) => {
 export const csrfGuard: MiddlewareHandler<Env> = async (c, next) => {
   const m = c.req.method;
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
-  if (c.req.header('x-requested-with') !== 'p2platex') throw new AppError(403, 'csrf', 'Missing request header');
+  if (c.req.header('x-requested-with') !== 'hivetex') throw new AppError(403, 'csrf', 'Missing request header');
   const origin = c.req.header('origin');
   if (origin) {
     const { config } = c.get('deps');

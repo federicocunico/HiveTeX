@@ -1,4 +1,4 @@
-import { COMPRESSED_FLAG, COMPRESS_THRESHOLD } from '@p2platex/protocol';
+import { COMPRESSED_FLAG, COMPRESS_THRESHOLD } from '@hivetex/protocol';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

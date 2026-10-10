@@ -1,7 +1,7 @@
 //! Test/diagnostic harness: reads one JSON line {"cmd":"tex_detect"|"tex_compile","args":{...}} per line on
 //! stdin and answers with one JSON line. Lets the TypeScript NativeEngine be tested against the real Rust code.
 
-use p2platex_desktop_lib::tex;
+use hivetex_desktop_lib::tex;
 use std::io::{BufRead, Write};
 
 fn main() {

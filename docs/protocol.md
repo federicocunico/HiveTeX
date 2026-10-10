@@ -44,7 +44,7 @@ Types a `viewer` connection may send (everything else is dropped): `HELLO`, `AUT
 
 1. Both sides send `HELLO {ticket, nonce}`. The receiver verifies the ticket signature/expiry against the pinned control-plane
    keys and that it is for **this project**.
-2. Both sides send `AUTH {sig}` where `sig = Ed25519(devKey, "p2platex/v1" ‖ projectId ‖ localDtlsFp ‖ remoteDtlsFp ‖ ownNonce ‖ peerNonce)`.
+2. Both sides send `AUTH {sig}` where `sig = Ed25519(devKey, "hivetex/v1" ‖ projectId ‖ localDtlsFp ‖ remoteDtlsFp ‖ ownNonce ‖ peerNonce)`.
    Because both DTLS fingerprints are signed, a signaling server that swaps SDP (man-in-the-middle) cannot produce a valid
    proof.
 3. Only after both proofs verify are any other frames accepted.

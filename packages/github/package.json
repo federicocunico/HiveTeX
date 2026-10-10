@@ -1,5 +1,5 @@
 {
-  "name": "@p2platex/github",
+  "name": "@hivetex/github",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,11 +10,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@p2platex/crypto": "workspace:*",
-    "@p2platex/protocol": "workspace:*"
+    "@hivetex/crypto": "workspace:*",
+    "@hivetex/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@p2platex/sync": "workspace:*",
+    "@hivetex/sync": "workspace:*",
     "@types/node": "^26.6.4"
   },
   "exports": {

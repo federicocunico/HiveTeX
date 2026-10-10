@@ -1,7 +1,7 @@
 # Local stack with production parity: run `make up` (see docs/local-stack.md).
 # Default services: postgres + neon-proxy, redis + upstash (REST), mailpit, api, web.
 # Profiles: `turn` (coturn NAT relay), `texlive` (self-hosted TeX Live file server for the in-browser compiler).
-name: p2platex
+name: hivetex
 
 x-dev-env: &dev-env
   env_file: docker/.env.stack
@@ -113,7 +113,7 @@ services:
     image: coturn/coturn:4.6-alpine
     command: >-
       -n --log-file=stdout --listening-port=3478 --fingerprint --lt-cred-mech
-      --user=dev:dev-stack-turn --realm=p2platex.local
+      --user=dev:dev-stack-turn --realm=hivetex.local
       --min-port=49160 --max-port=49200 --external-ip=127.0.0.1
     ports:
       - "3478:3478/udp"
