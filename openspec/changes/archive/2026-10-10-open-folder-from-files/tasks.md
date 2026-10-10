@@ -45,7 +45,7 @@
   - README: a "Use Claude Code on a project" step;
   - regenerate the screenshots if the Files panel changed.
   - Verify: links resolve.
-- [ ] 4.3 Full verification: `make check`; `cargo test --lib`; `make desktop-e2e` (wide and narrow); `openspec validate open-folder-from-files`; push, and CI and Desktop are green.
+- [x] 4.3 Full verification: `make check`; `cargo test --lib`; `make desktop-e2e` (wide and narrow); `openspec validate open-folder-from-files`; push, and CI and Desktop are green.
 
 ## Workflow follow-up
 
