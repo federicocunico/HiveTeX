@@ -16,7 +16,7 @@
     "Open Anyway" flow.
 - **Server URL.** The desktop app reads it from local storage (`serverUrl`) or the build-time `VITE_API_BASE`. It can
   only be changed on the Account page, after sign-in.
-- **Repository links.** The repository is `federicocunico/p2platex`. The updater endpoint and the web footer link point
+- **Repository links.** The repository is `federicocunico/HiveTeX`. The updater endpoint and the web footer link point
   to `p2platex/p2platex`, which does not exist.
 
 ## Goals / Non-Goals
@@ -55,7 +55,7 @@ Alternative considered: a separate dry-run workflow. Rejected, because the steps
 
 ### D2. Repository-derived URLs
 - `tauri.conf.json` commits the real endpoint
-  (`https://github.com/federicocunico/p2platex/releases/latest/download/latest.json`). The build passes
+  (`https://github.com/federicocunico/HiveTeX/releases/latest/download/latest.json`). The build passes
   `${{ github.repository }}` through `--config`, so a fork releases to itself.
 - The web footer uses `VITE_SOURCE_URL`. It defaults to the real repository; Vercel builds can set it from the
   repository variables.

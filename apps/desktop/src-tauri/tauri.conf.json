@@ -40,7 +40,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5MEJCOUQ1QkIyOTgxMzUKUldRMWdTbTcxYmtMaWZVeWhRWmxzblJ2VUp0L0ZwQkVIQ2JRTmVuY0l0M2NyNDZ6NEtWZ2V5Ly8K",
       "endpoints": [
-        "https://github.com/federicocunico/p2platex/releases/latest/download/latest.json"
+        "https://github.com/federicocunico/HiveTeX/releases/latest/download/latest.json"
       ]
     }
   }

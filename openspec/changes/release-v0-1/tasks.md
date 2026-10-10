@@ -5,7 +5,7 @@
 - [x] 1.1 `scripts/set-version.mjs` + `make version VERSION=x.y.z`. It updates `tauri.conf.json`, `Cargo.toml`
   `[package]`, the `p2platex-desktop` entry in `Cargo.lock`, and the root/web/desktop `package.json`. Set `0.1.0`;
   verify `cargo check` and that `git diff` shows only version fields.
-- [x] 1.2 Updater endpoint and web source link point to `federicocunico/p2platex` (overridable at build time); verify
+- [x] 1.2 Updater endpoint and web source link point to `federicocunico/HiveTeX` (overridable at build time); verify
   with grep that no `p2platex/p2platex` link remains outside archived changes.
 - [x] 1.3 macOS ad-hoc signing (`bundle.macOS.signingIdentity: "-"`); verify that the `tauri.conf.json` schema
   validates (`cargo check` / `tauri info`).

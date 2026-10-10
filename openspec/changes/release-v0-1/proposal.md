@@ -24,7 +24,7 @@ readiness review for a first v0.1 found that:
 - **Consistent versioning.** The project is set to `0.1.0`, a helper sets the version everywhere at once, and the release
   job refuses a tag that does not match the version in the sources.
 - **Correct links.** The updater endpoint and the "source code" link derive from the real repository
-  (`federicocunico/p2platex`).
+  (`federicocunico/HiveTeX`).
 - **Server choice before sign-in (desktop).** The sign-in screen of the desktop app shows the server the app talks to and
   lets the user change it. This is required when an installer was built without a default server.
 - **Setup guide and helper script.** The README gets a short "Release v0.1 and test with others" guide: create the free

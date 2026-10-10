@@ -1,7 +1,7 @@
 # CI/CD: what is missing
 
-Status after investigating the failed run [`CI` #37941941428](https://github.com/federicocunico/p2platex/actions/runs/37941941428)
-(commit `411377b`). As of run [#37947085763](https://github.com/federicocunico/p2platex/actions/runs/37947085763) **CI and Desktop are green**
+Status after investigating the failed run [`CI` #37941941428](https://github.com/federicocunico/HiveTeX/actions/runs/37941941428)
+(commit `411377b`). As of run [#37947085763](https://github.com/federicocunico/HiveTeX/actions/runs/37947085763) **CI and Desktop are green**
 (`full-flow.spec.ts` still needed one retry).
 
 ## Fixed in this commit
