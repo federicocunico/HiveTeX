@@ -48,14 +48,24 @@ async function until(fn, msg, ms = 15_000) {
   const page = await b.execute(() => document.body.innerText).catch(() => '');
   throw new Error(`timed out: ${msg} (last: ${last})\n--- page ---\n${String(page).slice(0, 2000)}`);
 }
+/**
+ * The tree item labelled `name`, or null. Matched inside the page on the item's own text (without nested items):
+ * WebDriver "element text" differs between WebView2 and WebKitGTK, textContent does not.
+ */
 async function treeHas(name) {
-  for (const it of await b.findAll('[role="treeitem"]')) {
-    // text of an item: icon, name and a ★ on the main file; folders also contain their children
-    // (WebView2 puts icon and name on separate lines, WebKitGTK on one: strip icons and markers)
-    const lines = (await it.getText()).split(/\r?\n/).map((l) => l.replace(/[★📄📁▾▸]/gu, '').trim());
-    if (lines.includes(name)) return it;
-  }
-  return null;
+  const found = await b.execute((n) => {
+    for (const el of document.querySelectorAll('[role="treeitem"]')) {
+      const own = el.cloneNode(true);
+      for (const nested of own.querySelectorAll('[role="treeitem"], [role="group"]')) nested.remove();
+      const words = (own.textContent ?? '').replace(/[★📄📁▾▸]/gu, ' ').split(/\s+/);
+      if (words.includes(n)) {
+        el.setAttribute('data-e2e-hit', n);
+        return true;
+      }
+    }
+    return false;
+  }, name);
+  return found ? b.find(`[data-e2e-hit="${name}"]`) : null;
 }
 const editorText = async () => (await b.$('.cm-content')).getText();
 const PROJECTS_H1 = "//h1[normalize-space()='Your projects']";
