@@ -51,6 +51,11 @@ steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint
       WebKitWebDriver) and Windows (msedgedriver matched to the runner's WebView2). Locally: `make desktop-e2e`.
       The Windows leg is `continue-on-error` because hosted runners sometimes update WebView2 before the matching
       driver is published; Linux gates the workflow. Revisit once a few weeks of runs show it stable.
+- [ ] `Desktop / desktop-e2e (windows-latest)` cannot start a session yet: msedgedriver (matched to the runner's WebView2,
+      e.g. 153.0.4234.48) answers "DevToolsActivePort file doesn't exist", i.e. the app's webview never comes up in the
+      runner's non-interactive session. The same tests pass on a Windows 11 desktop (`make desktop-e2e`). Next steps:
+      capture the app's stderr in `run.mjs`, try `--native-host`/a fixed WebView2 user-data folder
+      (`WEBVIEW2_USER_DATA_FOLDER`), or the `windows-2022` image.
 - [ ] Decide on the default branch name (`master` vs `main`). The workflows accept both, but docs and tooling assume
       `main`.
 

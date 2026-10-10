@@ -14,7 +14,7 @@ Document sources, binary assets, compiled PDFs and edit operations MUST travel o
 - **THEN** no document text, file names inside the project, assets or PDFs are present
 
 ### Requirement: Peer discovery and connection bootstrap
-A member device SHALL discover other online member devices of the project and establish encrypted peer connections. Connection-setup messages relayed by the control plane MUST be end-to-end encrypted between the two devices. A device SHALL prove possession of its device key to the signaling relay before it is announced to other members.
+A member device SHALL discover other online member devices of the project and establish encrypted peer connections. Connection-setup messages relayed by the control plane MUST be end-to-end encrypted between the two devices. A device SHALL prove possession of its device key to the signaling relay before it is announced to other members. The ending of an earlier connection of a device SHALL NOT affect a newer connection of the same device.
 
 #### Scenario: Second member comes online
 - **WHEN** member A is editing and member B opens the same project
@@ -27,6 +27,10 @@ A member device SHALL discover other online member devices of the project and es
 #### Scenario: Copied ticket
 - **WHEN** a member connects to the signaling relay with another member's ticket but without that device's private key
 - **THEN** the relay refuses the connection and other members see no presence change for that device
+
+#### Scenario: Quick reload of the same device
+- **WHEN** a member reloads the app and the old signaling session's cleanup is processed after the new session announced itself
+- **THEN** the device stays present and its peers keep the new connection
 
 ### Requirement: Peer authentication
 Before exchanging any project data, both peers MUST verify each other's membership ticket and prove possession of the device key named in the ticket, bound to the specific encrypted connection.

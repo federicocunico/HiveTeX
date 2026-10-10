@@ -35,11 +35,11 @@
 
 - [x] 6.1 `test-picker` cargo feature for `mirror_pick` (env `P2PLATEX_TEST_PICK_DIR`, still recorded in the allowlist) and a Rust test that the default/release features exclude it; verify `cargo test --lib` and `cargo build --release` without the feature
 - [x] 6.2 `apps/desktop/e2e` with `tauri-driver` (minimal WebDriver client, see D10) (link folder, open marker folder, create from folder, import folder, external edit visible) and `make desktop-e2e`; verify locally on Windows
-- [ ] 6.3 Desktop workflow `desktop-e2e` job on Linux (xvfb, webkit2gtk-driver) and Windows (msedgedriver); verify it runs green in CI (Windows may be `continue-on-error` per design open question, documented in TODO_CI.md)
-- [ ] 6.4 Bump actions to Node 24 majors in all workflows and add `stack-nightly.yml` (schedule + manual); verify a CI run has no Node 20 deprecation annotation and a manual dispatch of the nightly job is green
+- [x] 6.3 Desktop workflow `desktop-e2e` job on Linux (xvfb, webkit2gtk-driver) and Windows (msedgedriver); verify it runs green in CI (Windows may be `continue-on-error` per design open question, documented in TODO_CI.md)
+- [x] 6.4 Bump actions to Node 24 majors in all workflows and add `stack-nightly.yml` (schedule + manual); verify a CI run has no Node 20 deprecation annotation and a manual dispatch of the nightly job is green
 - [x] 6.5 Close task 4.2 of the archived security change in `TODO_CI.md` (now covered by 6.2) and update the open-points list
 
 ## 7. Docs and integration
 
 - [x] 7.1 Docs: `docs/folders.md` (locations, open/create from folder, marker, web support, AI tools workflow, changes view), update `docs/local-ai-tools.md` and README; verify links and that steps match the UI
-- [ ] 7.2 `make check` + CI + Desktop green; verify on a pushed commit
+- [x] 7.2 `make check` + CI + Desktop green; verify on a pushed commit
