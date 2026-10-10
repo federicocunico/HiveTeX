@@ -15,4 +15,4 @@
 ## 3. Docs
 
 - [x] 3.1 README guide: install tools, `make setup`, `make release`, testers' first launch; manual steps moved to `docs/deployment.md` with the sensitive-value note; verify the commands named exist
-- [ ] 3.2 `make check`, CI green
+- [x] 3.2 `make check`, CI green
