@@ -286,6 +286,12 @@ test('the web app pairs with the desktop app (confirmed here), compiles through 
   });
   await until(async () => (await textOf('compiler-panel')).includes('webuser'), 'pairing listed');
   assert.match(await textOf('current-compiler'), /quick compiler/);
+  // SCREENSHOTS=1: the README's picture of the desktop app (Account > Compiler with the quick compiler and a pairing)
+  if (process.env.SCREENSHOTS) {
+    await b.execute(() => document.querySelector('[data-testid="compiler-settings"]')?.scrollIntoView({ block: 'center' }));
+    await new Promise((r) => setTimeout(r, 500));
+    writeFileSync(new URL('../../../docs/images/desktop-compiler.png', import.meta.url), Buffer.from(await b.cmd('GET', '/screenshot'), 'base64'));
+  }
   // (the app's data folder may keep pairings from earlier runs: revoke them all)
   await until(async () => {
     if (!(await textOf('compiler-panel')).includes('webuser')) return true;
