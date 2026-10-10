@@ -15,3 +15,5 @@ playwright-report
 
 .vercel
 .env*
+!.env.example
+!docker/.env.stack
