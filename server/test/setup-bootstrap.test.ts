@@ -31,7 +31,7 @@ describe('first admin bootstrap (BOOTSTRAP_ADMIN)', () => {
   });
 
   it('promotes on sign-in for an account created before the setting', async () => {
-    env.deps.config.bootstrapAdmin = undefined;
+    delete env.deps.config.bootstrapAdmin;
     await register(env, 'alice');
     env.deps.config.bootstrapAdmin = 'alice';
     const c = new Client(env);
