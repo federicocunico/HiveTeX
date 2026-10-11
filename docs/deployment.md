@@ -74,6 +74,12 @@ dashboards during the first weeks.
   updates*. When the three builds succeed, the *Release* workflow checks that every file is there, adds download links
   and first-launch notes, and publishes it (about 30 minutes after the push). A tag like `v0.3.0-beta.1` is published
   as a pre-release, which installed apps don't update to.
+- **A release cannot be blocked by a flaky test or a mirror outage:**
+  - `make release` tags only a commit that is on GitHub and whose *CI* and *Desktop* runs passed (`FORCE=1` skips
+    the check);
+  - the tag's `build` jobs make only the installers, without waiting for the tests, and retry package downloads;
+  - if a build still fails, the *Release* workflow re-runs the failed jobs automatically (3 attempts in all) and
+    publishes as soon as all three succeed.
 - **If a build fails,** the release stays a draft and the *Release* run says what's missing. Re-run the failed
   *Desktop* jobs and it publishes on its own. *Actions → Release → Run workflow* (with the tag) publishes a draft by
   hand.

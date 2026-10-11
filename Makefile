@@ -163,7 +163,8 @@ release: require-git require-node ## Tag and push vVERSION: CI builds the instal
 	@test -n "$(VERSION)" || { echo "Usage: make release VERSION=x.y.z CONFIRM=1"; exit 1; }
 	@v=$$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version"); \
 	if [ "$$v" != "$(VERSION)" ]; then echo "Sources are at $$v, not $(VERSION): run 'make version VERSION=$(VERSION)' and commit first."; exit 1; fi
-	@test -z "$$(git status --porcelain)" || { echo "Commit or stash your changes first (the tag must match a pushed commit)."; exit 1; }
+	@test -z "$(git status --porcelain)" || { echo "Commit or stash your changes first (the tag must match a pushed commit)."; exit 1; }
+	node scripts/release-check.mjs
 	@if [ "$(CONFIRM)" != "1" ]; then \
 		echo "This would run:"; echo "  git tag v$(VERSION) && git push origin HEAD v$(VERSION)"; \
 		echo "Re-run with CONFIRM=1 to do it."; exit 1; \
