@@ -184,3 +184,27 @@ describe('blob request ranges (F12)', () => {
     expect(holder.mesh.peers).toHaveLength(1);
   });
 });
+
+describe('reconnect with a binary transfer in flight (9.2)', () => {
+  it('a link dropped mid-transfer neither corrupts nor leaks: after reconnecting the exact bytes arrive and the fetch settles', async () => {
+    net = await Net.create();
+    const [holder, me] = [await net.add('hold', 'editor'), await net.add('me', 'editor')];
+    await net.link(holder, me, { latencyMs: 4 });
+    const [bh, bm] = [holder, me].map((n) => new BlobManager(n.mesh, n.store)) as [BlobManager, BlobManager];
+    const data = noise(BLOB_CHUNK_SIZE * 60);
+    const hash = await bh.add(data);
+    await waitFor(() => (bm as unknown as Internals).peerHas.size === 1);
+    const got = bm.fetch(hash, 30_000);
+    // wait until some, but not all, chunks arrived, then cut the link
+    const w = (bm as unknown as Internals).pending;
+    await waitFor(() => (w.get(hash)?.chunks.size ?? 0) > 0);
+    expect(w.get(hash)?.chunks.size).toBeLessThan(60);
+    net.isolate(me);
+    await waitFor(() => me.mesh.peers.length === 0);
+    await net.link(holder, me, { latencyMs: 4 });
+    expect(same(await got, data)).toBe(true);
+    expect(await sha256Hex(await bm.get(hash) as Uint8Array)).toBe(hash);
+    // settled: nothing left pending for the finished fetch
+    expect(w.has(hash)).toBe(false);
+  }, 40_000);
+});
