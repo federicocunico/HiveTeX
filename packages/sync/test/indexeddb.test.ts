@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import { ROOT_DOC_ID } from '@hivetex/protocol';
 import { IDBFactory } from 'fake-indexeddb';
 import { describe, expect, it } from 'vitest';
 import { IndexedDbPersistence } from '../src/persistence.js';
@@ -10,6 +11,7 @@ describe('IndexedDB persistence (6.4)', () => {
     const s1 = await IndexedDbPersistence.open('proj', factory);
     const m1 = new ProjectModel(s1, { flushMs: 1 });
     await m1.init();
+    m1.markComplete(ROOT_DOC_ID); // created here, so its file list is complete
     const id = await m1.createTextNow('main.tex', 'hello idb');
     await s1.putBlob('abc', new Uint8Array([1, 2, 3]));
     const snap = await m1.captureSnapshot();

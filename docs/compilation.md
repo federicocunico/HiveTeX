@@ -40,12 +40,27 @@ project's status bar, applies to every project, and takes effect at once:
 
 ## Pipeline
 
-1. After edits settle (1.2 s debounce, 5 s max wait) the leader snapshots the project, compiles incrementally and publishes
+1. After edits settle (1.2 s debounce, 5 s max wait) the leader captures the project, compiles incrementally and publishes
    `{stateHash, pdfHash, synctexHash, diagnostics, log}`; the PDF and SyncTeX file travel as content-addressed blobs.
 2. A request during a running compile queues exactly one follow-up run. **Recompile** is available to every role.
 3. Failed builds publish the parsed errors/warnings; the last good PDF stays visible. The PDF bar shows *Outdated: N edits since the
    last compile* while edits are newer than the displayed PDF, and *Up to date* otherwise.
 4. **Compile on this device only** (in the menu next to Recompile, or Ctrl+Shift+Enter) builds on the current device only (works offline) and does not distribute anything.
+
+### Complete inputs and result identity
+
+* **A build uses one captured set of inputs**: every text file, every image, the main document and the TeX engine, fixed together
+  when the build starts. The `stateHash` of the result is computed from exactly those bytes and settings, so an edit that
+  arrives while an image is still being fetched makes the result *outdated* and is built next; it never changes which state the
+  finished PDF claims to show.
+* **Settings are part of the identity.** Choosing another main document or engine invalidates the last PDF even though no file
+  changed: the leader rebuilds, and the PDF bar shows *Outdated* until it has. The check that drives *Outdated* uses the same
+  identity as the build.
+* **Nothing is built without its content.** If a file the project lists has not arrived (a new leader that has the file list
+  but not every text, or an image nobody online holds) the leader waits up to 8 s for it, then publishes an *incomplete*
+  result that names the files (`! Compile not started: these project files are not available ...`). The previous good PDF stays
+  visible, nothing is compiled with empty stand-ins, and the leader tries again every 5 s and on every edit. *Compile on this
+  device only* shows the same message as an error. A project that is complete on the device compiles offline.
 
 ## Engines
 

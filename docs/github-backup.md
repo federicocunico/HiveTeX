@@ -46,6 +46,16 @@ The **GitHub backup** panel (the cloud icon in the workspace rail):
 * Commits go **directly from the device to `api.github.com`** with the Git Data API: only blobs that differ from the remote
   tree are uploaded; deletions of files HiveTeX previously committed are mirrored; foreign files are left alone.
 * The commit message lists the contributing usernames and the time range.
+* **A backup always has the whole project.** It first captures every text file and image (waiting up to 15 s for content that
+  co-authors still have to send, or fetching images from them). If a file the project still lists cannot be obtained, the backup
+  **fails before anything is sent**: GitHub, including the image from the earlier backup, stays as it was, the panel shows
+  *Backup not started: these files are not available on this device yet (...)*, the *last backup* time does not move and all
+  pending edits stay pending. A file missing on this device is never read as deleted. Only a file someone deleted in the project is removed
+  from the repository (and from `.hivetex.json`), by the first complete backup after that.
+* **Edits during a backup are not lost.** A backup acknowledges only the edits its capture included. What was typed while it was
+  collecting images or uploading (and who typed it) stays pending, so the next scheduled backup includes it without further
+  typing. If the upload fails, every pending edit and the previous *last backup* time are kept. Only one backup runs at a time on a
+  device; *Back up now* during a running backup does nothing and the next scheduled one picks up what changed.
 * **Never a force-push.** If the bound branch received commits that HiveTeX did not make, or moved during a push, the
   snapshot is committed to `hivetex/backup` instead and owners see a notice.
 * `.hivetex.json` in the repo lists the paths managed by HiveTeX.

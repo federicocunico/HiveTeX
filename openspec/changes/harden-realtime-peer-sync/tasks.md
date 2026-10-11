@@ -58,12 +58,12 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 8. Complete snapshots, compilation, export, and backup
 
-- [ ] 8.1 Add a complete immutable acquisition API capturing file revisions, text, asset hashes, main file, and engine; verify delayed asset acquisition cannot change captured text and complete local projects remain usable offline.
-- [ ] 8.2 Migrate compile input identity and stale-result checking to captured inputs including settings; verify F14 with main/engine-only changes and a delayed `zzz.png` fetch after `main.tex` capture, proving result identity matches compiled bytes.
-- [ ] 8.3 Migrate source export and snapshot/history consumers that require complete content; verify initial-sync export waits or reports missing files, and no complete-project artifact substitutes empty placeholders.
-- [ ] 8.4 Make backup acquisition fail before remote mutation when content is missing; verify F06 with a fake GitHub remote retaining a previously backed-up image, and a separate intentional deletion still updating the manifest and tree correctly.
-- [ ] 8.5 Track backup completion against its captured revision and retain later dirty edits/contributors; verify F17 with a deferred remote update followed by another edit, then a second backup containing that edit without needing further typing.
-- [ ] 8.6 Update `docs/compilation.md`, `docs/github-backup.md`, and export help for complete-input outcomes; verify documented success, missing-content, settings-change, and concurrent-backup behavior against the tests in this group.
+- [x] 8.1 Add a complete immutable acquisition API capturing file revisions, text, asset hashes, main file, and engine; verify delayed asset acquisition cannot change captured text and complete local projects remain usable offline.
+- [x] 8.2 Migrate compile input identity and stale-result checking to captured inputs including settings; verify F14 with main/engine-only changes and a delayed `zzz.png` fetch after `main.tex` capture, proving result identity matches compiled bytes.
+- [x] 8.3 Migrate source export and snapshot/history consumers that require complete content; verify initial-sync export waits or reports missing files, and no complete-project artifact substitutes empty placeholders.
+- [x] 8.4 Make backup acquisition fail before remote mutation when content is missing; verify F06 with a fake GitHub remote retaining a previously backed-up image, and a separate intentional deletion still updating the manifest and tree correctly.
+- [x] 8.5 Track backup completion against its captured revision and retain later dirty edits/contributors; verify F17 with a deferred remote update followed by another edit, then a second backup containing that edit without needing further typing.
+- [x] 8.6 Update `docs/compilation.md`, `docs/github-backup.md`, and export help for complete-input outcomes; verify documented success, missing-content, settings-change, and concurrent-backup behavior against the tests in this group.
 
 ## 9. Integration and compatibility gates
 

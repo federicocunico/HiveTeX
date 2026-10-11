@@ -187,8 +187,7 @@ export class MirrorSync {
       }) as unknown as () => void,
     );
     this.stopFns.push(this.o.mesh.onPeerJoin(() => this.fetchContent()));
-    await this.o.mesh.prefetchAll();
-    this.fetchContent();
+    this.fetchContent(); // asks for what is missing; the reconciliation below only uses text that is complete
     const saved = (await this.o.model.store.getMeta(BASE_META).catch(() => null)) as Record<string, string> | null;
     this.savedBase = new Map(Object.entries(saved ?? {}));
     await this.initialReconcile();

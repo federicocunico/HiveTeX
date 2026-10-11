@@ -52,6 +52,7 @@ async function device(
   gh: FakeGitHub,
   token: { value: string | null },
   clock: { t: number },
+  opts: { fetchImpl?: typeof fetch; assetTimeoutMs?: number; acquireTimeoutMs?: number } = {},
 ) {
   const n: Node = await net.add(name, role);
   const blobs = new BlobManager(n.mesh, n.store);
@@ -62,13 +63,15 @@ async function device(
     self: { dev: n.dev, uname: name },
     getRole: () => role,
     getToken: async () => token.value,
-    fetchImpl: gh.fetch,
+    fetchImpl: opts.fetchImpl ?? gh.fetch,
     now: () => clock.t,
     tickMs: 1_000_000,
+    assetTimeoutMs: opts.assetTimeoutMs ?? 100,
+    acquireTimeoutMs: opts.acquireTimeoutMs ?? 200,
   });
   agents.push(agent);
   agent.start();
-  return { n, agent };
+  return { n, agent, blobs };
 }
 
 describe('backup agent: scheduling and writer election (10.4, 10.5)', () => {
@@ -227,5 +230,146 @@ describe('backup binding authority (security)', () => {
     expect(agent.bindingMismatch).toBe(false);
     await agent.backupNow();
     expect(gh.repo('owner/paper').files('main')['main.tex']).toBe('secret draft');
+  });
+});
+
+const REPO = { owner: 'octocat', repo: 'paper' };
+const bytes = (s: string) => new TextEncoder().encode(s);
+const managed = (gh: FakeGitHub) => (JSON.parse(gh.repo('octocat/paper').files('main')['.hivetex.json'] ?? '{"paths":[]}') as { paths: string[] }).paths;
+
+describe('complete backup acquisition (8.4, F06)', () => {
+  async function backedUpImage() {
+    net = await Net.create();
+    const gh = new FakeGitHub();
+    gh.repo('octocat/paper', { empty: true });
+    const clock = { t: Date.UTC(2026, 0, 1, 10, 0) };
+    const d = await device('alice', 'owner', gh, { value: 'tok' }, clock);
+    await sleep(30);
+    d.agent.setBinding({ repo: REPO, branch: 'main' });
+    await d.n.model.createTextNow('main.tex', 'v1');
+    const hash = await d.blobs.add(bytes('PNGDATA'));
+    const figId = d.n.model.createBinary('fig.png', hash, 7);
+    await d.agent.backupNow();
+    expect(gh.repo('octocat/paper').files('main')['fig.png']).toBe('PNGDATA');
+    expect(managed(gh)).toContain('fig.png');
+    return { gh, clock, ...d, figId };
+  }
+
+  it('fails before any remote change when an image that is still in the project cannot be fetched', async () => {
+    const { gh, clock, n, agent, figId } = await backedUpImage();
+    const refBefore = gh.repo('octocat/paper').refs.get('main');
+    const commitsBefore = gh.stats.commits;
+    const lastBackup = agent.meta.lastBackupAt;
+    clock.t += 60_000;
+    n.model.setBinary(figId, 'e'.repeat(64), 7); // a new version of the figure that has not arrived here
+    await expect(agent.backupNow()).rejects.toThrow(/fig\.png/);
+    expect(gh.repo('octocat/paper').refs.get('main')).toBe(refBefore);
+    expect(gh.stats.commits).toBe(commitsBefore);
+    expect(gh.repo('octocat/paper').files('main')['fig.png']).toBe('PNGDATA');
+    expect(managed(gh)).toContain('fig.png');
+    expect(agent.meta.lastError).toMatch(/fig\.png/);
+    expect(agent.meta.lastBackupAt).toBe(lastBackup);
+    expect(agent.meta.changesSince).toBeGreaterThan(0);
+  });
+
+  it('fails instead of committing an empty replacement for a text file that has not arrived', async () => {
+    const { gh, n, agent } = await backedUpImage();
+    const refBefore = gh.repo('octocat/paper').refs.get('main');
+    n.model.putEntry('ghost', { path: 'ghost.tex', kind: 'text' });
+    await expect(agent.backupNow()).rejects.toThrow(/ghost\.tex/);
+    expect(gh.repo('octocat/paper').refs.get('main')).toBe(refBefore);
+    expect(gh.repo('octocat/paper').files('main')['ghost.tex']).toBeUndefined();
+  });
+
+  it('still mirrors an intentional deletion in the tree and the manifest', async () => {
+    const { gh, n, agent, figId } = await backedUpImage();
+    n.model.delete(figId);
+    const res = await agent.backupNow();
+    expect(res?.deleted).toBe(1);
+    expect(gh.repo('octocat/paper').files('main')['fig.png']).toBeUndefined();
+    expect(managed(gh)).not.toContain('fig.png');
+    expect(gh.repo('octocat/paper').files('main')['main.tex']).toBe('v1');
+  });
+});
+
+describe('backup completion acknowledges only captured edits (8.5, F17)', () => {
+  /** Holds the commit's branch update until released: the upload is in flight. */
+  function deferred(gh: FakeGitHub) {
+    const state = { hold: false, reached: false, release: () => {} };
+    const gate = new Promise<void>((r) => (state.release = r));
+    const fetchImpl = (async (input: string, init?: RequestInit) => {
+      if (state.hold && init?.method === 'PATCH' && String(input).includes('/git/refs/heads/')) {
+        state.reached = true;
+        await gate;
+      }
+      return gh.fetch(input, init);
+    }) as typeof fetch;
+    return { state, fetchImpl };
+  }
+
+  it('keeps an edit made while the upload was pending, with its author, and the next backup includes it', async () => {
+    net = await Net.create();
+    const gh = new FakeGitHub();
+    gh.repo('octocat/paper', { empty: true });
+    const { state, fetchImpl } = deferred(gh);
+    const clock = { t: Date.UTC(2026, 0, 1, 10, 0) };
+    const a = await device('alice', 'owner', gh, { value: 'tok' }, clock, { fetchImpl });
+    const b = await device('bob', 'editor', gh, { value: null }, clock);
+    await net.link(a.n, b.n);
+    await sleep(100);
+    a.agent.setBinding({ repo: REPO, branch: 'main' });
+    a.agent.setPolicy({ idleMinutes: 15, minIntervalMinutes: 5 });
+    const id = await a.n.model.createTextNow('main.tex', 'one');
+    await a.agent.backupNow(); // the repository exists and has a first commit
+    await waitFor(() => b.n.model.list().length === 1);
+    await b.n.mesh.openDoc(`f:${id}`);
+    await waitFor(async () => (await b.n.model.openText(id)).toString() === 'one');
+
+    clock.t += 20 * 60_000;
+    (await a.n.model.openText(id)).insert(3, ' two');
+    state.hold = true;
+    const first = a.agent.backupNow();
+    await waitFor(() => state.reached);
+    expect(await a.agent.backupNow()).toBeNull(); // one backup at a time: this request does nothing
+    clock.t += 60_000;
+    (await b.n.model.openText(id)).insert(0, 'X'); // a co-author edits after the capture, before the commit succeeds
+    await waitFor(async () => (await a.n.model.openText(id)).toString() === 'Xone two');
+    state.release();
+    await first;
+    expect(gh.repo('octocat/paper').files('main')['main.tex']).toBe('one two');
+    expect(a.agent.meta.changesSince).toBeGreaterThan(0);
+    expect(a.agent.meta.contributors).toEqual(['bob']);
+
+    // no further typing: the scheduled backup picks the pending edit up
+    clock.t += 20 * 60_000;
+    const pushes = a.agent.pushes;
+    await a.agent.tick();
+    expect(a.agent.pushes).toBe(pushes + 1);
+    expect(gh.repo('octocat/paper').files('main')['main.tex']).toBe('Xone two');
+    expect(a.agent.meta.changesSince).toBe(0);
+    expect(gh.repo('octocat/paper').commits.get(gh.repo('octocat/paper').refs.get('main') as string)?.message).toContain('bob');
+  });
+
+  it('retains all pending edits and the previous backup time when the upload fails', async () => {
+    net = await Net.create();
+    const gh = new FakeGitHub();
+    gh.repo('octocat/paper', { empty: true });
+    const clock = { t: Date.UTC(2026, 0, 1, 10, 0) };
+    const failing = { on: false };
+    const fetchImpl = (async (input: string, init?: RequestInit) => (failing.on && init?.method === 'POST' ? new Response('{}', { status: 500 }) : gh.fetch(input, init))) as typeof fetch;
+    const a = await device('alice', 'owner', gh, { value: 'tok' }, clock, { fetchImpl });
+    await sleep(30);
+    a.agent.setBinding({ repo: REPO, branch: 'main' });
+    const id = await a.n.model.createTextNow('main.tex', 'one');
+    await a.agent.backupNow();
+    const last = a.agent.meta.lastBackupAt;
+    clock.t += 60_000;
+    (await a.n.model.openText(id)).insert(3, ' two');
+    const dirty = a.agent.meta.changesSince;
+    expect(dirty).toBeGreaterThan(0);
+    failing.on = true;
+    await expect(a.agent.backupNow()).rejects.toThrow();
+    expect(a.agent.meta.lastBackupAt).toBe(last);
+    expect(a.agent.meta.changesSince).toBe(dirty);
   });
 });

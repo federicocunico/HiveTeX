@@ -1,11 +1,12 @@
-import { MemoryPersistence, ProjectModel } from '@hivetex/sync';
+import { BlobManager, MemoryPersistence, ProjectModel } from '@hivetex/sync';
+import { Net } from '@hivetex/sync/testkit';
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { buildIndex, completeAt, scanBib, scanLabels } from '../src/lib/latex.js';
 import { replaceProject, searchProject } from '../src/lib/search.js';
 import { detectMain } from '../src/lib/import/detect.js';
 import { readArchive } from '../src/lib/import/sources.js';
-import { exportZip, readZip } from '../src/lib/import/zip.js';
+import { exportProjectZip, readZip } from '../src/lib/import/zip.js';
 
 const BIB = `@article{knuth84,
   author = {Donald E. Knuth},
@@ -85,13 +86,16 @@ describe('project search and replace (7.2)', () => {
 
 describe('zip export/import (7.5)', () => {
   it('round trips a project', async () => {
-    const m = new ProjectModel(new MemoryPersistence(), { flushMs: 5 });
-    await m.init();
-    await m.createTextNow('main.tex', 'hi');
-    await m.createTextNow('chap/one.tex', 'one');
-    m.createBinary('img/x.png', 'h1', 3);
-    const zip = await exportZip(m, async () => new Uint8Array([1, 2, 3]));
-    const { files } = readZip(zip);
+    const net = await Net.create();
+    const a = await net.add('alice', 'owner');
+    const blobs = new BlobManager(a.mesh, a.store);
+    await a.model.createTextNow('main.tex', 'hi');
+    await a.model.createTextNow('chap/one.tex', 'one');
+    a.model.createBinary('img/x.png', await blobs.add(new Uint8Array([1, 2, 3])), 3);
+    const e = await exportProjectZip(a.mesh, a.model, blobs);
+    net.destroy();
+    if (!e.ok) throw new Error('expected an archive');
+    const { files } = readZip(e.zip);
     expect(files.map((f) => f.path).sort()).toEqual(['chap/one.tex', 'img/x.png', 'main.tex']);
     expect(new TextDecoder().decode(files.find((f) => f.path === 'main.tex')?.bytes)).toBe('hi');
     expect(Array.from(files.find((f) => f.path === 'img/x.png')?.bytes ?? [])).toEqual([1, 2, 3]);

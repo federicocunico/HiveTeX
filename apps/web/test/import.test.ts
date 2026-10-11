@@ -1,4 +1,5 @@
-import { MemoryPersistence, ProjectModel, sha256Hex } from '@hivetex/sync';
+import { BlobManager, MemoryPersistence, ProjectModel, sha256Hex } from '@hivetex/sync';
+import { Net } from '@hivetex/sync/testkit';
 import { gzipSync, strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { applyImport, planFor } from '../src/lib/import/apply.js';
@@ -127,13 +128,16 @@ describe('zip', () => {
     expect(() => readZip(z.subarray(0, z.length - 30))).toThrow(/corrupt/);
   });
   it('round trips export', async () => {
-    const m = new ProjectModel(new MemoryPersistence(), { flushMs: 5 });
-    await m.init();
-    await m.createTextNow('main.tex', 'hi');
-    m.createBinary('img/x.png', 'h', 3);
-    const { exportZip } = await import('../src/lib/import/zip.js');
-    const r = readZip(await exportZip(m, async () => new Uint8Array([1, 2, 3])));
-    expect(r.files.map((f) => f.path).sort()).toEqual(['img/x.png', 'main.tex']);
+    const net = await Net.create();
+    const a = await net.add('alice', 'owner');
+    const blobs = new BlobManager(a.mesh, a.store);
+    await a.model.createTextNow('main.tex', 'hi');
+    a.model.createBinary('img/x.png', await blobs.add(new Uint8Array([1, 2, 3])), 3);
+    const { exportProjectZip } = await import('../src/lib/import/zip.js');
+    const e = await exportProjectZip(a.mesh, a.model, blobs);
+    net.destroy();
+    if (!e.ok) throw new Error('expected an archive');
+    expect(readZip(e.zip).files.map((f) => f.path).sort()).toEqual(['img/x.png', 'main.tex']);
   });
 });
 

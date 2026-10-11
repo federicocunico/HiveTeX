@@ -1,4 +1,4 @@
-import { type BlobManager, type Mesh, type PeerInfo, type ProjectModel, PeerConnection } from '@hivetex/sync';
+import { type BlobManager, type Mesh, type PeerInfo, type ProjectModel, PeerConnection, acquireProject } from '@hivetex/sync';
 import { type PushResult, pushBackup } from './backup.js';
 import { GitHubClient, GitHubError, type RepoRef } from './client.js';
 import { type BackupMeta, type BackupPolicy, DEFAULT_POLICY, commitMessage, decide, emptyMeta } from './policy.js';
@@ -30,12 +30,24 @@ export interface AgentOptions {
   /** Extra files to include (e.g. the latest PDF when the owner enabled it). */
   extraFiles?: () => Promise<Map<string, Uint8Array>>;
   tickMs?: number;
+  /** How long a backup waits for project content peers still have to send before failing (default 15 s). */
+  acquireTimeoutMs?: number;
+  /** Per image (default 15 s). */
+  assetTimeoutMs?: number;
   /**
    * The binding an owner recorded on the control plane (`owner/repo@branch`), the only repository this device will
    * push to. The copy in the shared project metadata is writable by any editor, so it is never trusted on its own.
    * Omitted only in tests that do not exercise authority.
    */
   authorizedBinding?: () => string | null;
+}
+
+/** A backup that could not start because project content is not available here; nothing was sent to GitHub. */
+export class IncompleteBackupError extends Error {
+  constructor(readonly missing: string[]) {
+    super(`Backup not started: these files are not available on this device yet (${missing.length > 5 ? `${missing.slice(0, 5).join(', ')} and ${missing.length - 5} more` : missing.join(', ')}). Nothing was changed on GitHub; the next backup will include everything.`);
+    this.name = 'IncompleteBackupError';
+  }
 }
 
 export const bindingKey = (b: Binding) => `${b.repo.owner}/${b.repo.repo}@${b.branch}`;
@@ -55,6 +67,11 @@ export class BackupAgent {
   private caps = new Map<string, WriterCap>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  /**
+   * Edits seen since the last acknowledged backup, stamped with `ProjectModel.changeSeq`: a backup acknowledges the ones its
+   * capture included and keeps the rest (and who made them) pending. Kept on every device, because any device may run the backup.
+   */
+  private dirty: Array<{ seq: number; who: string | null; at: number }> = [];
   private hasToken = false;
   private tokenCheckedAt = 0;
   statusCbs = new Set<() => void>();
@@ -175,13 +192,20 @@ export class BackupAgent {
   // ---- change tracking (done by the writer only) ----
 
   private noteChange(origin: unknown) {
-    if (!this.isWriter() || !this.binding) return;
-    const m = this.meta;
+    if (!this.binding) return;
     const t = this.now();
+    const who = (origin instanceof PeerConnection ? origin.claims?.uname : this.o.self.uname) ?? null;
+    this.dirty.push({ seq: this.o.model.changeSeq, who, at: t });
+    // A long stretch without a backup: merge the oldest entries (they stay pending until a capture passes their newest edit).
+    if (this.dirty.length > 20_000) {
+      const [a, b] = this.dirty.splice(0, 2) as [(typeof this.dirty)[number], (typeof this.dirty)[number]];
+      this.dirty.unshift({ seq: b.seq, who: b.who, at: a.at });
+    }
+    if (!this.isWriter()) return;
+    const m = this.meta;
     m.changesSince += 1;
     if (!m.firstChangeAt || m.changesSince === 1) m.firstChangeAt = t;
     m.lastChangeAt = t;
-    const who = origin instanceof PeerConnection ? origin.claims?.uname : this.o.self.uname;
     if (who && !m.contributors.includes(who)) m.contributors.push(who);
     this.saveMeta(m);
   }
@@ -222,7 +246,7 @@ export class BackupAgent {
       const token = await this.o.getToken();
       if (!token) throw new GitHubError(401, 'GitHub authorization expired — reconnect GitHub');
       const client = new GitHubClient(token, this.o.fetchImpl ?? fetch.bind(globalThis));
-      const files = await this.collect();
+      const { files, seq } = await this.collect();
       const m = this.meta;
       const res = await pushBackup(client, b.repo, b.branch, files, { message: commitMessage(m, this.now()), lastSha: m.lastSha, ...(this.o.project ? { project: this.o.project } : {}) });
       const next = this.meta;
@@ -232,9 +256,12 @@ export class BackupAgent {
         next.lastSha = res.commit;
         this.pushes++;
       }
-      next.changesSince = 0;
-      next.contributors = [];
-      next.firstChangeAt = 0;
+      // Only the edits the capture included are done; later ones (and their authors) stay pending for the next backup.
+      this.dirty = this.dirty.filter((e) => e.seq > seq);
+      next.changesSince = this.dirty.length;
+      next.contributors = [...new Set(this.dirty.flatMap((e) => (e.who ? [e.who] : [])))];
+      next.firstChangeAt = this.dirty[0]?.at ?? 0;
+      if (this.dirty.length) next.lastChangeAt = (this.dirty[this.dirty.length - 1] as { at: number }).at;
       this.saveMeta(next);
       return res;
     } catch (e) {
@@ -251,20 +278,19 @@ export class BackupAgent {
     }
   }
 
-  private async collect(): Promise<Map<string, Uint8Array>> {
+  /**
+   * The complete file set to push, captured together with the edit counter it includes. Throws before anything is sent
+   * when content is missing: a file absent from the map means "deleted in the project", never "not fetched".
+   */
+  private async collect(): Promise<{ files: Map<string, Uint8Array>; seq: number }> {
+    const got = await acquireProject(this.o.mesh, this.o.model, this.o.blobs, { timeoutMs: this.o.acquireTimeoutMs ?? 15_000, assetTimeoutMs: this.o.assetTimeoutMs ?? 15_000 });
+    if (!got.complete) throw new IncompleteBackupError(got.missing.map((m) => m.path));
     const out = new Map<string, Uint8Array>();
-    await this.o.mesh.prefetchAll();
-    for (const f of this.o.model.list()) {
-      if (f.kind === 'text') out.set(f.path, new TextEncoder().encode((await this.o.model.openText(f.id)).toString()));
-      else if (f.kind === 'binary' && f.hash) {
-        try {
-          out.set(f.path, await this.o.blobs.fetch(f.hash, 15_000));
-        } catch {
-          /* blob not available yet: skipped this round, kept on GitHub from earlier */
-        }
-      }
+    for (const f of got.capture.files) {
+      if (f.kind === 'text') out.set(f.path, new TextEncoder().encode(f.text ?? ''));
+      else if (f.kind === 'binary') out.set(f.path, got.assets.get(f.hash ?? '') as Uint8Array);
     }
     if (this.policy.includePdf && this.o.extraFiles) for (const [p, b] of await this.o.extraFiles()) out.set(p, b);
-    return out;
+    return { files: out, seq: got.capture.seq };
   }
 }

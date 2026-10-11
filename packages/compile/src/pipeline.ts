@@ -1,5 +1,14 @@
-import type { BlobManager, Mesh, PeerInfo, ProjectModel } from '@hivetex/sync';
-import { sha256Hex } from '@hivetex/sync';
+import {
+  type BlobManager,
+  type Mesh,
+  type MissingContent,
+  type PeerInfo,
+  type ProjectModel,
+  acquireProject,
+  describeMissing,
+  projectHash,
+  projectSettings,
+} from '@hivetex/sync';
 import type { EngineKind, TexEngine } from './capability.js';
 import type { Election } from './election.js';
 import { type Diagnostic, parseLog } from './logparser.js';
@@ -31,27 +40,38 @@ export interface CompileResult {
   synctexHash?: string;
   diagnostics: Diagnostic[];
   log: string;
+  /** Set when nothing was built because these project files were not available yet (never with `ok`). */
+  incomplete?: string[];
   by: { dev: string; uname: string };
   at: number;
   seq: number;
 }
 
 export const settings = {
-  main: (m: ProjectModel) => String(m.settings.get('main') ?? 'main.tex'),
-  engine: (m: ProjectModel) => String(m.settings.get('engine') ?? 'pdflatex') as TexEngine,
+  main: (m: ProjectModel) => projectSettings(m).main,
+  engine: (m: ProjectModel) => projectSettings(m).engine as TexEngine,
 };
 
-/** Hash of the project's content (paths + file contents), independent of CRDT internals. */
-export async function computeStateHash(model: ProjectModel): Promise<string> {
-  const parts: string[] = [];
-  for (const f of model.list()) {
-    let h = '';
-    if (f.kind === 'text') h = await sha256Hex(new TextEncoder().encode((await model.openText(f.id)).toString()));
-    else if (f.kind === 'binary') h = f.hash ?? '';
-    parts.push(`${f.kind}\0${f.path}\0${h}`);
+/** Thrown when the project's files are not all available on this device (and the peers could not supply them). */
+export class IncompleteInputError extends Error {
+  constructor(readonly missing: MissingContent[]) {
+    super(`Cannot build yet: these project files are not available on this device: ${describeMissing(missing)}`);
+    this.name = 'IncompleteInputError';
   }
-  parts.sort();
-  return sha256Hex(new TextEncoder().encode(parts.join('\n')));
+}
+
+/**
+ * Identity of what a build reads: paths, file contents (images by hash), main file and engine; independent of CRDT
+ * internals. It describes the project as it is now, so it is only comparable with a result's identity when the
+ * project is complete here (missing text would have to be hashed as empty, which is exactly what a result must never claim).
+ */
+export async function computeStateHash(model: ProjectModel): Promise<string> {
+  const files: Parameters<typeof projectHash>[0]['files'] = [];
+  for (const f of model.list()) {
+    if (f.kind === 'text') files.push({ id: f.id, path: f.path, kind: 'text', text: (await model.openText(f.id)).toString() });
+    else files.push({ id: f.id, path: f.path, kind: f.kind, ...(f.hash ? { hash: f.hash } : {}) });
+  }
+  return projectHash({ files: files.filter((f) => f.kind !== 'binary' || f.hash), settings: projectSettings(model), seq: model.changeSeq });
 }
 
 const MAX_LOG = 40_000;
@@ -68,6 +88,9 @@ export class CompileLeader {
   private leaderSince = 0;
   private resultCbs = new Set<(r: CompileResult) => void>();
   private lastRequestAt = new Map<string, number>();
+  /** The last run that could not start for lack of content (cleared by the next one that could). */
+  lastIncomplete: CompileResult | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private o: {
@@ -84,6 +107,12 @@ export class CompileLeader {
       settleMs?: number;
       /** Minimum time between honored recompile requests from the same peer. */
       requestThrottleMs?: number;
+      /** How long to wait for missing project content before reporting it unavailable (default 8 s). */
+      acquireTimeoutMs?: number;
+      /** Per image (default 8 s). */
+      assetTimeoutMs?: number;
+      /** A build that lacked content is attempted again after this long (default 5 s). */
+      retryMs?: number;
     },
   ) {
     o.model.onDocUpdate(() => this.schedule());
@@ -128,21 +157,35 @@ export class CompileLeader {
     }, wait);
   }
 
+  /**
+   * The complete, immutable input of one build: text and settings are fixed in one step, images are fetched by the
+   * hashes captured then, and the identity is computed from exactly those bytes and settings. Throws
+   * `IncompleteInputError` instead of building without content the project lists.
+   */
   async snapshot(): Promise<CompileInput> {
     const { model, mesh, blobs } = this.o;
-    await mesh.prefetchAll();
+    const got = await acquireProject(mesh, model, blobs, { timeoutMs: this.o.acquireTimeoutMs ?? 8000, assetTimeoutMs: this.o.assetTimeoutMs ?? 8000 });
+    if (!got.complete) throw new IncompleteInputError(got.missing);
     const files: CompileInput['files'] = [];
-    for (const f of model.list()) {
-      if (f.kind === 'text') files.push({ path: f.path, kind: 'text', text: (await model.openText(f.id)).toString() });
-      else if (f.kind === 'binary' && f.hash) {
-        try {
-          files.push({ path: f.path, kind: 'binary', bytes: await blobs.fetch(f.hash, 8000) });
-        } catch {
-          /* missing image: the engine will report it */
-        }
-      }
+    for (const f of got.capture.files) {
+      if (f.kind === 'text') files.push({ path: f.path, kind: 'text', text: f.text ?? '' });
+      else if (f.kind === 'binary') files.push({ path: f.path, kind: 'binary', bytes: got.assets.get(f.hash ?? '') as Uint8Array });
     }
-    return { files, main: settings.main(model), engine: settings.engine(model), stateHash: await computeStateHash(model) };
+    return { files, main: got.capture.settings.main, engine: got.capture.settings.engine as TexEngine, stateHash: await projectHash(got.capture) };
+  }
+
+  /** The outcome for a build that could not start: nothing was compiled, and no earlier result is replaced or reused. */
+  private incompleteResult(e: IncompleteInputError): CompileResult {
+    return {
+      stateHash: '',
+      ok: false,
+      diagnostics: [],
+      log: `! Compile not started: ${e.message.replace('Cannot build yet: ', '')}\n`,
+      incomplete: e.missing.map((m) => m.path),
+      by: this.o.self,
+      at: Date.now(),
+      seq: ++this.seq,
+    };
   }
 
   /** Compiles on this device regardless of leadership; the result is returned, never distributed. */
@@ -179,7 +222,27 @@ export class CompileLeader {
     this.running = true;
     let result: CompileResult | null = null;
     try {
-      const input = await this.snapshot();
+      let input: CompileInput;
+      try {
+        input = await this.snapshot();
+      } catch (e) {
+        if (!(e instanceof IncompleteInputError)) throw e;
+        // Say so once per set of missing files, and look again later: images arriving raise no document update.
+        const r = this.incompleteResult(e);
+        if (this.lastIncomplete?.incomplete?.join('\0') !== r.incomplete?.join('\0')) {
+          this.lastIncomplete = r;
+          this.o.mesh.broadcastApp('compiled', r);
+          for (const cb of this.resultCbs) cb(r);
+        }
+        if (this.retryTimer) clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          this.schedule();
+        }, this.o.retryMs ?? 5000);
+        (this.retryTimer as { unref?: () => void }).unref?.();
+        return r;
+      }
+      this.lastIncomplete = null;
       if (this.lastResult?.stateHash === input.stateHash && this.lastResult.ok) return this.lastResult;
       let out: CompileOutput;
       try {
@@ -279,8 +342,9 @@ export class CompileClient {
   async isStale(): Promise<boolean> {
     const shown = this.lastGood?.result.stateHash;
     if (!shown) return true;
-    await this.o.mesh.prefetchAll();
-    return (await computeStateHash(this.o.model)) !== shown;
+    // The same capture and identity a build uses; a project that is not complete here cannot be said to match.
+    const got = await acquireProject(this.o.mesh, this.o.model, this.o.blobs, { assets: false, timeoutMs: 3000 });
+    return !got.complete || (await projectHash(got.capture)) !== shown;
   }
 
   /** Any member (including viewers) can ask the leader to recompile now. */

@@ -13,14 +13,19 @@
   let confirm = $state<string | null>(null);
 
   onMount(async () => {
-    await session.model.captureSnapshot();
+    // Not while files are still arriving: a snapshot with empty stand-ins would restore as deletions.
+    await session.model.captureSnapshot().catch((e) => toast(e instanceof Error ? e.message : 'No snapshot was taken', 'info'));
     snapshots = (await session.store.listSnapshots()).slice().reverse();
     loading = false;
   });
 
   async function restore(id: string) {
     confirm = null;
-    await session.model.restore(id);
+    try {
+      await session.model.restore(id);
+    } catch (e) {
+      return toast(e instanceof Error ? e.message : 'Restore failed', 'error');
+    }
     toast('Restored. The state before the restore was saved too, so you can undo it from History.');
     snapshots = (await session.store.listSnapshots()).slice().reverse();
   }

@@ -1224,7 +1224,9 @@ export class ProjectSession {
   async undoChange(set: ChangeSet) {
     if (!this.canWrite) throw new Error('Read-only members cannot undo changes.');
     if (!this.changelog) return null;
-    await this.mesh.prefetchAll();
+    // Reversing a change needs the text it applies to: not while a file's content is still arriving.
+    const have = await this.mesh.awaitComplete({ timeoutMs: 8000 });
+    if (!have.complete) throw new Error(`Cannot undo yet: these files have not arrived on this device: ${have.missing.map((m) => m.path ?? 'the file list').join(', ')}`);
     return this.changelog.undo(set);
   }
 

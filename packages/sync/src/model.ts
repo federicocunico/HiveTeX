@@ -115,6 +115,8 @@ export class ProjectModel {
   private storedAtOpen = new Set<string>();
   /** Counts updates per document, so a decision taken over several awaits can tell whether the document moved. */
   private revs = new Map<string, number>();
+  /** Counts every document update seen, across documents: a consumer that captured it knows which later edits it did not include. */
+  private seq = 0;
 
   constructor(
     readonly store: Persistence,
@@ -193,6 +195,7 @@ export class ProjectModel {
         this.watchBefore(docId, doc);
       }
       this.revs.set(docId, (this.revs.get(docId) ?? 0) + 1);
+      this.seq++;
       const persister = new DocPersister(this.store, docId, doc, this.persistenceOptions());
       this.persisters.set(docId, persister);
       persisters.push(persister);
@@ -346,6 +349,11 @@ export class ProjectModel {
     return this.revs.get(docId) ?? 0;
   }
 
+  /** Updates of any document seen so far (already counted when update listeners run). */
+  get changeSeq(): number {
+    return this.seq;
+  }
+
   private scheduleAvailability(delay = this.persistOpts.flushMs ?? 250) {
     if (this.availTimer || this.closed) return;
     this.availTimer = setTimeout(() => {
@@ -376,6 +384,7 @@ export class ProjectModel {
   }
   private emit(docId: string, u: Uint8Array, origin: unknown) {
     this.revs.set(docId, (this.revs.get(docId) ?? 0) + 1);
+    this.seq++;
     for (const l of this.listeners) l(docId, u, origin);
   }
 
@@ -696,7 +705,12 @@ export class ProjectModel {
 
   // ---- history ----
 
+  /** Records the project's content for History. Refuses while text is missing: a snapshot with empty stand-ins would restore as deletions. */
   async captureSnapshot(): Promise<HistorySnapshot> {
+    const missing = this.missingText();
+    if (this.availability(ROOT_DOC_ID) !== 'complete' || missing.length > 0) {
+      throw new Error(`Not every file has been received yet, so no snapshot was taken: ${missing.length ? missing.map((f) => f.path).join(', ') : 'the file list'}`);
+    }
     const files: HistorySnapshot['files'] = [];
     for (const f of this.list()) {
       if (f.kind === 'text') files.push({ path: f.path, kind: 'text', text: (await this.openText(f.id)).toString() });

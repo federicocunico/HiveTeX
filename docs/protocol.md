@@ -179,7 +179,14 @@ Three questions are kept apart, because answering one says nothing about the oth
   `{complete, docs, missing: [{docId, fileId?, path?, outcome}]}`. It never substitutes empty text. `Mesh.reconcileProject({scope})`
   (`incomplete` | `pending` | `all`) is the same with a chosen scope; `Mesh.resync()` is `scope: 'all'`. Binary content stays
   content-addressed: fetch the hashes of the captured file table with `BlobManager.fetch`. `Mesh.prefetchAll` keeps its older,
-  non-awaiting meaning and is not a completeness guarantee.
+  non-awaiting meaning and is not a completeness guarantee (search still uses it, as it is harmless to search what is here).
+* **Immutable acquisition.** `acquireProject(mesh, model, blobs, {timeoutMs?, assetTimeoutMs?, assets?})` (`snapshot.ts`) is what
+  compilation, source export and backup call. It waits as `awaitComplete` does, then fixes in one synchronous step every
+  text body (with its document revision), the file table with image hashes, the `main`/`engine` settings and
+  `ProjectModel.changeSeq` (the number of updates seen; edits with a higher number are not in the capture), and only
+  then fetches the images by the captured hashes. It returns `{complete: true, capture, assets}` or
+  `{complete: false, missing: [{path, kind, hash?, outcome}]}`. `projectHash(capture)` is the identity of a capture (paths,
+  text hashes, image hashes, main file, engine). `ProjectModel.captureSnapshot` (History) throws while text is missing.
 * **Sync status.** `SyncTracker` derives its stage from the above: `receiving` while content is missing, `reconciling` when
   everything is here but a current peer has not answered for all of it, `synced` only when it has. `lastSyncAt` advances only
   on an applied answer (or a live update to an already answered document), never on a queued request. Every missing document or

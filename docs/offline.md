@@ -82,8 +82,11 @@ date* only when they all answered; if a co-author does not answer in time it say
 and if nobody holds a file it says that too. Nothing you wrote is touched by any of these outcomes.
 
 Two same-name files are only merged into one when both are complete and identical at that moment, and a file whose text has
-not arrived is never taken for an empty one. Export, compile, GitHub backup and folder mirroring adopt the same rule (wait
-for the missing files, or name them) in the later steps of this change; until then they keep their previous behavior.
+not arrived is never taken for an empty one. Source export, compilation, GitHub backup, History snapshots and
+folder mirroring follow the same rule: they wait for the missing files, or name them, and never use an empty stand-in. A project that
+is complete on this device can still be exported, compiled and backed up (as far as GitHub is reachable) with nobody online.
+*Download project (.zip)* says which files have not arrived instead of downloading a partial archive; History does not record a
+snapshot, and *Undo* in Changes refuses, while text is missing. See `docs/compilation.md` and `docs/github-backup.md`.
 
 Older HiveTeX versions do not send the receipts that make this exact. With such a co-author the app falls back to the plain
 exchange: one request per file at a time, a reply counts, and an unrelated live update never does. This is slower to settle and

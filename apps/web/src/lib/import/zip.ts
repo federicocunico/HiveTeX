@@ -1,16 +1,25 @@
-import type { ProjectModel } from '@hivetex/sync';
+import { type AcquireOptions, type BlobManager, type Mesh, type MissingContent, type ProjectModel, acquireProject } from '@hivetex/sync';
 import { strToU8, unzipSync, zipSync } from 'fflate';
 import { ImportError, safePath } from './filter.js';
 import { type ImportFile, LIMITS } from './limits.js';
 
-/** Builds a zip of the current project source tree. `getBlob` supplies binary content by hash. */
-export async function exportZip(model: ProjectModel, getBlob: (hash: string) => Promise<Uint8Array>): Promise<Uint8Array> {
+export type ExportResult = { ok: true; zip: Uint8Array } | { ok: false; missing: MissingContent[] };
+
+/**
+ * A zip of the project's complete source tree: every text body and every image, captured together (see
+ * `acquireProject`). It waits for content peers still have to send and works offline for a project that is complete on
+ * this device; when something cannot be obtained it returns the missing files and no archive, never an archive with
+ * empty stand-ins. (A recovery copy for failing storage is separate: see recovery-export.ts.)
+ */
+export async function exportProjectZip(mesh: Mesh, model: ProjectModel, blobs: BlobManager, opts: AcquireOptions = {}): Promise<ExportResult> {
+  const got = await acquireProject(mesh, model, blobs, { timeoutMs: 15_000, assetTimeoutMs: 20_000, ...opts });
+  if (!got.complete) return { ok: false, missing: got.missing };
   const files: Record<string, Uint8Array> = {};
-  for (const f of model.list()) {
-    if (f.kind === 'text') files[f.path] = strToU8((await model.openText(f.id)).toString());
-    else if (f.kind === 'binary' && f.hash) files[f.path] = await getBlob(f.hash);
+  for (const f of got.capture.files) {
+    if (f.kind === 'text') files[f.path] = strToU8(f.text ?? '');
+    else if (f.kind === 'binary') files[f.path] = got.assets.get(f.hash ?? '') as Uint8Array;
   }
-  return zipSync(files, { level: 6 });
+  return { ok: true, zip: zipSync(files, { level: 6 }) };
 }
 
 interface CentralEntry {

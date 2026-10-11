@@ -1,3 +1,4 @@
+import { ROOT_DOC_ID } from '@hivetex/protocol';
 import { BlobManager } from '@hivetex/sync';
 import { type Node, Net } from '@hivetex/sync/testkit';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -52,7 +53,7 @@ interface Dev {
   engine: FakeEngine;
 }
 
-async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: number, opts: { debounce?: number } = {}): Promise<Dev> {
+async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: number, opts: { debounce?: number; assetTimeoutMs?: number; retryMs?: number } = {}): Promise<Dev> {
   const node = await net.add(name, role);
   const blobs = new BlobManager(node.mesh, node.store);
   const election = new Election(
@@ -71,6 +72,8 @@ async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: n
     debounceMs: opts.debounce ?? 60,
     maxWaitMs: 400,
     settleMs: 400,
+    assetTimeoutMs: opts.assetTimeoutMs ?? 300,
+    retryMs: opts.retryMs ?? 300,
   });
   const client = new CompileClient({ mesh: node.mesh, model: node.model, blobs, election, leader });
   election.start();
@@ -219,6 +222,7 @@ describe('manual compile (8.8)', () => {
   it('compiles locally on a non-leader without distributing the result (also offline)', async () => {
     net = await Net.create();
     const small = await device('small', 'editor', 1);
+    small.node.model.markComplete(ROOT_DOC_ID); // created here: its file list is complete
     await small.node.model.createTextNow('main.tex', 'offline draft');
     const r = await small.leader.compileLocally();
     expect(r.result.ok).toBe(true);
@@ -229,6 +233,7 @@ describe('manual compile (8.8)', () => {
   it('refuses a local compile when the device lacks the project engine', async () => {
     net = await Net.create();
     const d = await device('d', 'editor', 1);
+    d.node.model.markComplete(ROOT_DOC_ID);
     d.engine.supports = ['pdflatex'];
     d.node.model.settings.set('engine', 'lualatex');
     await expect(d.leader.compileLocally()).rejects.toThrow(/cannot run lualatex/);
@@ -244,5 +249,107 @@ describe('manual compile (8.8)', () => {
     await sleep(100);
     expect(big.client.latest === null || big.client.latest.by.dev === big.node.dev).toBe(true);
     expect(big.client.latest?.seq).not.toBe(99);
+  });
+});
+
+describe('complete immutable inputs and result identity (8.2, F14)', () => {
+  const lastCall = (d: Dev) => d.engine.calls[d.engine.calls.length - 1] as CompileInput;
+
+  it('rebuilds when only the engine or the main file changes, and the result says which settings it used', async () => {
+    net = await Net.create();
+    const [big, small] = [await device('big', 'owner', 3), await device('small', 'editor', 1)];
+    await net.link(big.node, small.node);
+    await waitFor(() => small.election.leader() === big.node.dev);
+    await big.node.model.createTextNow('main.tex', 'first doc');
+    await big.node.model.createTextNow('other.tex', 'second doc');
+    await waitFor(() => pdfText(small).includes('first doc'));
+    const h1 = small.client.lastGood?.result.stateHash;
+    const calls = big.engine.calls.length;
+
+    big.node.model.settings.set('engine', 'xelatex');
+    await waitFor(() => big.engine.calls.length > calls);
+    expect(lastCall(big).engine).toBe('xelatex');
+    await waitFor(() => small.client.lastGood?.result.stateHash !== h1);
+    const h2 = small.client.lastGood?.result.stateHash;
+    expect(await small.client.isStale()).toBe(false);
+
+    big.node.model.settings.set('main', 'other.tex');
+    await waitFor(() => pdfText(small).includes('second doc'));
+    expect(lastCall(big).main).toBe('other.tex');
+    expect(small.client.lastGood?.result.stateHash).not.toBe(h2);
+    expect(await computeStateHash(small.node.model)).toBe(small.client.lastGood?.result.stateHash);
+  });
+
+  it('counts a settings-only change as stale before it is rebuilt', async () => {
+    net = await Net.create();
+    const [big, small] = [await device('big', 'owner', 3, { debounce: 2000 }), await device('small', 'editor', 1)];
+    await net.link(big.node, small.node);
+    await waitFor(() => small.election.leader() === big.node.dev);
+    await small.node.model.createTextNow('main.tex', 'one');
+    await waitFor(() => pdfText(small).includes('one'), 8000);
+    expect(await small.client.isStale()).toBe(false);
+    small.node.model.settings.set('engine', 'xelatex');
+    expect(await small.client.isStale()).toBe(true);
+  });
+
+  it('identifies the bytes it compiled when text changes while a later asset is still being fetched', async () => {
+    net = await Net.create();
+    const big = await device('big', 'owner', 3);
+    await waitFor(() => big.election.isLeader());
+    const hash = await big.blobs.add(new TextEncoder().encode('PNG'));
+    // zzz.png sorts after main.tex: its fetch starts after the text was captured
+    const id = await big.node.model.createTextNow('main.tex', 'captured text');
+    big.node.model.createBinary('zzz.png', hash, 3);
+    const hashAtCapture = await computeStateHash(big.node.model);
+    const real = big.blobs.fetch.bind(big.blobs);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let fetching = false;
+    big.blobs.fetch = async (h, t) => {
+      fetching = true;
+      await gate;
+      return real(h, t);
+    };
+    await waitFor(() => fetching);
+    (await big.node.model.openText(id)).insert(0, 'LATER ');
+    const hashAfterEdit = await computeStateHash(big.node.model);
+    expect(hashAfterEdit).not.toBe(hashAtCapture);
+    release();
+    await waitFor(() => big.leader.lastResult !== null);
+    const first = big.engine.calls[0] as CompileInput;
+    expect(first.files.find((f) => f.path === 'main.tex')?.text).toBe('captured text');
+    expect(first.stateHash).toBe(hashAtCapture);
+    expect(big.leader.lastResult?.stateHash).toBe(hashAtCapture);
+    // the later edit makes that result stale and is built afterwards
+    await waitFor(() => big.leader.lastResult?.stateHash === hashAfterEdit);
+    expect(lastCall(big).files.find((f) => f.path === 'main.tex')?.text).toBe('LATER captured text');
+  });
+
+  it('reports unavailable inputs instead of compiling empty stand-ins, and builds once they arrive', async () => {
+    net = await Net.create();
+    const big = await device('big', 'owner', 3);
+    await waitFor(() => big.election.isLeader());
+    await big.node.model.createTextNow('main.tex', 'real');
+    await waitFor(() => big.engine.calls.length === 1);
+    big.node.model.putEntry('ghost', { path: 'ghost.tex', kind: 'text' }); // listed, body never received
+    await waitFor(() => big.leader.lastIncomplete !== null, 8000);
+    expect(big.leader.lastIncomplete).toMatchObject({ ok: false, incomplete: ['ghost.tex'] });
+    expect(big.engine.calls.length).toBe(1);
+    expect(big.leader.lastResult?.incomplete).toBeUndefined(); // the last successful build is not replaced
+    await expect(big.leader.compileLocally()).rejects.toThrow(/ghost\.tex/);
+    // content arrives (here: the file is created with its text)
+    big.node.model.markComplete('f:ghost');
+    await waitFor(() => big.engine.calls.length === 2, 8000);
+    expect(lastCall(big).files.map((f) => f.path)).toContain('ghost.tex');
+    expect(big.leader.lastIncomplete).toBeNull();
+  });
+
+  it('reports a missing image instead of building without it', async () => {
+    net = await Net.create();
+    const big = await device('big', 'owner', 3);
+    await waitFor(() => big.election.isLeader());
+    await big.node.model.createTextNow('main.tex', 'with figure');
+    big.node.model.createBinary('fig.png', 'a'.repeat(64), 3);
+    await expect(big.leader.compileLocally()).rejects.toThrow(/fig\.png/);
   });
 });

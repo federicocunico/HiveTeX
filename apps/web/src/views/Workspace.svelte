@@ -34,7 +34,8 @@
   import { forgetLocalProject, getLocalProject, removeLocalProjectData, takePendingLink } from '../lib/local-projects.js';
   import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
   import { type LooseItem, isArchiveName, readLoose } from '../lib/import/sources.js';
-  import { exportZip } from '../lib/import/zip.js';
+  import { exportProjectZip } from '../lib/import/zip.js';
+  import { describeMissing } from '@hivetex/sync';
   import { type ProjectIndex, buildIndex, emptyIndex } from '../lib/latex.js';
   import { type Panel, SIDE_MAX, SIDE_MIN, SPLIT_MAX, SPLIT_MIN, layout, resetLayout, setLayout, togglePanel } from '../lib/layout.svelte.js';
   import { go } from '../lib/router.svelte.js';
@@ -320,9 +321,10 @@
 
   async function downloadZip() {
     if (!session) return;
-    await session.mesh.prefetchAll();
-    const zip = await exportZip(session.model, (h) => session!.blobs.fetch(h, 20_000));
-    await download(`${session.project.slug}.zip`, zip, 'application/zip');
+    toast('Preparing the download...', 'info');
+    const r = await exportProjectZip(session.mesh, session.model, session.blobs);
+    if (!r.ok) return toast(`The project was not downloaded because these files have not arrived on this device yet: ${describeMissing(r.missing)}. Try again once your co-authors are online.`, 'error');
+    await download(`${session.project.slug}.zip`, r.zip, 'application/zip');
   }
 
   async function exportRecovery() {
