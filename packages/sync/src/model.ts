@@ -67,6 +67,17 @@ export function applyTextDiff(ytext: Y.Text, next: string, origin: unknown = LOC
   }, origin);
 }
 
+/**
+ * What this device holds of a document, independent of whether it is loaded or stored and of whether any peer is
+ * connected. `unknown`: nothing is known of its content (a file-table entry or an allocated empty document says
+ * nothing). `partial`: some content is here but nobody confirmed it is all of it. `complete`: created on this device,
+ * or confirmed by a peer (an empty answer included), or restored from storage as such.
+ */
+export type Availability = 'unknown' | 'partial' | 'complete';
+
+/** Metadata key of the persisted completeness record (see ProjectModel.markComplete). */
+const AVAILABILITY_KEY = 'availability';
+
 /** Whether this device's edits are safely stored locally; independent of whether any peer has them. */
 export interface SaveState {
   /** True while a write failed and its edits are only held in memory (they keep being retried). */
@@ -95,6 +106,15 @@ export class ProjectModel {
   private replaceFailing = new Map<object, { docs: string[]; error: unknown }>();
   private saveKey = '';
   private closed = false;
+  /** Documents known to be complete (persisted under AVAILABILITY_KEY). */
+  private complete = new Set<string>();
+  private availListeners = new Set<(docId: string) => void>();
+  private availTimer: ReturnType<typeof setTimeout> | null = null;
+  private availWrite: Promise<void> = Promise.resolve();
+  /** Documents that were in storage when the project opened (not necessarily loaded yet): some content, so at least partial. */
+  private storedAtOpen = new Set<string>();
+  /** Counts updates per document, so a decision taken over several awaits can tell whether the document moved. */
+  private revs = new Map<string, number>();
 
   constructor(
     readonly store: Persistence,
@@ -172,6 +192,7 @@ export class ProjectModel {
         doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
         this.watchBefore(docId, doc);
       }
+      this.revs.set(docId, (this.revs.get(docId) ?? 0) + 1);
       const persister = new DocPersister(this.store, docId, doc, this.persistenceOptions());
       this.persisters.set(docId, persister);
       persisters.push(persister);
@@ -264,6 +285,85 @@ export class ProjectModel {
     const p = new DocPersister(this.store, ROOT_DOC_ID, this.root, this.persistenceOptions());
     this.persisters.set(ROOT_DOC_ID, p);
     await p.hydrate();
+    await this.loadAvailability();
+  }
+
+  // ---- availability ----
+
+  /**
+   * Restores which documents are complete. A store written before completeness was tracked has no record: the
+   * documents it holds were all that this device had, so they stay usable and count as complete (a fresh store
+   * starts an empty record, so content that merely arrived later is never mistaken for it).
+   */
+  private async loadAvailability() {
+    let rec: unknown;
+    try {
+      rec = await this.store.getMeta(AVAILABILITY_KEY);
+    } catch {
+      return;
+    }
+    const docs = (rec as { docs?: unknown } | undefined)?.docs;
+    const stored = await this.store.listDocs();
+    for (const d of stored) this.storedAtOpen.add(d);
+    if (Array.isArray(docs)) {
+      for (const d of docs) if (typeof d === 'string') this.complete.add(d);
+      return;
+    }
+    for (const d of stored) this.complete.add(d);
+    this.scheduleAvailability();
+  }
+
+  /** What this device holds of the document right now (synchronous: it never consults peers or storage). */
+  availability(docId: string): Availability {
+    if (this.complete.has(docId)) return 'complete';
+    return (this.docs.get(docId)?.store.clients.size ?? 0) > 0 || this.storedAtOpen.has(docId) ? 'partial' : 'unknown';
+  }
+
+  /**
+   * Records that the document holds all of its content: it was created here, or a peer confirmed its full state.
+   * The record is saved after the document's own edits, so a record never vouches for content that was not stored.
+   */
+  markComplete(docId: string) {
+    if (this.complete.has(docId)) return;
+    this.complete.add(docId);
+    this.scheduleAvailability();
+    for (const l of this.availListeners) l(docId);
+  }
+
+  /** Fires when a document becomes complete. */
+  onAvailability(l: (docId: string) => void) {
+    this.availListeners.add(l);
+    return () => this.availListeners.delete(l);
+  }
+
+  /** Text files whose content is not complete on this device (listed in the file table, not received or only partly). */
+  missingText(): FileEntry[] {
+    return this.list().filter((f) => f.kind === 'text' && !this.complete.has(fileDocId(f.id)));
+  }
+
+  /** Updates seen by a document so far; unchanged means the document did not move in between. */
+  revision(docId: string): number {
+    return this.revs.get(docId) ?? 0;
+  }
+
+  private scheduleAvailability(delay = this.persistOpts.flushMs ?? 250) {
+    if (this.availTimer || this.closed) return;
+    this.availTimer = setTimeout(() => {
+      this.availTimer = null;
+      this.writeAvailability().catch(() => this.scheduleAvailability(this.persistOpts.retryMs ?? 500));
+    }, delay);
+  }
+
+  private writeAvailability(): Promise<void> {
+    const run = async () => {
+      const docs = [...this.complete];
+      // Content first: the record must never outlive the edits it vouches for.
+      await Promise.all([...this.persisters.values()].map((p) => p.flush()));
+      await this.store.setMeta(AVAILABILITY_KEY, { v: 1, docs });
+    };
+    const next = this.availWrite.then(run, run);
+    this.availWrite = next.catch(() => {});
+    return next;
   }
 
   onDocUpdate(l: DocUpdateListener) {
@@ -275,6 +375,7 @@ export class ProjectModel {
     return () => this.fileListeners.delete(l);
   }
   private emit(docId: string, u: Uint8Array, origin: unknown) {
+    this.revs.set(docId, (this.revs.get(docId) ?? 0) + 1);
     for (const l of this.listeners) l(docId, u, origin);
   }
 
@@ -336,14 +437,22 @@ export class ProjectModel {
 
   async flush() {
     await Promise.all([...this.persisters.values()].map((p) => p.flush()));
+    if (this.availTimer) {
+      clearTimeout(this.availTimer);
+      this.availTimer = null;
+      await this.writeAvailability();
+    }
   }
 
   /** Writes everything and stops. Rejects if some edits could not be saved (they stay in memory, and the failure stays visible). */
   async destroy() {
     this.closed = true;
+    if (this.availTimer) clearTimeout(this.availTimer);
+    this.availTimer = null;
     const results = await Promise.allSettled([...this.persisters.values()].map((p) => p.destroy()));
     const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
     if (failed) throw failed.reason;
+    await this.writeAvailability().catch(() => {});
   }
 
   // ---- file table ----
@@ -397,6 +506,8 @@ export class ProjectModel {
   createText(path: string, content = '', origin: unknown = LOCAL_ORIGIN): string {
     assertSafe(path);
     const id = newId();
+    // Created here: this device is where its content comes from, so even an empty file is complete.
+    this.markComplete(fileDocId(id));
     this.root.transact(() => {
       const m = new Y.Map<unknown>();
       m.set('path', path);
@@ -477,8 +588,13 @@ export class ProjectModel {
    * Removes duplicate entries for the same path whose content is identical, keeping the lowest id. This is
    * what happens when two devices imported the same GitHub backup / zip independently and later merged.
    * Entries with different content are left alone (both stay visible; nothing is overwritten).
+   *
+   * Equality needs the complete contents: a text file that is missing, partly received or still being reconciled
+   * (`settled` says no) is never compared, so two bodies that have not arrived yet cannot look identical. The decision
+   * is taken over several awaits, so right before deleting it is checked again, synchronously, against the entries and
+   * the document revisions it started from; anything that moved in between keeps both files until a fresh pass.
    */
-  async dedupeIdentical(): Promise<number> {
+  async dedupeIdentical(opts: { settled?: (docId: string) => boolean } = {}): Promise<number> {
     const byPath = new Map<string, Array<{ id: string; kind: FileKind; hash?: string }>>();
     this.files.forEach((m, id) => {
       const path = String(m.get('path'));
@@ -486,25 +602,37 @@ export class ProjectModel {
       arr.push({ id, kind: m.get('kind') as FileKind, ...(m.get('hash') ? { hash: String(m.get('hash')) } : {}) });
       byPath.set(path, arr);
     });
+    const entryOf = (id: string) => this.files.get(id);
+    const sig = (id: string) => {
+      const m = entryOf(id);
+      return m ? `${String(m.get('path'))}|${String(m.get('kind'))}|${String(m.get('hash') ?? '')}` : null;
+    };
     let removed = 0;
     for (const entries of byPath.values()) {
       if (entries.length < 2) continue;
       entries.sort((a, b) => (a.id < b.id ? -1 : 1));
       const keep = entries[0] as (typeof entries)[number];
-      let keepText: string | null = null;
       for (const e of entries.slice(1)) {
         if (e.kind !== keep.kind) continue;
-        let same = false;
-        if (e.kind === 'dir') same = true;
-        else if (e.kind === 'binary') same = !!e.hash && e.hash === keep.hash;
-        else {
-          keepText ??= (await this.openText(keep.id)).toString();
-          same = (await this.openText(e.id)).toString() === keepText;
+        const start = [entryOf(keep.id), entryOf(e.id), sig(keep.id), sig(e.id)] as const;
+        let still: () => boolean;
+        if (e.kind === 'dir') still = () => true;
+        else if (e.kind === 'binary') {
+          if (!e.hash || e.hash !== keep.hash) continue;
+          still = () => true;
+        } else {
+          const ids = [fileDocId(keep.id), fileDocId(e.id)];
+          const ready = () => ids.every((d) => this.complete.has(d) && (opts.settled?.(d) ?? true));
+          if (!ready()) continue;
+          const revs = ids.map((d) => this.revision(d));
+          const [a, b] = [(await this.openText(keep.id)).toString(), (await this.openText(e.id)).toString()];
+          if (a !== b) continue;
+          still = () => ready() && ids.every((d, i) => this.revision(d) === revs[i]) && this.docs.get(ids[0] as string)?.getText('t').toString() === this.docs.get(ids[1] as string)?.getText('t').toString();
         }
-        if (same) {
-          this.files.delete(e.id);
-          removed++;
-        }
+        // Nothing is awaited from here to the deletion: the checks and the delete happen as one step.
+        if (entryOf(keep.id) !== start[0] || entryOf(e.id) !== start[1] || sig(keep.id) !== start[2] || sig(e.id) !== start[3] || !still()) continue;
+        this.files.delete(e.id);
+        removed++;
       }
     }
     return removed;
@@ -523,6 +651,7 @@ export class ProjectModel {
     for (const o of ops) {
       if (o.op === 'text' && !o.id) {
         const id = newId();
+        this.markComplete(fileDocId(id));
         newTexts.push({ id, path: o.path, text: o.text });
         created.set(o.path, id);
       }

@@ -136,7 +136,56 @@ Types a `viewer` connection may send (everything else is dropped): `HELLO`, `AUT
   and is clamped to the blob. If two sources disagree about the chunk count, each is retried alone; a source whose data does
   not match the hash is ignored and its advertised count is forgotten, so an honest source can still complete the fetch.
 * Concurrent creation of the same path by two peers yields two files; the view shows the second as `name (2).ext`.
-  Identical duplicates (e.g. both imported the same GitHub backup) are removed automatically.
+  Identical duplicates (e.g. both imported the same GitHub backup) are removed automatically, but only when both files are
+  *complete* on this device and no request for them is in flight, and only if neither entry nor document changed between the
+  comparison and the deletion. A listed file whose body has not arrived is never compared (its empty placeholder is not its content).
+
+### Availability and reconciliation
+
+Three questions are kept apart, because answering one says nothing about the others:
+
+| Question | Source of truth | UI wording |
+|---|---|---|
+| Is the document's content *on this device*? | `ProjectModel.availability(docId)`: `unknown` / `partial` / `complete` | "received" |
+| Are edits *saved* on this device? | `ProjectModel.saveState` (see offline.md) | "Saved on this device" / "not saved" |
+| Have the *current peers answered* for it? | `Mesh.reconciled(docId)` (per connection) | "Checking with co-authors" / "All changes synced" |
+
+* **Completeness.** A document is `complete` when it was created on this device (an empty file included), or a peer confirmed
+  its full state (an empty answer included), or it was restored from storage as complete. A file-table entry, an allocated
+  empty document, or an update that happened to arrive is at most `partial` (`unknown` with no content at all). It is recorded
+  under the `availability` metadata key, written *after* the document's own edits so it never vouches for unsaved content.
+  A store written before this existed has no record: its stored documents count as complete (they were all that device had);
+  a fresh store starts an empty record. The file table (`root`) of a project made on this device is declared complete by the
+  app (`markComplete`); a joined project's table is unknown until a peer confirms it.
+* **Rounds.** `Mesh.reconcile(docId, {signal?, timeoutMs?})` asks every connected editor for the document and resolves
+  `confirmed` (the document is now complete), `unavailable` (`no-peer`, or peers answered without being able to confirm),
+  `timeout`, `cancelled` or `disconnected`. Viewers are never sources: their state is not applied. A round belongs to one
+  connection and one request: replies to older requests, answers on other connections and incremental `UPDATE`s never complete it.
+* **Receipts (negotiated, additive).** A client that supports them sends `APP` topic `sync-caps` `{v: 1, receipts: true}` right
+  after the connection is authenticated. Its peer then accompanies each `STEP1` with `APP` `sync-req` `{docId, round}`; the
+  answerer replies, after handling the `STEP1` and everything before it, with `sync-ack` `{docId, round, status}` where
+  `status` is `complete` (it vouches that its copy is complete: the requester marks the document complete), `partial` (it holds
+  some content) or `none`. Any applied answer means "this peer has nothing more than we now hold" (`reconciled`); only
+  `complete` completes the document. The receiver applies the answer's frames before it honours the receipt.
+* **Legacy peers (plain `STEP1`/`STEP2`).** Unknown `APP` topics are ignored, so old and new clients interoperate. Because a
+  legacy `STEP2` cannot be matched to a request, at most one request per document is outstanding per legacy connection; later
+  ones wait their turn. A `STEP2` completes the outstanding request (an empty `STEP2` from a legacy peer is taken as
+  "empty"). Limitations: a legacy peer may itself hold partial content, a lost request blocks that document's later requests
+  until it expires (`legacySlotMs`, 15 s, for requests nobody waits for), and a very late legacy reply can then answer a newer
+  request. `UPDATE` never completes anything. New clients also stop answering a request for a file they merely know by name
+  with an empty `STEP2` (they answer only if the file is empty *and* complete on their side).
+* **Complete snapshots for consumers.** `Mesh.awaitComplete({signal?, timeoutMs?})` resolves at once when the file table and every
+  text file are complete on this device (offline included); otherwise it reconciles what is missing and returns
+  `{complete, docs, missing: [{docId, fileId?, path?, outcome}]}`. It never substitutes empty text. `Mesh.reconcileProject({scope})`
+  (`incomplete` | `pending` | `all`) is the same with a chosen scope; `Mesh.resync()` is `scope: 'all'`. Binary content stays
+  content-addressed: fetch the hashes of the captured file table with `BlobManager.fetch`. `Mesh.prefetchAll` keeps its older,
+  non-awaiting meaning and is not a completeness guarantee.
+* **Sync status.** `SyncTracker` derives its stage from the above: `receiving` while content is missing, `reconciling` when
+  everything is here but a current peer has not answered for all of it, `synced` only when it has. `lastSyncAt` advances only
+  on an applied answer (or a live update to an already answered document), never on a queued request. Every missing document or
+  blob has its own record: it is retried when its sources change (a new device, a new connection, a new announcement, a new hash)
+  or after a capped backoff (2 s doubling to 60 s), and has its own stall clock, so another file's activity cannot hide a stalled
+  one. `SyncTracker.syncNow()` reports `complete`, `pending` (no answer in time), `failed` (peers cannot supply it) or `no-peer`.
 
 ## Persistence
 

@@ -35,12 +35,12 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 5. Explicit availability and synchronization completion
 
-- [ ] 5.1 Introduce persisted local completeness and per-connection reconciliation state distinct from loaded/stored document existence; verify unknown, partial, locally created empty, remotely confirmed empty, and reopened complete documents are classified correctly.
-- [ ] 5.2 Add awaitable, cancellable document reconciliation with current-round receipts and negotiated capability support; verify delayed/old replies and unrelated incremental updates cannot complete a new round, and legacy STEP1/STEP2 peers retain conservative interoperability.
-- [ ] 5.3 Drive missing-content retries by document/blob identity, source, and generation with per-transfer stall clocks; verify F13 for late blob availability, same-count peer/asset replacement, and an active file that cannot hide another file's stall.
-- [ ] 5.4 Make `SyncTracker`, manual sync, and workspace messages use current reconciliation outcomes; verify cached reconnects and queued-but-unanswered requests do not claim success or advance the successful sync time.
-- [ ] 5.5 Gate duplicate consolidation on completeness and final revision revalidation; verify F04 with delayed differing bodies at one path, an edit during equality checks, and genuinely identical complete files still consolidating safely.
-- [ ] 5.6 Document availability, saving, current synchronization, and legacy limitations in `docs/offline.md` and the sync API documentation; verify the terminology matches the status UI and complete-state consumer contract.
+- [x] 5.1 Introduce persisted local completeness and per-connection reconciliation state distinct from loaded/stored document existence; verify unknown, partial, locally created empty, remotely confirmed empty, and reopened complete documents are classified correctly.
+- [x] 5.2 Add awaitable, cancellable document reconciliation with current-round receipts and negotiated capability support; verify delayed/old replies and unrelated incremental updates cannot complete a new round, and legacy STEP1/STEP2 peers retain conservative interoperability.
+- [x] 5.3 Drive missing-content retries by document/blob identity, source, and generation with per-transfer stall clocks; verify F13 for late blob availability, same-count peer/asset replacement, and an active file that cannot hide another file's stall.
+- [x] 5.4 Make `SyncTracker`, manual sync, and workspace messages use current reconciliation outcomes; verify cached reconnects and queued-but-unanswered requests do not claim success or advance the successful sync time.
+- [x] 5.5 Gate duplicate consolidation on completeness and final revision revalidation; verify F04 with delayed differing bodies at one path, an edit during equality checks, and genuinely identical complete files still consolidating safely.
+- [x] 5.6 Document availability, saving, current synchronization, and legacy limitations in `docs/offline.md` and the sync API documentation; verify the terminology matches the status UI and complete-state consumer contract.
 
 ## 6. Crash-safe offline merge execution
 

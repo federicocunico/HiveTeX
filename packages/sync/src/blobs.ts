@@ -81,6 +81,9 @@ export class BlobManager {
   /** Test hook: announce this chunk count instead of the real one (a lying peer). */
   lieAboutTotal: number | null = null;
   requestTimeoutMs = 4000;
+  /** When a chunk of each blob being fetched last arrived (a transfer's own progress clock). */
+  private chunkAt = new Map<string, number>();
+  private announceCbs = new Set<(deviceId: string, hashes: string[]) => void>();
   /** Largest blob accepted from peers (injectable so tests can use small budgets). */
   maxBlobBytes = MAX_BLOB_BYTES;
 
@@ -92,8 +95,14 @@ export class BlobManager {
       const msg = safeJson(p);
       if (!isObject(msg) || !Array.isArray(msg.hashes)) return;
       const set = this.peerHas.get(from.deviceId) ?? new Set();
-      for (const h of msg.hashes.slice(0, MAX_HASHES)) if (isHash(h) && set.size < MAX_HASHES) set.add(h);
+      const fresh: string[] = [];
+      for (const h of msg.hashes.slice(0, MAX_HASHES)) {
+        if (!isHash(h) || set.size >= MAX_HASHES) continue;
+        if (!set.has(h)) fresh.push(h);
+        set.add(h);
+      }
       this.peerHas.set(from.deviceId, set);
+      if (fresh.length) for (const cb of this.announceCbs) cb(from.deviceId, fresh);
       for (const w of this.pending.values()) for (const f of w.waiters.splice(0)) f();
     });
     mesh.onRaw(MsgType.BLOB_WANT, (from, p) => {
@@ -120,6 +129,18 @@ export class BlobManager {
   }
 
   private storedCbs = new Set<() => void>();
+  /** Fires when a connected peer announces blobs it did not announce before (a fetch that failed may now succeed). */
+  onAnnounced(cb: (deviceId: string, hashes: string[]) => void) {
+    this.announceCbs.add(cb);
+  }
+  /** Connected peers that announced the blob (and did not say they lack it). */
+  sourcesOf(hash: string): string[] {
+    return this.candidates(hash, new Set());
+  }
+  /** When a chunk of the blob last arrived, or 0. */
+  chunkProgress(hash: string): number {
+    return this.chunkAt.get(hash) ?? 0;
+  }
   /** Fires when a blob has been fetched and stored. */
   onStored(cb: () => void) {
     this.storedCbs.add(cb);
@@ -134,22 +155,22 @@ export class BlobManager {
    * Fetches the given blobs from peers with bounded concurrency; a blob nobody has right now is skipped (counted as
    * failed) so one missing file does not hold up the rest.
    */
-  async fetchMissing(hashes: string[], concurrency = 2, timeoutMs = 20_000): Promise<{ fetched: number; failed: number }> {
+  async fetchMissing(hashes: string[], concurrency = 2, timeoutMs = 20_000): Promise<{ fetched: number; failed: number; failedHashes: string[] }> {
     const queue = [...new Set(hashes)];
     let fetched = 0;
-    let failed = 0;
+    const failedHashes: string[] = [];
     const worker = async () => {
       for (let h = queue.shift(); h; h = queue.shift()) {
         try {
           await this.fetch(h, timeoutMs);
           fetched++;
         } catch {
-          failed++;
+          failedHashes.push(h);
         }
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
-    return { fetched, failed };
+    return { fetched, failed: failedHashes.length, failedHashes };
   }
 
   private async announceTo(peer: PeerInfo) {
@@ -222,6 +243,7 @@ export class BlobManager {
       w.total = c.total;
       w.totalFrom = from.deviceId;
     }
+    this.chunkAt.set(c.hash, Date.now());
     w.chunks.set(c.index, c.bytes.slice());
     w.from.set(c.index, from.deviceId);
     w.retained += c.bytes.length;
@@ -241,6 +263,7 @@ export class BlobManager {
     if (existing) return existing;
     const p = this.doFetch(hash, timeoutMs).finally(() => {
       this.inflight.delete(hash);
+      this.chunkAt.delete(hash);
       this.pending.delete(hash);
       this.none.delete(hash);
     });

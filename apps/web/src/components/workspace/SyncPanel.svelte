@@ -22,6 +22,8 @@
     return showAll ? files : files.slice(0, LIMIT);
   });
   const stateText = { received: 'received', receiving: 'receiving', waiting: 'waiting for a co-author' } as const;
+  // Content that is here but that the current co-authors have not answered for yet is usable, not yet checked.
+  const fileText = (f: NonNullable<typeof status>['files'][number]) => (f.have && !f.reconciled && (status?.peers ?? 0) > 0 ? 'received, checking with co-authors' : stateText[f.state]);
 </script>
 
 <section class="panel" aria-labelledby="sync-title" data-testid="sync-panel">
@@ -65,7 +67,7 @@
           <button type="button" class="name" onclick={() => onOpenFile?.(f.path)} title={f.path}>{f.path}</button>
           <span class="st">
             {#each who as w (w)}<span class="pdot" style:background={presenceColor(w)} aria-hidden="true"></span>{/each}
-            {#if who.length}<span class="who">{who.join(', ')} editing</span>{:else}<span class:muted={f.have}>{stateText[f.state]}</span>{/if}
+            {#if who.length}<span class="who">{who.join(', ')} editing</span>{:else}<span class:muted={f.have}>{fileText(f)}</span>{/if}
           </span>
         </li>
       {/each}

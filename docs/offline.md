@@ -65,6 +65,32 @@ a ticket request in flight, so a late answer starts nothing; *Resume* asks again
 server request at all. Specs: `openspec/specs/peer-sync` (*Automatic synchronization recovery*, *Connection lifecycle
 isolation*); tests: `apps/web/test/session-recovery.test.ts`.
 
+## What is here, what is saved, what is current
+
+The status bar and the Sync panel keep three things apart:
+
+- **Available on this device:** the complete content of a file is here. A file that is only *listed* (its name arrived, its
+  text did not) is not available, and is never shown to other features as an empty file. A file you created, or one a
+  co-author confirmed (an empty file included), is available, and stays so after reopening, also offline.
+- **Saved on this device:** your edits are written to local storage ("Saved on this device"; a red warning if not, see below).
+- **Current with co-authors:** the co-authors connected right now answered for the file. A project reopened from its cached
+  copy is fully usable, but says **Checking with co-authors: N of M files** until they answered, and **All changes synced**
+  only after that. The *Last synced* time moves only when such an answer arrived, never because a request was queued.
+
+**Sync now** asks every connected co-author again for every file and waits for the answers. It says *Everything is up to
+date* only when they all answered; if a co-author does not answer in time it says so (*No answer yet … Your edits are kept*),
+and if nobody holds a file it says that too. Nothing you wrote is touched by any of these outcomes.
+
+Two same-name files are only merged into one when both are complete and identical at that moment, and a file whose text has
+not arrived is never taken for an empty one. Export, compile, GitHub backup and folder mirroring adopt the same rule (wait
+for the missing files, or name them) in the later steps of this change; until then they keep their previous behavior.
+
+Older HiveTeX versions do not send the receipts that make this exact. With such a co-author the app falls back to the plain
+exchange: one request per file at a time, a reply counts, and an unrelated live update never does. This is slower to settle and
+cannot tell whether that co-author's own copy is whole. Specs: `openspec/specs/peer-sync` (*Explicit document availability*,
+*Sync progress visibility*, *Manual sync*, *Safe identical-file consolidation*); wire details in `docs/protocol.md`
+(*Availability and reconciliation*); tests: `packages/sync/test/{availability,reconcile,sync-retry,sync-outcome}.test.ts`.
+
 ## When this device cannot save
 
 Edits are written to this device's storage a fraction of a second after you type. Whether they are *saved on this

@@ -7,6 +7,7 @@
   import { go } from '../lib/router.svelte.js';
   import type { ProjectInfo } from '../lib/session.svelte.js';
   import { ARCHIVE_ACCEPT, itemsFromFiles, readArchive, readLoose } from '../lib/import/sources.js';
+  import { markCreatedHere } from '../lib/created-here.js';
   import { type PickedFolder, foldersSupported, markFreshFolderProject, pickProjectFolder, readFolderMarker, rememberFolder, slugFromFolder } from '../lib/folders.js';
   import { type Location, allLocations } from '../lib/locations.js';
   import { DEFAULT_TEMPLATE, TEMPLATES, templateFiles } from '../lib/templates.js';
@@ -211,6 +212,7 @@
               ...(unprotected ? { passwordProtected: false } : { password }),
             })
           ).project.id;
+      markCreatedHere(id);
       if (createFolder) {
         await rememberFolder(id, createFolder);
         markFreshFolderProject(id);

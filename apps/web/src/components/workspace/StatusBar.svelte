@@ -43,7 +43,7 @@
       : `${others === 0 ? 'No co-authors connected' : `${others} co-author${others === 1 ? '' : 's'} online`}${connecting ? ` (${connecting} connecting)` : ''}`,
   );
   const status = $derived(s.syncStatus);
-  const busy = $derived(status?.stage === 'receiving' || status?.stage === 'connecting');
+  const busy = $derived(status?.stage === 'receiving' || status?.stage === 'reconciling' || status?.stage === 'connecting');
 </script>
 
 <footer class="statusbar" data-testid="statusbar">

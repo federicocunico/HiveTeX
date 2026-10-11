@@ -12,7 +12,7 @@ import {
   parseSyncTeXGz,
   type SyncIndex,
 } from '@hivetex/compile';
-import type { Role, TicketClaims, TrustedKey } from '@hivetex/protocol';
+import { ROOT_DOC_ID, type Role, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import {
   BlobManager,
   type Candidate,
@@ -43,6 +43,7 @@ import {
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
 import { copyText } from './clipboard.js';
+import { takeCreatedHere } from './created-here.js';
 import { isLocalProjectId } from './local-projects.js';
 import { type FolderAction, type FolderDeps, runFolderAction } from './project-folder.js';
 import { HelperEngine, type PairResult, helperToken, pairWithDesktop, probeHelper } from './helper-engine.js';
@@ -181,6 +182,8 @@ export class ProjectSession {
     this.store = await IndexedDbPersistence.open(`hivetex-project-${this.project.id}`);
     this.model = new ProjectModel(this.store);
     await this.model.init();
+    // A project made on this device (or kept only here) authors its own file table; a joined one waits for a peer to confirm it.
+    if (this.isLocal || takeCreatedHere(this.project.id)) this.model.markComplete(ROOT_DOC_ID);
     this.model.onSaveState((st) => {
       this.saveFailing = st.failing;
     });
@@ -287,6 +290,7 @@ export class ProjectSession {
     this.backup.start();
     this.dedupeTimer = undefined;
     this.model.onFilesChanged(() => this.scheduleDedupe());
+    this.mesh.onDocReconciled(() => this.scheduleDedupe());
     await this.restoreLocation();
     this.model.onDocUpdate(() => {
       this.stale = true;
@@ -327,7 +331,8 @@ export class ProjectSession {
   private scheduleDedupe() {
     if (!this.canWrite) return;
     clearTimeout(this.dedupeTimer);
-    this.dedupeTimer = setTimeout(() => void this.model.dedupeIdentical().catch(() => {}), 2500);
+    // Only complete, settled files are compared (see ProjectModel.dedupeIdentical); the pass runs again as answers arrive.
+    this.dedupeTimer = setTimeout(() => void this.model.dedupeIdentical({ settled: (id) => !this.mesh.reconciling(id) }).catch(() => {}), 2500);
   }
 
   /** The bound GitHub repository (shared project setting), if any. */
@@ -908,8 +913,8 @@ export class ProjectSession {
         return this.syncNowResult;
       }
       this.manager?.reconnectNow();
-      await this.mesh.resync();
-      const r = await this.tracker.fetchAll();
+      // The outcome of this round: queued requests or silence are "pending", never success, and the sync time only advances on success.
+      const r = await this.tracker.syncNow();
       const snap = await this.tracker.refresh();
       this.syncNowResult = syncNowMessage(snap, r);
       toast(this.syncNowResult, 'info', 6000);

@@ -1,5 +1,5 @@
 import { type StoredDeviceKeys, generateDeviceKeys } from '@hivetex/crypto';
-import { type Role, TICKET_TYP, type TrustedKey } from '@hivetex/protocol';
+import { ROOT_DOC_ID, type Role, TICKET_TYP, type TrustedKey } from '@hivetex/protocol';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 
 export class TestAuthority {
@@ -90,12 +90,17 @@ export class Net {
     return new Net(await TestAuthority.create());
   }
 
-  async add(name: string, role: Role, opts: { store?: Persistence; meshOpts?: object } = {}): Promise<Node> {
+  /**
+   * `authored`: this device created the project, so its file table is complete from the start (default for owners). A
+   * device that joins starts with an unknown file table until a peer confirms it.
+   */
+  async add(name: string, role: Role, opts: { store?: Persistence; meshOpts?: object; authored?: boolean } = {}): Promise<Node> {
     const id = await identity(name, role);
     const ticket = await this.auth.mint({ pid: this.pid, uid: id.uid, uname: name, dev: id.dev, keys: id.keys, role });
     const store = opts.store ?? new MemoryPersistence();
     const model = new ProjectModel(store, { flushMs: 5 });
     await model.init();
+    if (opts.authored ?? role === 'owner') model.markComplete(ROOT_DOC_ID);
     const mesh = new Mesh({
       projectId: this.pid,
       model,

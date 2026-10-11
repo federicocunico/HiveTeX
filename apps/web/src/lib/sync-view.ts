@@ -1,4 +1,4 @@
-import type { SyncEvent, SyncSnapshot } from '@hivetex/sync';
+import type { SyncEvent, SyncOutcome, SyncSnapshot } from '@hivetex/sync';
 
 /** "just now", "3 min ago", "2 h ago": when the device was last fully up to date. */
 export function sinceText(at: number | null, now = Date.now()): string {
@@ -25,6 +25,9 @@ export function syncLabel(s: SyncSnapshot | null, now = Date.now(), saveFailing 
     case 'receiving':
       if (s.percent === null) return 'Syncing: receiving the file list…';
       return `Syncing ${s.percent}%: ${s.received} of ${s.total} files`;
+    case 'reconciling':
+      // The content is here and usable (and saved, see saveFailing); the current co-authors have not answered for all of it.
+      return `Checking with co-authors: ${s.reconciled} of ${s.total} files`;
     case 'synced':
       return `All changes synced · ${sinceText(s.lastSyncAt, now)}`;
   }
@@ -34,19 +37,27 @@ export function syncLabel(s: SyncSnapshot | null, now = Date.now(), saveFailing 
 export function syncEventText(e: SyncEvent, s: SyncSnapshot | null): string {
   if (e === 'complete') return `All ${s?.total ?? 0} files received. This device is up to date.`;
   const missing = s ? s.total - s.received : 0;
-  return s && s.stage === 'connecting'
-    ? 'Still connecting to your co-author. Use "Sync now" to retry the connection.'
-    : `Sync is slow or stuck${missing ? `: ${missing} files missing` : ''}. Use "Sync now" to retry.`;
+  if (s?.stage === 'connecting') return 'Still connecting to your co-author. Use "Sync now" to retry the connection.';
+  if (s?.stage === 'reconciling') return 'Still checking with your co-authors; your files are usable meanwhile. Use "Sync now" to retry.';
+  return `Sync is slow or stuck${missing ? `: ${missing} files missing` : ''}. Use "Sync now" to retry.`;
 }
 
-/** What "Sync now" tells the user, from the state right after it ran. */
-export function syncNowMessage(s: SyncSnapshot | null, r: { missingText: number; missingBinaries: number; failed: number } | null): string {
+/**
+ * What "Sync now" tells the user, from how the round ended. Only a completed round says everything is up to date:
+ * requests that nobody answered are reported as pending, and the edits on this device are kept either way.
+ */
+export function syncNowMessage(s: SyncSnapshot | null, r: SyncOutcome | null): string {
   if (!s || (s.peers === 0 && s.connecting === 0)) return 'No co-author is online. Your edits are kept on this device.';
   if (s.peers === 0) return `Reconnecting to ${s.connecting} co-author${s.connecting === 1 ? '' : 's'}…`;
-  const missing = r ? r.missingText + r.missingBinaries : s.total - s.received;
-  if (missing === 0) return 'Everything is up to date.';
-  const failed = r?.failed ? ` ${r.failed} could not be fetched yet: no connected co-author has them.` : '';
-  return `Asked ${s.peers} co-author${s.peers === 1 ? '' : 's'} for ${missing} missing file${missing === 1 ? '' : 's'}.${failed}`;
+  const who = `${s.peers} co-author${s.peers === 1 ? '' : 's'}`;
+  if (!r) return `Asking ${who}…`;
+  if (r.status === 'complete') return 'Everything is up to date.';
+  if (r.status === 'pending') {
+    const left = r.pending || r.missingText + r.missingBinaries;
+    return `No answer yet from ${who} for ${left} file${left === 1 ? '' : 's'}. Your edits are kept; try again in a moment.`;
+  }
+  const missing = r.missingText + r.missingBinaries || r.failed;
+  return `${missing} missing file${missing === 1 ? '' : 's'}: no connected co-author can supply ${missing === 1 ? 'it' : 'them'} right now. Your edits are kept.`;
 }
 
 /** Who is editing which file: path → names, from presence. */

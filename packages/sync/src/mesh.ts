@@ -32,6 +32,58 @@ export interface MeshOptions {
    * state here, so offline edits are never sent as such: see fork.ts).
    */
   beforeSync?: (peer: PeerInfo) => Promise<void>;
+  /**
+   * Whether this device announces and answers correlated synchronization receipts (default true). Off, it behaves
+   * like a client that predates them (plain STEP1/STEP2 only), which is how interoperability is tested.
+   */
+  receipts?: boolean;
+  /** How long an unanswered legacy exchange keeps blocking later requests for the same document (default 15 s). */
+  legacySlotMs?: number;
+}
+
+/** How one reconciliation of a document ended. */
+export type ReconcileOutcome = 'confirmed' | 'unavailable' | 'timeout' | 'cancelled' | 'disconnected';
+
+export interface ReconcileResult {
+  docId: string;
+  outcome: ReconcileOutcome;
+  /** The device whose confirmation completed the round. */
+  source?: string;
+  /** For `unavailable`: `no-peer` (nobody eligible is connected) or `not-held` (the peers answered but cannot confirm). */
+  reason?: 'no-peer' | 'not-held';
+}
+
+export interface ReconcileOptions {
+  signal?: AbortSignal;
+  /** Gives up (outcome `timeout`) after this long. Default 8 s. */
+  timeoutMs?: number;
+}
+
+export interface ProjectReconcile {
+  /** Every text file's content (and the file table) is complete on this device. */
+  complete: boolean;
+  /** The documents requested in this round, with how each ended. */
+  docs: ReconcileResult[];
+  /** The documents that are not complete on this device afterwards. */
+  missing: Array<{ docId: string; fileId?: string; path?: string; outcome: ReconcileOutcome | 'local' }>;
+}
+
+/** One request for a document's state to one connection (a "round"); see Mesh.reconcile. */
+interface Exchange {
+  id: number;
+  docId: string;
+  /** STEP1 was handed to the connection (and `startedAt` set). */
+  sent: boolean;
+  /** STEP1 has left; the correlated request may follow. */
+  step1Sent: boolean;
+  /** The correlated request ('sync-req') was sent. */
+  req: boolean;
+  startedAt: number;
+  /** Nobody ever waited for it (startup exchange): its answer still counts, but it does not hold a legacy slot forever. */
+  background: boolean;
+  /** Its waiter gave up (timeout, cancel): a late answer completes nothing. */
+  abandoned: boolean;
+  waiter: ((o: 'confirmed' | 'unavailable' | 'disconnected') => void) | null;
 }
 
 export interface PeerInfo {
@@ -40,6 +92,8 @@ export interface PeerInfo {
   conn: PeerConnection;
   /** Latest raw ticket of the peer. */
   readonly ticket: string;
+  /** Which connection this is: a device that reconnects gets a new one, so state tied to it starts over. */
+  readonly gen: number;
 }
 
 const MAX_UPDATE = 32 * 1024 * 1024;
@@ -68,6 +122,18 @@ export class Mesh {
   private joinCbs = new Set<(p: PeerInfo) => void>();
   private docSyncedCbs = new Set<(docId: string, from: PeerInfo) => void>();
   private leaveCbs = new Set<(p: PeerInfo) => void>();
+  /** What each peer announced it can do (see 'sync-caps'). */
+  private caps = new Map<PeerConnection, { receipts: boolean }>();
+  /** Outstanding requests per connection and document: a connection is one generation, a new one starts empty. */
+  private exchanges = new Map<PeerConnection, Map<string, Exchange[]>>();
+  /** Documents whose state a peer confirmed on this connection. */
+  private confirmed = new Map<PeerConnection, Set<string>>();
+  /** Frames being processed per connection: an answer is only complete once everything it follows has been applied. */
+  private applying = new Map<PeerConnection, Set<Promise<unknown>>>();
+  private reconciledCbs = new Set<(docId: string, from: PeerInfo) => void>();
+  private exchangeSeq = 0;
+  private connSeq = 0;
+  private slotTimers = new Set<ReturnType<typeof setTimeout>>();
   private maxEpoch = 0;
   private maxEpochSince = 0;
   /** The verified ticket that proves `maxEpoch`; relayed so peers can verify the epoch themselves. */
@@ -100,6 +166,12 @@ export class Mesh {
       const d = (body as { devices?: unknown })?.devices;
       if (Array.isArray(d)) this.nbrs.set(from.conn, new Set(d.filter((x): x is string => typeof x === 'string').slice(0, 1000)));
     });
+    if (o.receipts !== false) {
+      this.onApp('sync-caps', (from, body) => this.onCaps(from, body));
+      this.onApp('sync-req', (from, body) => void this.answerRequest(from, body));
+    }
+    // Answers are honoured even with receipts off locally only if a request was made, which cannot happen then.
+    this.onApp('sync-ack', (from, body) => void this.onAck(from, body));
     this.unsub = o.model.onDocUpdate((docId, update, origin) => this.onLocalDocUpdate(docId, update, origin));
     this.policyTimer = setInterval(() => {
       this.enforcePolicy();
@@ -139,6 +211,15 @@ export class Mesh {
   onDocSynced(cb: (docId: string, from: PeerInfo) => void) {
     this.docSyncedCbs.add(cb);
     return () => this.docSyncedCbs.delete(cb);
+  }
+  /**
+   * Fires when a peer's answer to a current request of this connection was applied (the peer has nothing more for the
+   * document than we now hold; `model.availability` says whether our copy became complete). Unlike onDocSynced, an
+   * incremental update or a reply to an older request never fires it.
+   */
+  onDocReconciled(cb: (docId: string, from: PeerInfo) => void) {
+    this.reconciledCbs.add(cb);
+    return () => this.reconciledCbs.delete(cb);
   }
   /**
    * `editorOnly` topics are privileged: the sender's role is checked when the message is dispatched (not when the
@@ -200,12 +281,16 @@ export class Mesh {
       get ticket() {
         return conn.ticketRaw;
       },
+      gen: ++this.connSeq,
     };
     // The same device reconnecting (page reloaded, app restarted) replaces its lingering old connection.
     for (const [old, oi] of this.conns) if (oi.deviceId === claims.dev) old.close();
     this.conns.set(conn, info);
     this.interest.set(conn, new Set());
     this.requested.set(conn, new Set());
+    this.exchanges.set(conn, new Map());
+    this.confirmed.set(conn, new Set());
+    this.applying.set(conn, new Set());
     if (this.o.beforeSync) {
       const run = this.o.beforeSync;
       this.syncGate = this.syncGate.then(() => run(info)).catch(() => {});
@@ -218,6 +303,7 @@ export class Mesh {
     for (const cb of this.joinCbs) cb(info);
     this.announceNeighbours();
     await this.safeSend(conn, MsgType.EPOCH, this.epochFrame());
+    if (this.o.receipts !== false) await this.safeSend(conn, MsgType.APP, jsonBytes({ topic: 'sync-caps', body: { v: 1, receipts: true } }));
     await this.startSync(conn);
     return info;
   }
@@ -238,6 +324,11 @@ export class Mesh {
     this.requested.delete(conn);
     this.staleSince.delete(conn);
     this.nbrs.delete(conn);
+    this.caps.delete(conn);
+    this.confirmed.delete(conn);
+    this.applying.delete(conn);
+    for (const list of this.exchanges.get(conn)?.values() ?? []) for (const ex of list) ex.waiter?.('disconnected');
+    this.exchanges.delete(conn);
     const ids = this.awarenessIds.get(conn);
     if (ids?.size) removeAwarenessStates(this.awareness, [...ids], conn);
     this.awarenessIds.delete(conn);
@@ -309,7 +400,12 @@ export class Mesh {
     const ids = await this.o.model.knownDocIds();
     // Root first, so the file table is current before file docs are reconciled.
     ids.sort((a, b) => (a === ROOT_DOC_ID ? -1 : b === ROOT_DOC_ID ? 1 : 0));
-    for (const id of ids) await this.requestDoc(conn, id);
+    // Viewers cannot supply state (their answers are not applied), so they are only asked as before.
+    const viewer = conn.role === 'viewer' || this.conns.get(conn)?.claims.role === 'viewer';
+    for (const id of ids) {
+      if (viewer) await this.requestDoc(conn, id);
+      else await this.begin(conn, id, null).sent;
+    }
     await this.safeSend(conn, MsgType.AWARENESS, encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]));
   }
 
@@ -321,6 +417,268 @@ export class Mesh {
     await this.safeSend(conn, MsgType.STEP1, packDoc(docId, Y.encodeStateVector(doc)));
   }
 
+  // ---- reconciliation: requests whose answers are tied to this connection and this request ----
+
+  /** Starts a request for the document's state on a connection; `waiter` hears how it ended (none: a startup request). */
+  private begin(conn: PeerConnection, docId: string, waiter: Exchange['waiter']): { ex: Exchange; sent: Promise<void> } {
+    const ex: Exchange = { id: ++this.exchangeSeq, docId, sent: false, step1Sent: false, req: false, startedAt: 0, background: !waiter, abandoned: false, waiter };
+    const byDoc = this.exchanges.get(conn);
+    if (!byDoc) {
+      waiter?.('disconnected');
+      return { ex, sent: Promise.resolve() };
+    }
+    const list = byDoc.get(docId) ?? [];
+    list.push(ex);
+    byDoc.set(docId, list);
+    return { ex, sent: this.pump(conn, docId) };
+  }
+
+  private receiptsFrom(conn: PeerConnection) {
+    return this.caps.get(conn)?.receipts === true;
+  }
+
+  /**
+   * Sends what may be sent. Receipt-capable peers answer each request individually, so all go out. A legacy peer's
+   * STEP2 cannot be matched to a request, so only one request per document is outstanding on its connection and the
+   * others wait their turn; an unanswered one that nobody waits for stops blocking after `legacySlotMs`.
+   */
+  private pump(conn: PeerConnection, docId: string): Promise<void> {
+    const byDoc = this.exchanges.get(conn);
+    const list = byDoc?.get(docId);
+    if (!byDoc || !list?.length) return Promise.resolve();
+    if (this.receiptsFrom(conn)) return Promise.all(list.filter((e) => !e.sent).map((e) => this.transmit(conn, e))).then(() => {});
+    const head = list[0] as Exchange;
+    if (!head.sent) return this.transmit(conn, head);
+    if (head.background || head.abandoned) {
+      const left = head.startedAt + (this.o.legacySlotMs ?? 15_000) - Date.now();
+      if (left <= 0) {
+        list.shift();
+        if (!list.length) byDoc.delete(docId);
+        return this.pump(conn, docId);
+      }
+      const t = setTimeout(() => {
+        this.slotTimers.delete(t);
+        void this.pump(conn, docId);
+      }, left + 1);
+      (t as unknown as { unref?: () => void }).unref?.();
+      this.slotTimers.add(t);
+    }
+    return Promise.resolve();
+  }
+
+  private async transmit(conn: PeerConnection, ex: Exchange) {
+    ex.sent = true;
+    ex.startedAt = Date.now();
+    this.requested.get(conn)?.add(ex.docId);
+    try {
+      const doc = await this.o.model.getDoc(ex.docId);
+      await this.safeSend(conn, MsgType.STEP1, packDoc(ex.docId, Y.encodeStateVector(doc)));
+      ex.step1Sent = true;
+      if (this.receiptsFrom(conn)) await this.sendRequest(conn, ex);
+    } catch {
+      /* the document could not be loaded: the request stays unanswered and times out */
+    }
+  }
+
+  private async sendRequest(conn: PeerConnection, ex: Exchange) {
+    if (ex.req || ex.abandoned) return;
+    ex.req = true;
+    await this.safeSend(conn, MsgType.APP, jsonBytes({ topic: 'sync-req', body: { docId: ex.docId, round: ex.id } }));
+  }
+
+  /** Ends a request: a confirmation completes the document locally (unless its waiter already gave up), then the next one may go. */
+  private finish(conn: PeerConnection, ex: Exchange, end: 'confirmed' | 'unavailable', answered = true) {
+    const byDoc = this.exchanges.get(conn);
+    const list = byDoc?.get(ex.docId);
+    const i = list ? list.indexOf(ex) : -1;
+    if (!byDoc || !list || i < 0) return;
+    list.splice(i, 1);
+    if (!list.length) byDoc.delete(ex.docId);
+    const info = this.conns.get(conn);
+    if (end === 'confirmed' && info && !ex.abandoned) this.o.model.markComplete(ex.docId);
+    // Any applied answer to a current request means this peer has nothing for the document that we lack, even when it
+    // cannot vouch that its own copy is complete (a partial peer answers 'partial', a peer without it 'none').
+    if (answered && info && !ex.abandoned) {
+      this.confirmed.get(conn)?.add(ex.docId);
+      for (const cb of this.reconciledCbs) cb(ex.docId, info);
+    }
+    ex.waiter?.(end);
+    void this.pump(conn, ex.docId);
+  }
+
+  private abandon(conn: PeerConnection, ex: Exchange) {
+    ex.waiter = null;
+    ex.abandoned = true;
+    // A receipt names its request, so nothing late can match it. A legacy STEP1 that went out is still owed an
+    // answer: it keeps its place (and is consumed unused) until that answer comes or the slot expires.
+    if (this.receiptsFrom(conn) || !ex.sent) {
+      const byDoc = this.exchanges.get(conn);
+      const list = byDoc?.get(ex.docId);
+      if (list?.includes(ex)) {
+        list.splice(list.indexOf(ex), 1);
+        if (!list.length) byDoc?.delete(ex.docId);
+      }
+    }
+    void this.pump(conn, ex.docId);
+  }
+
+  /** A legacy peer's STEP2 answers the one request outstanding for that document on this connection. */
+  private onStep2Applied(conn: PeerConnection, docId: string) {
+    if (this.receiptsFrom(conn)) return;
+    const head = this.exchanges.get(conn)?.get(docId)?.[0];
+    if (head?.sent) this.finish(conn, head, 'confirmed');
+  }
+
+  private onCaps(from: PeerInfo, body: unknown) {
+    if ((body as { receipts?: unknown } | null)?.receipts !== true) return;
+    const conn = from.conn;
+    this.caps.set(conn, { receipts: true });
+    // Requests sent before the announcement arrived can now be correlated; their answer comes with a receipt.
+    for (const [docId, list] of this.exchanges.get(conn) ?? []) {
+      for (const ex of [...list]) {
+        if (ex.abandoned && ex.sent) list.splice(list.indexOf(ex), 1);
+        else if (ex.step1Sent && !ex.req) void this.sendRequest(conn, ex);
+      }
+      void this.pump(conn, docId);
+    }
+  }
+
+  /** What this device can promise about a document it is asked about: complete, only partly held, or not held at all. */
+  private async statusOf(docId: string): Promise<'complete' | 'partial' | 'none'> {
+    if (this.o.model.availability(docId) === 'complete') return 'complete';
+    return (await this.hasDoc(docId)) ? 'partial' : 'none';
+  }
+
+  /** Answers a correlated request once the plain request it accompanies (and anything before it) has been handled. */
+  private async answerRequest(from: PeerInfo, body: unknown) {
+    const { docId, round } = (body ?? {}) as { docId?: unknown; round?: unknown };
+    if (typeof docId !== 'string' || docId.length > 200 || typeof round !== 'number' || !Number.isSafeInteger(round)) return;
+    await Promise.allSettled([...(this.applying.get(from.conn) ?? [])]);
+    if (this.conns.get(from.conn) !== from) return;
+    const status = await this.statusOf(docId);
+    await this.safeSend(from.conn, MsgType.APP, jsonBytes({ topic: 'sync-ack', body: { docId, round, status } }));
+  }
+
+  /** A receipt completes the request it names, if that request is still current on this very connection. */
+  private async onAck(from: PeerInfo, body: unknown) {
+    const { docId, round, status } = (body ?? {}) as { docId?: unknown; round?: unknown; status?: unknown };
+    if (typeof docId !== 'string' || typeof round !== 'number') return;
+    const conn = from.conn;
+    const ex = this.exchanges.get(conn)?.get(docId)?.find((e) => e.id === round);
+    if (!ex?.sent) return;
+    // The answer's state travels in frames before the receipt: wait until they are applied.
+    await Promise.allSettled([...(this.applying.get(conn) ?? [])]);
+    if (this.conns.get(conn) !== from || !this.exchanges.get(conn)?.get(docId)?.includes(ex)) return;
+    // A viewer's state is never applied, so its receipt cannot vouch for anything.
+    const viewer = from.claims.role === 'viewer' || conn.role === 'viewer';
+    this.finish(conn, ex, status === 'complete' && !viewer ? 'confirmed' : 'unavailable', !viewer);
+  }
+
+  /** A peer answered a current request for this document on a connection that is still open (see onDocReconciled). */
+  reconciled(docId: string): boolean {
+    for (const set of this.confirmed.values()) if (set.has(docId)) return true;
+    return false;
+  }
+
+  /** A request for the document is in flight on some connection (its answer has not been judged yet). */
+  reconciling(docId: string): boolean {
+    for (const byDoc of this.exchanges.values()) if (byDoc.get(docId)?.length) return true;
+    return false;
+  }
+
+  /** Identifies the current set of connections (device and connection generation), for deciding whether a retry is due. */
+  get sourceKey(): string {
+    return this.peers
+      .map((p) => `${p.deviceId}#${p.gen}`)
+      .sort()
+      .join(',');
+  }
+
+  /**
+   * Asks the connected editors for the document's complete state and waits for a confirmation answering this very
+   * request. Resolves `confirmed` (the document is now complete here: an empty answer included), `unavailable` (no
+   * eligible peer, or none that can confirm), `timeout`, `cancelled` or `disconnected`. Incremental updates, replies to
+   * earlier requests and other connections' answers never complete it. Viewers are not sources (their state is not applied).
+   */
+  async reconcile(docId: string, opts: ReconcileOptions = {}): Promise<ReconcileResult> {
+    const sources = this.peers.filter((p) => p.claims.role !== 'viewer' && p.conn.role !== 'viewer');
+    if (opts.signal?.aborted) return { docId, outcome: 'cancelled' };
+    if (!sources.length) return { docId, outcome: 'unavailable', reason: 'no-peer' };
+    return new Promise<ReconcileResult>((resolve) => {
+      const started: Array<[PeerConnection, Exchange]> = [];
+      let settled = false;
+      let open = sources.length;
+      let refused = 0;
+      const end = (r: ReconcileResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', onAbort);
+        for (const [c, ex] of started) this.abandon(c, ex);
+        resolve(r);
+      };
+      const onAbort = () => end({ docId, outcome: 'cancelled' });
+      const timer = setTimeout(() => end({ docId, outcome: 'timeout' }), opts.timeoutMs ?? 8000);
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
+      for (const info of sources) {
+        const { ex } = this.begin(info.conn, docId, (o) => {
+          if (o === 'confirmed') return end({ docId, outcome: 'confirmed', source: info.deviceId });
+          if (o === 'unavailable') refused++;
+          if (--open === 0) end(refused ? { docId, outcome: 'unavailable', reason: 'not-held' } : { docId, outcome: 'disconnected' });
+        });
+        started.push([info.conn, ex]);
+      }
+    });
+  }
+
+  /**
+   * Reconciles the file table first (so the list of files is current), then the text files' documents. `scope`:
+   * `incomplete` asks only for documents not complete here, `pending` (default) also for complete ones no current
+   * connection confirmed, `all` for everything this device knows. Reports which documents are still not complete here.
+   */
+  async reconcileProject(opts: ReconcileOptions & { scope?: 'incomplete' | 'pending' | 'all' } = {}): Promise<ProjectReconcile> {
+    const { model } = this.o;
+    const scope = opts.scope ?? 'pending';
+    const due = (docId: string) => scope === 'all' || model.availability(docId) !== 'complete' || (scope === 'pending' && !this.reconciled(docId));
+    const docs: ReconcileResult[] = [];
+    const ask = async (ids: string[]) => {
+      docs.push(...(await Promise.all(ids.map((id) => this.reconcile(id, opts)))));
+    };
+    if (this.peers.length > 0 && due(ROOT_DOC_ID)) await ask([ROOT_DOC_ID]);
+    if (this.peers.length > 0) {
+      const ids = new Set<string>();
+      for (const f of model.list()) if (f.kind === 'text') ids.add(`f:${f.id}`);
+      if (scope === 'all') {
+        for (const id of await model.knownDocIds()) ids.add(id);
+        for (const set of this.requested.values()) for (const id of set) ids.add(id);
+      }
+      ids.delete(ROOT_DOC_ID);
+      await ask([...ids].filter(due));
+    }
+    return this.projectState(docs);
+  }
+
+  /** The documents of the project that are not complete on this device, and the outcomes of `docs`. */
+  private projectState(docs: ReconcileResult[]): ProjectReconcile {
+    const { model } = this.o;
+    const by = new Map(docs.map((d) => [d.docId, d.outcome] as const));
+    const missing: ProjectReconcile['missing'] = [];
+    if (model.availability(ROOT_DOC_ID) !== 'complete') missing.push({ docId: ROOT_DOC_ID, outcome: by.get(ROOT_DOC_ID) ?? 'local' });
+    for (const f of model.missingText()) missing.push({ docId: `f:${f.id}`, fileId: f.id, path: f.path, outcome: by.get(`f:${f.id}`) ?? 'local' });
+    return { complete: missing.length === 0, docs, missing };
+  }
+
+  /**
+   * For consumers that need the whole project (export, compile, backup, mirror): resolves at once when every document is
+   * complete on this device (also offline), otherwise asks the peers for what is missing and reports what remains
+   * unavailable. It never substitutes empty text for missing content.
+   */
+  async awaitComplete(opts: ReconcileOptions = {}): Promise<ProjectReconcile> {
+    const now = this.projectState([]);
+    if (now.complete) return now;
+    return this.reconcileProject({ ...opts, scope: 'incomplete' });
+  }
+
   /** Marks a doc as wanted: loads it and asks every peer for its state (and future updates). */
   async openDoc(docId: string) {
     await this.o.model.getDoc(docId);
@@ -329,20 +687,11 @@ export class Mesh {
 
   /**
    * Asks every peer again for the state of every document we know or requested (a lost or never-sent answer is
-   * recovered), then requests the documents of all text files. Used by "Sync now".
+   * recovered), then requests the documents of all text files, and waits for the answers (each document: see
+   * `reconcile`). Used by "Sync now".
    */
-  async resync() {
-    const ids = new Set(await this.o.model.knownDocIds());
-    for (const f of this.o.model.list()) if (f.kind === 'text') ids.add(`f:${f.id}`);
-    for (const set of this.requested.values()) for (const id of set) ids.add(id);
-    for (const c of this.conns.keys()) {
-      const req = this.requested.get(c);
-      for (const id of ids) {
-        req?.add(id);
-        const doc = await this.o.model.getDoc(id);
-        await this.safeSend(c, MsgType.STEP1, packDoc(id, Y.encodeStateVector(doc)));
-      }
-    }
+  async resync(opts: ReconcileOptions = {}): Promise<ProjectReconcile> {
+    return this.reconcileProject({ ...opts, scope: 'all' });
   }
 
   /** Fetches every text file's document from peers (compile leader, export, mirror). */
@@ -352,7 +701,20 @@ export class Mesh {
 
   // ---- inbound ----
 
-  private async onFrame(conn: PeerConnection, type: number, payload: Uint8Array) {
+  private onFrame(conn: PeerConnection, type: number, payload: Uint8Array): Promise<void> {
+    const work = this.handleFrame(conn, type, payload);
+    if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE) {
+      // Registered before anything is awaited, so a receipt that follows can wait for exactly the frames before it.
+      const set = this.applying.get(conn);
+      if (set) {
+        set.add(work);
+        void work.finally(() => set.delete(work));
+      }
+    }
+    return work;
+  }
+
+  private async handleFrame(conn: PeerConnection, type: number, payload: Uint8Array) {
     const info = this.conns.get(conn);
     if (!info) return;
     try {
@@ -362,9 +724,9 @@ export class Mesh {
           const { docId, data } = unpackDoc(payload);
           this.interest.get(conn)?.add(docId);
           if (!(await this.hasDoc(docId))) {
-            // A file we know whose content is empty has no stored document: answer with an empty state so the peer
-            // can tell "nothing to receive" from "no answer".
-            if (docId.startsWith('f:') && this.o.model.byId(docId.slice(2))) {
+            // A file created here with no content has no stored document: answer with an empty state so the peer
+            // can tell "nothing to receive" from "no answer". A file we merely know by name is not known to be empty.
+            if (docId.startsWith('f:') && this.o.model.availability(docId) === 'complete') {
               await this.safeSend(conn, MsgType.STEP2, packDoc(docId, Y.encodeStateAsUpdate(new Y.Doc())));
             }
             return;
@@ -386,6 +748,7 @@ export class Mesh {
           if (!this.interest.get(conn)?.has(docId) && !this.requested.get(conn)?.has(docId)) return;
           Y.applyUpdate(doc, data, conn);
           for (const cb of this.docSyncedCbs) cb(docId, info);
+          if (type === MsgType.STEP2) this.onStep2Applied(conn, docId);
           return;
         }
         case MsgType.AWARENESS:
@@ -542,6 +905,7 @@ export class Mesh {
 
   destroy() {
     clearInterval(this.policyTimer);
+    for (const t of this.slotTimers) clearTimeout(t);
     if (this.nbrsTimer) clearTimeout(this.nbrsTimer);
     if (this.resyncTimer) clearTimeout(this.resyncTimer);
     this.unsub();
