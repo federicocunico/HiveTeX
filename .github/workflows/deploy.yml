@@ -1,0 +1,85 @@
+name: Deploy
+# Production deploys of the web app and server (Vercel). Vercel's own Git deploys are off (vercel.json): this workflow
+# deploys a master commit only after its CI run passed, uploads the code with the Vercel CLI (Vercel never has to fetch
+# it from GitHub), retries a failed upload, and checks /api/health afterwards.
+# Needs the VERCEL_TOKEN secret and the VERCEL_ORG_ID / VERCEL_PROJECT_ID variables (`make setup` sets them).
+# By hand (for example after fixing a failed deploy): Actions -> Deploy -> Run workflow.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      SITE: ${{ vars.HIVETEX_API_BASE }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Deploy settings present
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::error::Set the VERCEL_TOKEN secret and the VERCEL_ORG_ID / VERCEL_PROJECT_ID variables (run make setup)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Only the newest master commit
+        id: newest
+        run: |
+          tip=$(git ls-remote origin refs/heads/master | cut -f1)
+          if [ "${{ github.event_name }}" = "workflow_run" ] && [ "$tip" != "$SHA" ]; then
+            echo "master moved on to ${tip:0:7}: its own CI run deploys it." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.newest.outputs.skip != 'true'
+        with: { node-version: 22 }
+
+      - name: Deploy to production (retried)
+        if: steps.newest.outputs.skip != 'true'
+        run: |
+          for i in 1 2 3 4; do
+            if npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" > deploy.log 2>&1; then
+              tail -3 deploy.log
+              exit 0
+            fi
+            tail -15 deploy.log
+            [ "$i" = 4 ] && { echo "::error::Vercel deploy failed 4 times (log above)."; exit 1; }
+            echo "Attempt $i failed: retrying in $((60 * i)) s"
+            sleep $((60 * i))
+          done
+
+      - name: Health check
+        if: steps.newest.outputs.skip != 'true'
+        run: |
+          url="${SITE:-https://hivetex.vercel.app}"
+          for i in $(seq 1 24); do
+            if curl -fsS "$url/api/health" > /dev/null; then
+              echo "Deployed ${SHA:0:7}: $url/api/health OK" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::$url/api/health did not answer after the deploy."
+          exit 1

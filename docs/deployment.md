@@ -57,6 +57,12 @@ make deploy-prod CONFIRM=1                   # runs `make check`, then vercel de
   `make seed-admin` only work when you have readable credentials (self-hosting, or a database URL copied from the Neon
   console).
 
+- **Later deploys run in GitHub Actions, after CI passes** (`.github/workflows/deploy.yml`). The workflow uploads the
+  newest `master` commit with the Vercel CLI, retries a failed upload (4 attempts), then checks `/api/health`. Vercel's
+  own Git deploys are off (`"git": { "deploymentEnabled": false }` in `vercel.json`): a broken commit never goes
+  live, and a GitHub rate limit on Vercel's side cannot fail a deploy. It needs the `VERCEL_TOKEN` secret and the
+  `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` variables; `make setup` sets them (token from `.env.setup` or a prompt).
+
 The Make targets need no global Vercel CLI (they use `npx vercel@latest`). `make up` runs the same server code locally
 against emulators ([local-stack.md](local-stack.md)).
 

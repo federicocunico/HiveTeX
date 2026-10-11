@@ -6,6 +6,7 @@
  *   2 link the Vercel project           6 health check
  *   3 Neon + Upstash (Marketplace)      7 GitHub secret: updater signing key
  *   4 server settings in Vercel         8 GitHub variable: server URL for the installers
+ *                                       9 GitHub: deploys after CI (Vercel token, project ids)
  *
  * Values that cannot be generated (Gmail account + App Password, first admin, optional TURN keys) come from the
  * environment, then from a git-ignored `.env.setup` file, then from a prompt. Secret values are passed to the CLIs on
@@ -94,7 +95,7 @@ const json = (text) => {
 // ---------- output ----------
 
 let stepNo = 0;
-const total = onlySecrets ? 3 : 8;
+const total = onlySecrets ? 3 : 9;
 const step = (title) => console.log(`\n[${++stepNo}/${total}] ${title}`);
 const note = (s) => console.log(`      ${s}`);
 const change = (s) => console.log(`      ${dryRun ? 'would ' : ''}${s}`);
@@ -264,6 +265,23 @@ function serverVariable(url) {
   if (!dryRun) gh(['variable', 'set', 'HIVETEX_API_BASE', '--body', url], { capture: true });
 }
 
+/** Production deploys run in GitHub Actions after CI passes (.github/workflows/deploy.yml); Vercel's Git deploys are off. */
+async function deployAutomation() {
+  step('GitHub: deploys after CI (Vercel token, project ids)');
+  const project = JSON.parse(readFileSync(join(root, '.vercel/project.json'), 'utf8'));
+  for (const [name, value] of [['VERCEL_ORG_ID', project.orgId], ['VERCEL_PROJECT_ID', project.projectId]]) {
+    change(`set ${name}`);
+    if (!dryRun) gh(['variable', 'set', name, '--body', value], { capture: true });
+  }
+  const list = gh(['secret', 'list'], { capture: true }).stdout ?? '';
+  const token = given('VERCEL_TOKEN');
+  if (!token && /^VERCEL_TOKEN\s/m.test(list)) return note('VERCEL_TOKEN: present');
+  const value = token || (await ask('Vercel token for deploys from GitHub (create one at https://vercel.com/account/tokens)', { secret: true }));
+  if (!value) throw new Error('A Vercel token is needed for deploys after CI: put VERCEL_TOKEN in .env.setup (or run in a terminal) and re-run.');
+  change('set VERCEL_TOKEN');
+  if (!dryRun) gh(['secret', 'set', 'VERCEL_TOKEN'], { input: value, capture: true });
+}
+
 // ---------- main ----------
 
 try {
@@ -280,6 +298,7 @@ try {
     await health(url);
     updaterKey();
     serverVariable(url);
+    await deployAutomation();
     console.log(`\nDone.${url ? ` The app is at ${url}` : ''}`);
     const admin = given('BOOTSTRAP_ADMIN');
     console.log(`Next: register${admin ? ` "${admin}"` : ' the admin username you chose'} there (it becomes admin), then`);

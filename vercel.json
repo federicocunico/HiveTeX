@@ -1,23 +1,53 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  },
   "installCommand": "npx pnpm@10 install --frozen-lockfile",
   "buildCommand": "npx pnpm@10 --filter @hivetex/server migrate && node scripts/bundle-api.mjs && npx pnpm@10 --filter @hivetex/web build",
   "outputDirectory": "apps/web/dist",
-  "regions": ["iad1"],
-  "functions": { "api/index.ts": { "maxDuration": 300 } },
+  "regions": [
+    "iad1"
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300
+    }
+  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' wss: https://api.github.com https://texlive2.swiftlatex.com http://127.0.0.1:47812 http://127.0.0.1:47813 http://127.0.0.1:47814 http://127.0.0.1:47815; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
-        { "key": "Referrer-Policy", "value": "no-referrer" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' wss: https://api.github.com https://texlive2.swiftlatex.com http://127.0.0.1:47812 http://127.0.0.1:47813 http://127.0.0.1:47814 http://127.0.0.1:47815; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
       ]
     }
   ]

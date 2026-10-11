@@ -172,9 +172,12 @@ Run the commands from the repository root (Git Bash on Windows).
 The web app and the server are deployed together. Database migrations run in the Vercel build, so every deploy also
 brings the schema up to date, and a failing migration fails the deploy. Pick one of these:
 
-- **Automatically, on every push to `master`:** connect the Vercel project to your GitHub repository (Vercel dashboard
-  → your project → *Settings → Git*). Each push then deploys to production, and `npx vercel ls` lists the
-  deployments. This is how https://hivetex.vercel.app is kept current.
+- **Automatically, after CI, on every push to `master`:** the *Deploy* GitHub workflow deploys a commit once its CI
+  run has passed, retries a failed upload, and checks `/api/health`. Vercel never has to fetch the code from GitHub:
+  the workflow uploads it. Vercel's own Git deploys are switched off in `vercel.json`. This needs a Vercel token
+  (create one at [vercel.com/account/tokens](https://vercel.com/account/tokens)): `make setup` stores it as the
+  `VERCEL_TOKEN` secret, with the project ids as variables. This is how https://hivetex.vercel.app is kept current.
+  To deploy again by hand: *Actions → Deploy → Run workflow*.
 - **By hand, after checks:** `make deploy-prod CONFIRM=1` runs everything CI runs (`make check`), then deploys to
   production.
 - **By hand, with the setup:** re-run `make setup`. It redeploys and checks `/api/health`, and changes nothing that's
