@@ -20,7 +20,7 @@ export function compareVersions(a: string, b: string): number {
   const x = parts(a);
   const y = parts(b);
   if (!x || !y) return 0;
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return (x[i] as number) > (y[i] as number) ? 1 : -1;
   return 0;
 }
 
@@ -45,7 +45,7 @@ export function parseRelease(json: unknown): UpdateInfo | null {
 /** `https://github.com/owner/repo` → `owner/repo` (forks set VITE_SOURCE_URL). */
 export function repoSlug(sourceUrl: string = SOURCE_URL): string | null {
   const m = /^https:\/\/github\.com\/([^/]+\/[^/#?]+?)(?:\.git)?\/?$/.exec(sourceUrl.trim());
-  return m ? m[1] : null;
+  return m?.[1] ?? null;
 }
 
 /**

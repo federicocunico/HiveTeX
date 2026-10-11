@@ -634,9 +634,12 @@ mod config_tests {
             .iter()
             .map(|p| p.as_str().map(str::to_string).unwrap_or_else(|| p["identifier"].as_str().unwrap().to_string()))
             .collect();
-        // The opener may only open the GitHub authorize page.
+        // The opener may only open the GitHub authorize page and this project's releases page (update badge).
         let opener = cap["permissions"].as_array().unwrap().iter().find(|p| p["identifier"] == "opener:allow-open-url").expect("opener scoped permission");
-        assert_eq!(opener["allow"], serde_json::json!([{ "url": "https://github.com/login/oauth/authorize*" }]));
+        assert_eq!(
+            opener["allow"],
+            serde_json::json!([{ "url": "https://github.com/login/oauth/authorize*" }, { "url": "https://github.com/federicocunico/HiveTeX/releases*" }])
+        );
         for p in &perms {
             assert!(!p.starts_with("shell:") && !p.starts_with("fs:") && !p.starts_with("http:") && !p.starts_with("process:"), "unexpected permission {p}");
         }
