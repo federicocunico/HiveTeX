@@ -54,7 +54,8 @@ jobs:
 
       - uses: actions/setup-node@v5
         if: steps.newest.outputs.skip != 'true'
-        with: { node-version: 22 }
+        # Only the Vercel CLI runs here: no pnpm, so no package-manager cache.
+        with: { node-version: 22, package-manager-cache: false }
 
       - name: Deploy to production (retried)
         if: steps.newest.outputs.skip != 'true'
