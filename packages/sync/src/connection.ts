@@ -15,7 +15,7 @@ import {
   VIEWER_ALLOWED,
 } from '@hivetex/protocol';
 import { decodeFrame, encodeFrame, jsonBytes, parseJson, utf8 } from './frames.js';
-import type { ChannelName, PeerTransport } from './transport.js';
+import { MAX_MESSAGE_BYTES, MAX_QUEUED_BYTES, type ChannelName, type PeerTransport } from './transport.js';
 
 export class AuthError extends Error {}
 
@@ -28,6 +28,8 @@ export interface ConnectionOptions {
   now?: () => Date;
   /** How long after open the peer has to complete the handshake. */
   handshakeTimeoutMs?: number;
+  /** Received-but-undecoded bytes the connection may hold before the peer is dropped (default: the transport queue budget). */
+  maxInboundBytes?: number;
 }
 
 export type FrameHandler = (conn: PeerConnection, type: number, payload: Uint8Array) => void;
@@ -53,6 +55,10 @@ export class PeerConnection {
   closed = false;
   /** Ordered inbound processing: decompression is async and must not reorder frames. */
   private inbound: Promise<void> = Promise.resolve();
+  /** Per channel: the point up to which frames have been encoded and handed to the transport, in call order. */
+  private outbound: Record<ChannelName, Promise<unknown>> = { sync: Promise.resolve(), bulk: Promise.resolve() };
+  /** Bytes of frames received but not yet decoded and dispatched. */
+  private inboundBytes = 0;
   private myNonce = toB64u(globalThis.crypto.getRandomValues(new Uint8Array(16)));
   private peerNonce: string | null = null;
   private peerHelloClaims: TicketClaims | null = null;
@@ -122,16 +128,38 @@ export class PeerConnection {
 
   private async sendRaw(type: number, payload: Uint8Array, noCompress = false) {
     if (this.closed) return;
-    await this.o.transport.send(channelFor(type), await encodeFrame(type, payload, noCompress));
+    const ch = channelFor(type);
+    // Encoding is asynchronous (deflate) and may take different times per frame; the transport must still see frames in
+    // call order, so each frame takes its turn on its channel before it is handed over. Encoding itself starts at once.
+    const encoded = encodeFrame(type, payload, noCompress);
+    encoded.catch(() => {});
+    let sent: Promise<void> | undefined;
+    const turn = this.outbound[ch].then(async () => {
+      sent = this.o.transport.send(ch, await encoded);
+    });
+    this.outbound[ch] = turn.catch(() => {});
+    await turn;
+    await sent;
   }
 
   private receive(data: Uint8Array) {
     this.lastRx = Date.now();
+    // Bound what a fast or malicious peer can make us hold while decoding lags (checked before any decompression).
+    if (data.length > MAX_MESSAGE_BYTES || this.inboundBytes + data.length > (this.o.maxInboundBytes ?? MAX_QUEUED_BYTES)) {
+      if (!this.authenticated) this.fail(new AuthError('inbound budget exceeded'));
+      else this.close();
+      return;
+    }
+    this.inboundBytes += data.length;
     this.inbound = this.inbound
       .then(async () => {
-        if (this.closed) return;
-        const { type, payload } = await decodeFrame(data);
-        await this.dispatch(type, payload);
+        try {
+          if (this.closed) return;
+          const { type, payload } = await decodeFrame(data);
+          await this.dispatch(type, payload);
+        } finally {
+          this.inboundBytes -= data.length;
+        }
       })
       .catch((e) => {
         if (!this.authenticated) this.fail(e instanceof Error ? e : new AuthError('bad frame'));

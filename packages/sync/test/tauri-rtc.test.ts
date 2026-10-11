@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Mesh } from '../src/mesh.js';
 import { RtcLink } from '../src/rtc.js';
 import { type BridgeEvent, tauriRtcFactory } from '../src/tauri-rtc.js';
-import type { PeerTransport } from '../src/transport.js';
+import { DataChannelTransport, type PeerTransport } from '../src/transport.js';
 import { Net } from '../src/testkit.js';
 
 const base = fileURLToPath(new URL('../../../apps/desktop/src-tauri/target/debug/examples/rtc_cli', import.meta.url));
@@ -110,4 +110,102 @@ describe.skipIf(!bin)('Rust WebRTC fallback transport (9.2)', () => {
     expect((await b.model.openText(id)).length).toBe(big.length + 'over the rust bridge'.length);
     net.destroy();
   }, 90_000);
+});
+
+/** Scripted bridge: `rtc_send` behavior is controlled per test, everything else succeeds. */
+function scriptedBridge(sendImpl: (n: number) => Promise<number>) {
+  let events: ((e: BridgeEvent) => void) | null = null;
+  const calls: string[] = [];
+  let sends = 0;
+  const fakeInvoke = (async (cmd: string, args?: Record<string, unknown>) => {
+    calls.push(cmd);
+    if (cmd === 'rtc_send') return sendImpl(++sends);
+    void args;
+    return undefined;
+  }) as Parameters<typeof tauriRtcFactory>[0];
+  const fakeListen: Parameters<typeof tauriRtcFactory>[1] = async (_event, cb) => {
+    events = cb;
+    return () => {};
+  };
+  const peer = tauriRtcFactory(fakeInvoke, fakeListen)([]);
+  const sync = peer.createDataChannel('sync');
+  const bulk = peer.createDataChannel('bulk');
+  const transport = new DataChannelTransport(sync, bulk, 'a', 'b');
+  return {
+    peer,
+    sync,
+    transport,
+    calls,
+    sends: () => sends,
+    emit: (e: BridgeEvent) => events?.(e),
+    open: async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      events?.({ kind: 'open', label: 'sync' });
+      events?.({ kind: 'open', label: 'bulk' });
+    },
+  };
+}
+
+const settle = <T>(ps: Promise<T>[], ms = 300) =>
+  Promise.race([Promise.allSettled(ps), new Promise<'hung'>((r) => setTimeout(() => r('hung'), ms))]);
+
+describe('native RTC send failures and cancellation (F11)', () => {
+  it('closes the owning transport when an IPC send fails, instead of reporting delivery', async () => {
+    const b = scriptedBridge(async () => {
+      throw new Error('ipc broke');
+    });
+    await b.open();
+    let closed = 0;
+    b.transport.onClose(() => closed++);
+    await b.transport.send('sync', new Uint8Array(10)); // accepted: it is queued, not yet delivered
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(1);
+    await expect(b.transport.send('sync', new Uint8Array(10))).rejects.toThrow();
+  });
+
+  it('does not send later queued messages after an IPC failure (no gap in a fragment stream)', async () => {
+    const b = scriptedBridge(async (n) => {
+      if (n === 1) throw new Error('ipc broke');
+      return 0;
+    });
+    await b.open();
+    const first = b.transport.send('sync', new Uint8Array(10));
+    const rest = [b.transport.send('sync', new Uint8Array(10)), b.transport.send('sync', new Uint8Array(10))];
+    await settle([first, ...rest]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(b.sends()).toBe(1);
+    for (const p of rest) p.catch(() => {});
+  });
+
+  it('settles sends waiting on a hung IPC when the peer is closed', async () => {
+    const b = scriptedBridge(() => new Promise<number>(() => {}));
+    await b.open();
+    // The first message is above the high-water mark, so the next send waits for a drain that never comes.
+    const sends = [b.transport.send('sync', new Uint8Array(2 * 1024 * 1024)), b.transport.send('sync', new Uint8Array(10))];
+    await new Promise((r) => setTimeout(r, 20));
+    b.peer.close();
+    const res = await settle(sends);
+    expect(res).not.toBe('hung');
+    expect((res as PromiseSettledResult<void>[]).some((r) => r.status === 'rejected')).toBe(true);
+    await expect(b.transport.send('sync', new Uint8Array(1))).rejects.toThrow();
+  });
+
+  it('settles sends waiting on a hung IPC when the transport is closed locally', async () => {
+    const b = scriptedBridge(() => new Promise<number>(() => {}));
+    await b.open();
+    const sends = [b.transport.send('bulk', new Uint8Array(2 * 1024 * 1024)), b.transport.send('bulk', new Uint8Array(10))];
+    await new Promise((r) => setTimeout(r, 20));
+    b.transport.close();
+    const res = await settle(sends);
+    expect(res).not.toBe('hung');
+  });
+
+  it('settles pending sends when Rust reports the channel closed', async () => {
+    const b = scriptedBridge(() => new Promise<number>(() => {}));
+    await b.open();
+    const sends = [b.transport.send('sync', new Uint8Array(2 * 1024 * 1024)), b.transport.send('sync', new Uint8Array(10))];
+    await new Promise((r) => setTimeout(r, 20));
+    b.emit({ kind: 'close', label: 'sync' });
+    expect(await settle(sends)).not.toBe('hung');
+  });
 });

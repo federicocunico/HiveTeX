@@ -35,8 +35,10 @@ class BridgeChannel implements DataChannelLike {
   onmessage: DataChannelLike['onmessage'] = null;
   onclose: DataChannelLike['onclose'] = null;
   onbufferedamountlow: DataChannelLike['onbufferedamountlow'] = null;
+  onerror: (() => void) | null = null;
   onopen: (() => void) | null = null;
   private chain: Promise<unknown> = Promise.resolve();
+  private dead = false;
 
   constructor(
     readonly label: string,
@@ -44,23 +46,39 @@ class BridgeChannel implements DataChannelLike {
   ) {}
 
   send(data: Uint8Array) {
+    if (this.dead) throw new Error('channel closed');
     // The IPC is asynchronous: count bytes that have not reached Rust yet so back-pressure keeps working.
     this.pending += data.length;
     const copy = data.slice();
     this.chain = this.chain
       .then(async () => {
-        this.rustBuffered = await this.peer.call<number>('rtc_send', { label: this.label, b64: toB64(copy) });
+        // After a failure nothing further may be sent: a gap would corrupt the fragment stream on the wire.
+        if (this.dead) return;
+        const buffered = await this.peer.call<number>('rtc_send', { label: this.label, b64: toB64(copy) });
+        if (this.dead) return;
+        this.rustBuffered = buffered;
         this.pending -= copy.length;
         if (this.bufferedAmount <= this.bufferedAmountLowThreshold) queueMicrotask(() => this.onbufferedamountlow?.());
       })
-      .catch(() => {
-        this.pending = 0;
-        this.rustBuffered = 0;
-      });
+      // A failed IPC send means bytes were lost: close the channel so the owning connection and every pending send fail
+      // instead of this message being treated as delivered.
+      .catch(() => this.terminate(true));
+  }
+
+  /** Marks the channel dead (idempotent), drops queued IPC work and tells the owner via error then close. */
+  terminate(notify: boolean) {
+    if (this.dead) return;
+    this.dead = true;
+    this.readyState = 'closed';
+    this.pending = 0;
+    this.rustBuffered = 0;
+    if (!notify) return;
+    this.onerror?.();
+    this.onclose?.();
   }
 
   close() {
-    this.readyState = 'closed';
+    this.terminate(true);
     void this.peer.call('rtc_close', {}).catch(() => {});
   }
 }
@@ -99,6 +117,8 @@ class TauriPeer implements RtcPeerLike {
     if (e.kind === 'ice') this.onicecandidate?.({ candidate: e.candidate });
     else if (e.kind === 'state') {
       this.connectionState = e.state.toLowerCase();
+      // The native connection is gone: nothing queued on its channels will ever be delivered.
+      if (this.connectionState === 'failed' || this.connectionState === 'closed') this.terminateChannels();
       this.onconnectionstatechange?.();
     } else if (e.kind === 'datachannel') {
       const ch = this.channels.get(e.label) ?? new BridgeChannel(e.label, this);
@@ -111,14 +131,17 @@ class TauriPeer implements RtcPeerLike {
         ch.readyState = 'open';
         ch.onopen?.();
       } else if (e.kind === 'close') {
-        ch.readyState = 'closed';
-        ch.onclose?.();
+        ch.terminate(true);
       } else if (e.kind === 'message') ch.onmessage?.({ data: fromB64(e.b64) });
       else if (e.kind === 'bufferedlow') {
         ch.rustBuffered = 0;
         ch.onbufferedamountlow?.();
       }
     }
+  }
+
+  private terminateChannels() {
+    for (const ch of this.channels.values()) ch.terminate(true);
   }
 
   createDataChannel(label: string) {
@@ -150,6 +173,7 @@ class TauriPeer implements RtcPeerLike {
     if (this.closed) return;
     this.closed = true;
     this.connectionState = 'closed';
+    this.terminateChannels();
     void this.call('rtc_close', {}).catch(() => {});
     this.unlisten?.();
   }

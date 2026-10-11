@@ -11,6 +11,30 @@ Messages larger than 16 KiB are fragmented (1 byte header: single / first / midd
 `bufferedAmount` back-pressure (1 MiB high-water mark). Signaling messages (SDP/ICE) are end-to-end encrypted between the
 two devices (X25519 → HKDF → AES-256-GCM) before they touch the relay.
 
+### Transport budgets
+
+Every limit below is enforced before the data is decompressed, copied or retained, and each connection is bounded on its
+own, so a misbehaving peer is dropped without affecting the others.
+
+| Budget | Value | On violation |
+| --- | --- | --- |
+| One raw fragment | 16 KiB + 1 header byte | peer connection closed |
+| Fragment sequence | single, or first, middle\*, last; no empty frames, no unknown kinds | peer connection closed |
+| Reassembled message (per channel) | 64 MiB + 1 KiB framing (the decoded-frame limit) | peer connection closed |
+| Incomplete message | 30 s without a further fragment | peer connection closed |
+| Outbound queue (per channel) | 128 MiB + 2 KiB (two maximum messages) | that `send` rejects |
+| Received but not yet decoded (per connection) | the same 128 MiB + 2 KiB | peer connection closed |
+| Decompressed frame | 64 MiB | peer connection closed |
+| Document update / blob | 32 MiB / 50 MiB | rejected |
+| Blob chunk | 16,320 bytes; every chunk but the last is full-size | chunk rejected, source ignored for that fetch |
+
+Closing, erroring or aborting a channel rejects the send that is waiting for the buffer to drain and every send queued
+behind it; nothing waits for a drain event that a dead channel never delivers. With the native (Rust) WebRTC bridge, a
+failed IPC send closes the channel and the connection that owns it, and nothing queued after the failed message is sent.
+
+Outbound frames are encoded concurrently but handed to the transport in call order on each channel, so a compressed
+frame is never overtaken by a small uncompressed one sent after it.
+
 ## Frame format
 
 `[type: u8][payload]`. The high bit (`0x80`) of `type` marks a deflate-raw compressed payload (used for payloads > 1 KiB,
@@ -57,7 +81,10 @@ Types a `viewer` connection may send (everything else is dropped): `HELLO`, `AUT
 * Every text file is its own Yjs document (`f:<fileId>`), loaded lazily. Peers send `STEP1` only for documents they hold or
   open; the receiver treats a `STEP1` as *interest* and pushes later updates.
 * Binary files appear in the table only as a SHA-256 content hash; bytes travel as chunks from any peer holding them and are
-  verified against the hash before use.
+  verified against the hash before use. A receiver accepts a chunk only from a peer that announced the blob, and checks its
+  length, index and the cumulative size before keeping it; a `BLOB_WANT` range must be finite non-negative integers
+  and is clamped to the blob. If two sources disagree about the chunk count, each is retried alone; a source whose data does
+  not match the hash is ignored and its advertised count is forgotten, so an honest source can still complete the fetch.
 * Concurrent creation of the same path by two peers yields two files; the view shows the second as `name (2).ext`.
   Identical duplicates (e.g. both imported the same GitHub backup) are removed automatically.
 

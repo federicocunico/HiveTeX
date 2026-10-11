@@ -12,11 +12,11 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 2. Transport cancellation and input bounds
 
-- [ ] 2.1 Fix drain waiters and queued sends to reject on close/error/abort in `transport.ts`; verify F11 with close above the high-water mark and assert every pending promise settles without a drain event.
-- [ ] 2.2 Add bounded fragment assembly, sequence checks, raw-frame limits, queue accounting, and assembly timeout; verify F12 using injected small budgets and ensure malformed traffic does not interrupt a healthy peer's edits.
-- [ ] 2.3 Validate blob chunk length, cumulative bytes, source eligibility, indices, and finite request ranges; verify oversized chunks are rejected before retention and an honest source succeeds after a bad source advertises inconsistent totals.
-- [ ] 2.4 Propagate native RTC IPC send failures and cancellation through connection ownership; verify `tauri-rtc.test.ts` covers pending IPC failure/close and that no send is silently reported as delivered.
-- [ ] 2.5 Serialize order-sensitive outbound encoding and document transport budgets in `docs/protocol.md`; verify mixed compressed/uncompressed control frames retain the required order and the existing 20 MiB transfer test remains within the chosen queue budget.
+- [x] 2.1 Fix drain waiters and queued sends to reject on close/error/abort in `transport.ts`; verify F11 with close above the high-water mark and assert every pending promise settles without a drain event.
+- [x] 2.2 Add bounded fragment assembly, sequence checks, raw-frame limits, queue accounting, and assembly timeout; verify F12 using injected small budgets and ensure malformed traffic does not interrupt a healthy peer's edits.
+- [x] 2.3 Validate blob chunk length, cumulative bytes, source eligibility, indices, and finite request ranges; verify oversized chunks are rejected before retention and an honest source succeeds after a bad source advertises inconsistent totals.
+- [x] 2.4 Propagate native RTC IPC send failures and cancellation through connection ownership; verify `tauri-rtc.test.ts` covers pending IPC failure/close and that no send is silently reported as delivered.
+- [x] 2.5 Serialize order-sensitive outbound encoding and document transport budgets in `docs/protocol.md`; verify mixed compressed/uncompressed control frames retain the required order and the existing 20 MiB transfer test remains within the chosen queue budget.
 
 ## 3. Epoch authority and delayed authorization
 

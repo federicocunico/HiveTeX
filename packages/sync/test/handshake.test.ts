@@ -113,3 +113,40 @@ describe('peer authentication handshake (6.2)', () => {
     expect(ca.droppedFromViewer).toBe(3);
   });
 });
+
+describe('inbound queue budget (F12)', () => {
+  it('closes an authenticated connection whose peer sends a frame above the inbound budget', async () => {
+    const auth = await TestAuthority.create();
+    const [a, b] = [await identity('alice', 'owner'), await identity('bob', 'editor')];
+    const [ta, tb] = loopbackPair();
+    const mint = (id: typeof a) => auth.mint({ pid: 'proj1', uid: id.uid, uname: id.uname, dev: id.dev, keys: id.keys, role: id.role });
+    const [tickA, tickB] = [await mint(a), await mint(b)];
+    const ca = new PeerConnection({ transport: ta, projectId: 'proj1', keys: a.keys, trusted: auth.trusted, getTicket: () => tickA, maxInboundBytes: 4000 });
+    const cb = new PeerConnection({ transport: tb, projectId: 'proj1', keys: b.keys, trusted: auth.trusted, getTicket: () => tickB });
+    await Promise.all([ca.ready, cb.ready]);
+    const junk = new Uint8Array(5000);
+    junk[0] = MsgType.AWARENESS;
+    await tb.send('sync', junk);
+    await tick(30);
+    expect(ca.closed).toBe(true);
+  });
+});
+
+describe('outbound frame ordering (F12)', () => {
+  it('keeps send order when a compressed frame is followed by small uncompressed ones', async () => {
+    const auth = await TestAuthority.create();
+    const [a, b] = [await identity('alice', 'owner'), await identity('bob', 'editor')];
+    const { ca, cb } = await connect(auth, a, b);
+    await Promise.all([ca.ready, cb.ready]);
+    const seen: number[] = [];
+    cb.onFrame((_c, _t, payload) => seen.push((JSON.parse(new TextDecoder().decode(payload)) as { n: number }).n));
+    const big = jsonBytes({ n: 0, pad: 'compressible '.repeat(40_000) });
+    await Promise.all([
+      ca.send(MsgType.APP, big),
+      ca.send(MsgType.APP, jsonBytes({ n: 1 })),
+      ca.send(MsgType.APP, jsonBytes({ n: 2 })),
+    ]);
+    await tick(100);
+    expect(seen.slice(0, 3)).toEqual([0, 1, 2]);
+  });
+});

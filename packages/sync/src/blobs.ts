@@ -15,10 +15,31 @@ interface Pending {
   waiters: Array<() => void>;
   /** Peers that announced an impossible transfer for this blob (ignored for the rest of this fetch). */
   bad: Set<string>;
+  /** Bytes currently held in `chunks`. */
+  retained: number;
+  /** The peer whose chunk fixed `total`; its claim is dropped if that peer turns out to be bad. */
+  totalFrom: string | null;
+  /** Every peer that claimed a total for this fetch (suspects when two claims disagree). */
+  claimants: Set<string>;
+  /** Two peers disagreed about the chunk count; the fetch loop isolates them one at a time. */
+  conflict: boolean;
+  /** When set, chunks are accepted from this peer only (isolating a suspect). */
+  only: string | null;
 }
 
-/** Most chunks a legitimate blob can have; larger announced totals are refused before allocating anything. */
-const MAX_CHUNKS = Math.ceil(MAX_BLOB_BYTES / BLOB_CHUNK_SIZE);
+/** Hash announcements accepted per message and remembered per peer. */
+const MAX_HASHES = 100_000;
+const MAX_HASH_LENGTH = 128;
+
+const safeJson = (b: Uint8Array): unknown => {
+  try {
+    return parseJson<unknown>(b);
+  } catch {
+    return null;
+  }
+};
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isHash = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_HASH_LENGTH;
 
 function encodeChunk(hash: string, index: number, total: number, bytes: Uint8Array): Uint8Array {
   const h = utf8(hash);
@@ -33,7 +54,9 @@ function encodeChunk(hash: string, index: number, total: number, bytes: Uint8Arr
 }
 
 function decodeChunk(p: Uint8Array) {
+  if (p.length < 1) return null;
   const hl = p[0] as number;
+  if (hl === 0 || p.length < 1 + hl + 8) return null;
   const hash = new TextDecoder().decode(p.subarray(1, 1 + hl));
   const dv = new DataView(p.buffer, p.byteOffset, p.byteLength);
   return {
@@ -58,21 +81,33 @@ export class BlobManager {
   /** Test hook: announce this chunk count instead of the real one (a lying peer). */
   lieAboutTotal: number | null = null;
   requestTimeoutMs = 4000;
+  /** Largest blob accepted from peers (injectable so tests can use small budgets). */
+  maxBlobBytes = MAX_BLOB_BYTES;
 
   constructor(
     private mesh: Mesh,
     private store: Persistence,
   ) {
     mesh.onRaw(MsgType.BLOB_HAVE, (from, p) => {
-      const { hashes } = parseJson<{ hashes: string[] }>(p);
+      const msg = safeJson(p);
+      if (!isObject(msg) || !Array.isArray(msg.hashes)) return;
       const set = this.peerHas.get(from.deviceId) ?? new Set();
-      for (const h of hashes) set.add(h);
+      for (const h of msg.hashes.slice(0, MAX_HASHES)) if (isHash(h) && set.size < MAX_HASHES) set.add(h);
       this.peerHas.set(from.deviceId, set);
       for (const w of this.pending.values()) for (const f of w.waiters.splice(0)) f();
     });
-    mesh.onRaw(MsgType.BLOB_WANT, (from, p) => void this.serve(from, parseJson(p)));
+    mesh.onRaw(MsgType.BLOB_WANT, (from, p) => {
+      const req = safeJson(p);
+      if (!isObject(req) || !isHash(req.hash)) return;
+      const { from: first, to: end } = req;
+      // Finite, non-negative integers only: anything else would index outside the blob or loop on garbage.
+      if (typeof first !== 'number' || typeof end !== 'number' || !Number.isSafeInteger(first) || !Number.isSafeInteger(end) || first < 0) return;
+      void this.serve(from, { hash: req.hash, from: first, to: end }).catch(() => {});
+    });
     mesh.onRaw(MsgType.BLOB_NONE, (from, p) => {
-      const { hash } = parseJson<{ hash: string }>(p);
+      const msg = safeJson(p);
+      if (!isObject(msg) || !isHash(msg.hash)) return;
+      const hash = msg.hash;
       const s = this.none.get(hash) ?? new Set();
       s.add(from.deviceId);
       this.none.set(hash, s);
@@ -152,22 +187,45 @@ export class BlobManager {
     }
   }
 
+  /** A chunk is only taken from a peer that announced the blob, is not known bad, and is the isolated suspect if one is set. */
+  private eligible(dev: string, w: Pending): boolean {
+    if (w.bad.has(dev) || (w.only !== null && w.only !== dev)) return false;
+    return this.peerHas.get(dev)?.has(w.hash) === true && !this.none.get(w.hash)?.has(dev);
+  }
+
   private onChunk(from: PeerInfo, payload: Uint8Array) {
     const c = decodeChunk(payload);
+    if (!c) return;
     const w = this.pending.get(c.hash);
-    if (!w) return;
-    if (c.total === 0 || c.total > MAX_CHUNKS) {
-      w.bad.add(from.deviceId);
+    if (!w || !this.eligible(from.deviceId, w)) return;
+    const wake = () => {
       for (const f of w.waiters.splice(0)) f();
-      return;
+    };
+    const reject = () => {
+      w.bad.add(from.deviceId);
+      wake();
+    };
+    const maxChunks = Math.ceil(this.maxBlobBytes / BLOB_CHUNK_SIZE);
+    const last = c.index === c.total - 1;
+    // Every check below runs before the bytes are copied.
+    if (c.total === 0 || c.total > maxChunks || c.index >= c.total) return reject();
+    if (c.bytes.length > BLOB_CHUNK_SIZE || (!last && c.bytes.length !== BLOB_CHUNK_SIZE)) return reject();
+    if (last && c.total > 1 && c.bytes.length === 0) return reject();
+    w.claimants.add(from.deviceId);
+    if (w.total !== 0 && c.total !== w.total) {
+      w.conflict = true;
+      return wake();
     }
-    if (w.total === 0) w.total = c.total;
-    if (c.total !== w.total || c.index >= w.total) return;
-    if (!w.chunks.has(c.index)) {
-      w.chunks.set(c.index, c.bytes.slice());
-      w.from.set(c.index, from.deviceId);
+    if (w.chunks.has(c.index)) return;
+    if (w.retained + c.bytes.length > this.maxBlobBytes) return reject();
+    if (w.total === 0) {
+      w.total = c.total;
+      w.totalFrom = from.deviceId;
     }
-    for (const f of w.waiters.splice(0)) f();
+    w.chunks.set(c.index, c.bytes.slice());
+    w.from.set(c.index, from.deviceId);
+    w.retained += c.bytes.length;
+    wake();
   }
 
   private candidates(hash: string, exclude: Set<string>): string[] {
@@ -195,7 +253,36 @@ export class BlobManager {
     if (local) return local;
     const deadline = Date.now() + timeoutMs;
     const banned = new Set<string>();
-    const w: Pending = { hash, total: 0, chunks: new Map(), from: new Map(), waiters: [], bad: new Set() };
+    const w: Pending = {
+      hash,
+      total: 0,
+      chunks: new Map(),
+      from: new Map(),
+      waiters: [],
+      bad: new Set(),
+      retained: 0,
+      totalFrom: null,
+      claimants: new Set(),
+      conflict: false,
+      only: null,
+    };
+    const resetTransfer = () => {
+      w.chunks.clear();
+      w.from.clear();
+      w.retained = 0;
+      w.total = 0;
+      w.totalFrom = null;
+    };
+    /** Forgets what a now-banned peer contributed, including the chunk count it fixed. */
+    const dropFrom = (dev: string) => {
+      for (const [i, d] of [...w.from]) {
+        if (d !== dev) continue;
+        w.retained -= w.chunks.get(i)?.length ?? 0;
+        w.chunks.delete(i);
+        w.from.delete(i);
+      }
+      if (w.totalFrom === dev) w.total = 0;
+    };
     this.pending.set(hash, w);
     const wait = (ms: number) =>
       new Promise<void>((resolve) => {
@@ -211,8 +298,22 @@ export class BlobManager {
     let lastProbe = 0;
 
     while (Date.now() < deadline) {
-      for (const d of w.bad) banned.add(d);
+      for (const d of w.bad) {
+        if (!banned.has(d)) dropFrom(d);
+        banned.add(d);
+      }
       if (singleSource && banned.has(singleSource)) singleSource = null;
+      if (w.conflict) {
+        // Two peers disagree about the chunk count and we cannot tell who is right: retry each suspect alone.
+        w.conflict = false;
+        const suspects = [...w.claimants].filter((d) => !banned.has(d));
+        resetTransfer();
+        requestedAt.clear();
+        if (singleSource) banned.add(singleSource);
+        singleSource = singleSource ? null : (suspects[0] ?? null);
+        w.claimants.clear();
+      }
+      w.only = singleSource;
       const peers = singleSource ? [singleSource] : this.candidates(hash, banned);
       if (peers.length === 0) {
         await wait(100);
@@ -245,8 +346,8 @@ export class BlobManager {
         }
         // Corrupt: isolate the culprit by retrying each contributor alone, banning those that fail alone.
         const contributors = [...new Set(w.from.values())];
-        w.chunks.clear();
-        w.from.clear();
+        resetTransfer();
+        w.claimants.clear();
         requestedAt.clear();
         if (singleSource) {
           banned.add(singleSource);
