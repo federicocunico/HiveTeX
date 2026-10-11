@@ -1,7 +1,7 @@
 <script lang="ts">
   import { COMPILE_MODES, type CompileMode } from '../../lib/compile-mode.js';
   import type { ProjectSession } from '../../lib/session.svelte.js';
-  import { syncLabel } from '../../lib/sync-view.js';
+  import { saveWarning, syncLabel } from '../../lib/sync-view.js';
   import { Cpu, RefreshCw, Users, WifiOff } from '../../ui/icons.js';
   import Icon from '../../ui/Icon.svelte';
 
@@ -13,6 +13,7 @@
     onPeople,
     onSync,
     onConflicts,
+    onExportRecovery,
     onUseDesktop,
     pairing = false,
     pairMessage = '',
@@ -26,6 +27,8 @@
     onSync?: () => void;
     /** Opens the conflict resolution dialog. */
     onConflicts?: () => void;
+    /** Downloads a recovery copy of the project as held in memory (shown while saving fails). */
+    onExportRecovery?: () => void;
     /** Web: compile with the HiveTeX desktop app on this computer (absent when that does not apply). */
     onUseDesktop?: (() => void) | undefined;
     pairing?: boolean;
@@ -44,13 +47,17 @@
 </script>
 
 <footer class="statusbar" data-testid="statusbar">
+  {#if saveWarning(s.saveFailing)}
+    <span class="pill bad" role="alert" data-testid="save-failed" data-tip="Your latest edits are held in memory only and keep being retried. Keep this tab open, and export a copy.">{saveWarning(s.saveFailing)}</span>
+    <button type="button" class="item linkish" onclick={onExportRecovery} data-testid="export-recovery">Export recovery copy</button>
+  {/if}
   {#if s.offline || s.paused}
     <span class="item warn" data-testid="offline-pill" data-tip="Your edits are kept on this device and merge automatically when you reconnect">
       <Icon icon={WifiOff} size={13} />Offline: edits are kept and sync when you reconnect
     </span>
   {:else}
     <button type="button" class="item linkish {status?.stage === 'synced' ? 'ok' : ''}" onclick={onSync} data-testid="sync-status" data-stage={status?.stage ?? 'alone'} data-tip="Show which files are synced, who is editing them, and sync now">
-      <Icon icon={RefreshCw} size={13} /><span role="status">{syncLabel(status)}</span>
+      <Icon icon={RefreshCw} size={13} /><span role="status">{syncLabel(status, Date.now(), s.saveFailing)}</span>
     </button>
     {#if busy && status?.stalled}<button type="button" class="item linkish" onclick={() => void s.syncNow()} disabled={s.syncingNow} data-testid="sync-now-inline">Sync now</button>{/if}
   {/if}

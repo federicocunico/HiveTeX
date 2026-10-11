@@ -1,7 +1,7 @@
 import { ROOT_DOC_ID, fileDocId } from '@hivetex/protocol';
 import diff from 'fast-diff';
 import * as Y from 'yjs';
-import { DocPersister, type HistorySnapshot, type PersistOptions, type Persistence } from './persistence.js';
+import { DocPersister, type HistorySnapshot, type PersistOptions, type Persistence, type StoreOp } from './persistence.js';
 
 export type FileKind = 'text' | 'binary' | 'dir';
 
@@ -67,6 +67,15 @@ export function applyTextDiff(ytext: Y.Text, next: string, origin: unknown = LOC
   }, origin);
 }
 
+/** Whether this device's edits are safely stored locally; independent of whether any peer has them. */
+export interface SaveState {
+  /** True while a write failed and its edits are only held in memory (they keep being retried). */
+  failing: boolean;
+  /** Documents whose edits are not safely stored. */
+  docs: string[];
+  error: unknown;
+}
+
 /**
  * The project's CRDT state: a root document (file table + settings) and one lazily-loaded document per
  * text file. Files are keyed by a stable random id so rename/move is a single field update (never
@@ -82,6 +91,10 @@ export class ProjectModel {
   private loading = new Map<string, Promise<Y.Doc>>();
   private listeners = new Set<DocUpdateListener>();
   private fileListeners = new Set<() => void>();
+  private saveListeners = new Set<(s: SaveState) => void>();
+  private replaceFailing = new Map<object, { docs: string[]; error: unknown }>();
+  private saveKey = '';
+  private closed = false;
 
   constructor(
     readonly store: Persistence,
@@ -130,34 +143,111 @@ export class ProjectModel {
    * Replaces a document by a new one built from `state`, also in local storage. Used by the offline merge to share
    * the last shared state instead of offline edits (fork.ts). The old document is left alive for whoever still holds it.
    */
-  replaceDoc(docId: string, state: Uint8Array): Promise<void> {
-    // Synchronous swap first (no edit can land in between), storage afterwards.
-    this.persisters.get(docId)?.discard();
-    this.persisters.delete(docId);
-    const doc = new Y.Doc({ gc: true });
-    Y.applyUpdate(doc, state);
-    if (docId === ROOT_DOC_ID) {
-      this.unobserveFiles();
-      this.rootDoc = doc;
-      this.attachRoot();
-    } else {
-      this.docs.set(docId, doc);
-      doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
-      this.watchBefore(docId, doc);
-    }
-    // Updates made before the stored state is replaced are kept here, then handed to the new persister.
-    const early: Uint8Array[] = [];
-    const buffer = (u: Uint8Array) => early.push(u);
-    doc.on('update', buffer);
-    for (const l of this.fileListeners) l();
-    for (const l of this.replacedListeners) l(docId);
-    return this.store.compact(docId, state).then(() => {
-      doc.off('update', buffer);
-      const persister = new DocPersister(this.store, docId, doc, this.persistOpts);
+  replaceDoc(docId: string, state: Uint8Array, meta: StoreOp[] = []): Promise<void> {
+    return this.replaceDocs([{ docId, state }], meta);
+  }
+
+  /**
+   * Replaces several documents at once, together with metadata (e.g. a recovery journal), as one atomic storage
+   * transition. The in-memory swap is synchronous, so no edit can land between the old and the new document. Writes
+   * to the old documents that are still under way finish first, and nothing is written to the new ones before the
+   * replacement is stored, so a delayed write can never resurrect replaced content. If storage fails, the returned
+   * promise rejects but the replacement keeps being retried, and edits made meanwhile are retained.
+   */
+  replaceDocs(items: Array<{ docId: string; state: Uint8Array }>, meta: StoreOp[] = []): Promise<void> {
+    const settled: Promise<void>[] = [];
+    const persisters: DocPersister[] = [];
+    for (const { docId, state } of items) {
+      const old = this.persisters.get(docId);
+      if (old) settled.push(old.discard());
+      this.persisters.delete(docId);
+      const doc = new Y.Doc({ gc: true });
+      Y.applyUpdate(doc, state);
+      if (docId === ROOT_DOC_ID) {
+        this.unobserveFiles();
+        this.rootDoc = doc;
+        this.attachRoot();
+      } else {
+        this.docs.set(docId, doc);
+        doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
+        this.watchBefore(docId, doc);
+      }
+      const persister = new DocPersister(this.store, docId, doc, this.persistenceOptions());
       this.persisters.set(docId, persister);
-      persister.enqueue(early);
-      return persister.flush();
+      persisters.push(persister);
+    }
+    const ops: StoreOp[] = [...items.map(({ docId, state }): StoreOp => ({ op: 'compact', docId, state })), ...meta];
+    const group = {};
+    let reject: (e: unknown) => void = () => {};
+    let resolve: () => void = () => {};
+    const committed = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
     });
+    const gate = (async () => {
+      const base = this.persistOpts.retryMs ?? 500;
+      for (let n = 0; ; n++) {
+        try {
+          await Promise.all(settled);
+          await this.store.transact(ops);
+          this.replaceFailing.delete(group);
+          this.refreshSave();
+          resolve();
+          return;
+        } catch (e) {
+          this.replaceFailing.set(group, { docs: items.map((i) => i.docId), error: e });
+          this.refreshSave();
+          if (n === 0) reject(e);
+          if (this.closed) return;
+          await new Promise((r) => setTimeout(r, Math.min(this.persistOpts.maxRetryMs ?? 30_000, base * 2 ** Math.min(n, 16))));
+        }
+      }
+    })();
+    for (const p of persisters) p.holdUntil(gate);
+    for (const l of this.fileListeners) l();
+    for (const { docId } of items) for (const l of this.replacedListeners) l(docId);
+    return committed.then(() => Promise.all(persisters.map((p) => p.flush()))).then(() => {});
+  }
+
+  private persistenceOptions(): PersistOptions {
+    return {
+      ...this.persistOpts,
+      onStatus: (docId) => {
+        this.persistOpts.onStatus?.(docId);
+        this.refreshSave();
+      },
+    };
+  }
+
+  /** Local durability right now (see SaveState). */
+  get saveState(): SaveState {
+    const docs: string[] = [];
+    let error: unknown = null;
+    for (const [id, p] of this.persisters) {
+      const st = p.status;
+      if (!st.failing) continue;
+      docs.push(id);
+      error ??= st.error;
+    }
+    for (const f of this.replaceFailing.values()) {
+      for (const d of f.docs) if (!docs.includes(d)) docs.push(d);
+      error ??= f.error;
+    }
+    return { failing: docs.length > 0, docs, error };
+  }
+
+  /** Subscribes to changes of saveState: it flips to failing on a failed write and back once a write commits. */
+  onSaveState(l: (s: SaveState) => void) {
+    this.saveListeners.add(l);
+    return () => this.saveListeners.delete(l);
+  }
+
+  private refreshSave() {
+    const st = this.saveState;
+    const key = [...st.docs].sort().join('|');
+    if (key === this.saveKey) return;
+    this.saveKey = key;
+    for (const l of this.saveListeners) l(st);
   }
 
   get files(): Y.Map<Y.Map<unknown>> {
@@ -171,7 +261,7 @@ export class ProjectModel {
   }
 
   async init() {
-    const p = new DocPersister(this.store, ROOT_DOC_ID, this.root, this.persistOpts);
+    const p = new DocPersister(this.store, ROOT_DOC_ID, this.root, this.persistenceOptions());
     this.persisters.set(ROOT_DOC_ID, p);
     await p.hydrate();
   }
@@ -212,7 +302,7 @@ export class ProjectModel {
     if (inflight) return inflight;
     const p = (async () => {
       const doc = new Y.Doc({ gc: true });
-      const persister = new DocPersister(this.store, docId, doc, this.persistOpts);
+      const persister = new DocPersister(this.store, docId, doc, this.persistenceOptions());
       await persister.hydrate();
       doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
       this.watchBefore(docId, doc);
@@ -233,7 +323,12 @@ export class ProjectModel {
   async unload(docId: string) {
     if (docId === ROOT_DOC_ID) return;
     const p = this.persisters.get(docId);
-    await p?.destroy();
+    // Unsaved edits (storage failing) stay in memory: the document is only released once they are written.
+    try {
+      await p?.destroy();
+    } catch {
+      return;
+    }
     this.persisters.delete(docId);
     this.docs.get(docId)?.destroy();
     this.docs.delete(docId);
@@ -243,9 +338,12 @@ export class ProjectModel {
     await Promise.all([...this.persisters.values()].map((p) => p.flush()));
   }
 
+  /** Writes everything and stops. Rejects if some edits could not be saved (they stay in memory, and the failure stays visible). */
   async destroy() {
-    await this.flush();
-    for (const p of this.persisters.values()) await p.destroy();
+    this.closed = true;
+    const results = await Promise.allSettled([...this.persisters.values()].map((p) => p.destroy()));
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed) throw failed.reason;
   }
 
   // ---- file table ----

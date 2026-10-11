@@ -325,6 +325,12 @@
     await download(`${session.project.slug}.zip`, zip, 'application/zip');
   }
 
+  async function exportRecovery() {
+    if (!session) return;
+    const r = await session.exportRecovery();
+    await download(`${session.project.slug}-recovery.zip`, r.zip, 'application/zip');
+  }
+
   async function compileNow() {
     compileError = '';
     if (!session) return;
@@ -1051,11 +1057,13 @@
         onPeople={() => openPanel('people')}
         onSync={() => openPanel('sync')}
         onConflicts={() => (showConflicts = { initial: null })}
+        onExportRecovery={() => void exportRecovery()}
         onUseDesktop={!isDesktop && s.engineKind !== 'native' && s.compileMode !== 'peers' ? compileWithDesktop : undefined}
         {pairing}
         {pairMessage}
       />
     {:else}
+      {#if s.saveFailing}<button type="button" class="leave-focus save-failed" data-testid="save-failed-focus" onclick={() => void exportRecovery()}>Not saved on this device. Export a recovery copy</button>{/if}
       <button type="button" class="leave-focus" onclick={toggleFocus}><Icon icon={Minimize} size={14} />Leave focus mode</button>
     {/if}
   </div>
@@ -1428,6 +1436,10 @@
     z-index: 30;
     gap: 6px;
     box-shadow: var(--shadow-2);
+  }
+  .leave-focus.save-failed {
+    top: 48px;
+    color: var(--bad);
   }
   .ws.narrow .lbl {
     display: none;

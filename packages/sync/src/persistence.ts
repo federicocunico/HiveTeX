@@ -51,7 +51,16 @@ export function changesToKeep(all: ChangeSet[], now: number): Set<string> {
   return keep;
 }
 
+/** One step of an atomic `Persistence.transact`: all steps commit together or none does. */
+export type StoreOp =
+  | { op: 'append'; docId: string; updates: Uint8Array[] }
+  | { op: 'compact'; docId: string; state: Uint8Array }
+  /** `value: undefined` removes the key. */
+  | { op: 'meta'; key: string; value: unknown };
+
 export interface Persistence {
+  /** Applies document and metadata changes as one all-or-nothing transition (recovery journals, document replacement). */
+  transact(ops: StoreOp[]): Promise<void>;
   load(docId: string): Promise<Uint8Array[]>;
   append(docId: string, updates: Uint8Array[]): Promise<void>;
   /** Replaces every stored update of the doc with a single compacted state. */
@@ -77,6 +86,14 @@ export class MemoryPersistence implements Persistence {
   blobs = new Map<string, Uint8Array>();
   snaps: HistorySnapshot[] = [];
   meta = new Map<string, unknown>();
+  async transact(ops: StoreOp[]) {
+    for (const o of ops) {
+      if (o.op === 'append') await this.append(o.docId, o.updates);
+      else if (o.op === 'compact') await this.compact(o.docId, o.state);
+      else if (o.value === undefined) this.meta.delete(o.key);
+      else this.meta.set(o.key, o.value);
+    }
+  }
   async load(docId: string) {
     return [...(this.docs.get(docId) ?? [])];
   }
@@ -167,6 +184,34 @@ export class IndexedDbPersistence implements Persistence {
     return p;
   }
 
+  async transact(ops: StoreOp[]) {
+    const tx = this.db.transaction(['updates', 'meta'], 'readwrite');
+    const finished = done(tx);
+    finished.catch(() => {});
+    // Aborting the transaction on any error is what makes the whole transition atomic.
+    try {
+      const updates = tx.objectStore('updates');
+      const meta = tx.objectStore('meta');
+      for (const o of ops) {
+        if (o.op === 'append') {
+          for (const update of o.updates) updates.add({ docId: o.docId, update });
+        } else if (o.op === 'compact') {
+          for (const k of await req(updates.index('doc').getAllKeys(o.docId))) updates.delete(k);
+          updates.add({ docId: o.docId, update: o.state });
+        } else if (o.value === undefined) meta.delete(o.key);
+        else meta.put(o.value, o.key);
+      }
+    } catch (e) {
+      try {
+        tx.abort();
+      } catch {
+        /* already finished */
+      }
+      await finished.catch(() => {});
+      throw e;
+    }
+    await finished;
+  }
   async load(docId: string) {
     const tx = this.db.transaction('updates', 'readonly');
     const rows = await req(tx.objectStore('updates').index('doc').getAll(docId));
@@ -245,20 +290,42 @@ export class IndexedDbPersistence implements Persistence {
   }
 }
 
+
 // ---------------------------------------------------------------------------------------------
-// Doc persistence driver: batched writes, periodic compaction
+// Doc persistence driver: batched writes, retry with backoff, periodic compaction
 // ---------------------------------------------------------------------------------------------
 
 export interface PersistOptions {
   flushMs?: number;
   compactAfter?: number;
+  /** First retry delay after a failed write; doubles up to `maxRetryMs`. */
+  retryMs?: number;
+  maxRetryMs?: number;
+  /** Called whenever a document's save state changes (see DocPersister.status). */
+  onStatus?: (docId: string) => void;
+}
+
+/** Whether a document's edits are safely stored. `failing` stays true until a write commits. */
+export interface SaveStatus {
+  /** Edits exist that are not committed to storage yet (normal for a moment after typing). */
+  unsaved: boolean;
+  failing: boolean;
+  error: unknown;
 }
 
 export class DocPersister {
   private pending: Uint8Array[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stored = 0;
-  private flushing: Promise<void> = Promise.resolve();
+  /** Never rejects: one failed write must not stop the ones after it. */
+  private chain: Promise<void> = Promise.resolve();
+  private inflight = 0;
+  private error: unknown = null;
+  private failures = 0;
+  private compactDue = false;
+  private discarded = false;
+  private gate: Promise<unknown> | null = null;
   private handler: (u: Uint8Array, origin: unknown) => void;
 
   constructor(
@@ -270,9 +337,30 @@ export class DocPersister {
     this.handler = (u, origin) => {
       if (origin === this) return;
       this.pending.push(u);
-      if (!this.timer) this.timer = setTimeout(() => void this.flush(), this.opts.flushMs ?? 250);
+      this.arm();
     };
     doc.on('update', this.handler);
+  }
+
+  private arm() {
+    if (!this.timer && !this.retryTimer && !this.discarded) this.timer = setTimeout(() => void this.flush().catch(() => {}), this.opts.flushMs ?? 250);
+  }
+
+  get status(): SaveStatus {
+    return { unsaved: this.pending.length > 0 || this.inflight > 0, failing: this.error !== null, error: this.error };
+  }
+
+  private setError(e: unknown) {
+    const first = this.error === null;
+    this.error = e ?? new Error('storage write failed');
+    if (first) this.opts.onStatus?.(this.docId);
+  }
+
+  private clearError() {
+    if (this.error === null) return;
+    this.error = null;
+    this.failures = 0;
+    this.opts.onStatus?.(this.docId);
   }
 
   /** Loads stored updates into the doc. Returns how many were applied. */
@@ -285,42 +373,100 @@ export class DocPersister {
     return updates.length;
   }
 
+  /** Writes what is pending. Rejects if storage failed; the edits are then retained and retried with backoff. */
   flush(): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    this.flushing = this.flushing.then(async () => {
-      const batch = this.pending;
-      this.pending = [];
-      if (batch.length === 0) return;
-      await this.store.append(this.docId, [Y.mergeUpdates(batch)]);
-      this.stored += 1;
-      if (this.stored >= (this.opts.compactAfter ?? 500)) {
-        await this.store.compact(this.docId, Y.encodeStateAsUpdate(this.doc));
-        this.stored = 1;
+    if (this.timer) clearTimeout(this.timer);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.timer = this.retryTimer = null;
+    const run = this.chain.then(() => this.write());
+    this.chain = run.catch(() => {});
+    return run;
+  }
+
+  private async write() {
+    if (this.gate) await this.gate;
+    if (this.discarded) return;
+    const batch = this.pending;
+    this.pending = [];
+    this.inflight++;
+    try {
+      if (batch.length > 0) {
+        try {
+          await this.store.append(this.docId, [Y.mergeUpdates(batch)]);
+          this.stored += 1;
+        } catch (e) {
+          if (!this.discarded) {
+            // Keep the unsaved edits (merged, to bound memory); updates that arrived meanwhile are already in `pending`.
+            this.pending = [Y.mergeUpdates([...batch, ...this.pending])];
+            this.setError(e);
+            this.scheduleRetry();
+          }
+          throw e;
+        }
       }
-    });
-    return this.flushing;
+      if (!this.discarded) this.clearError();
+      if (this.stored >= (this.opts.compactAfter ?? 500) || this.compactDue) {
+        try {
+          await this.store.compact(this.docId, Y.encodeStateAsUpdate(this.doc));
+          this.stored = 1;
+          this.compactDue = false;
+        } catch (e) {
+          // The batch above is committed: only the housekeeping failed, so nothing is retained or appended twice.
+          this.compactDue = true;
+          if (!this.discarded) this.scheduleRetry();
+          throw e;
+        }
+      }
+    } finally {
+      this.inflight--;
+    }
   }
 
+  private scheduleRetry() {
+    if (this.retryTimer || this.discarded) return;
+    const delay = Math.min(this.opts.maxRetryMs ?? 30_000, (this.opts.retryMs ?? 500) * 2 ** Math.min(this.failures, 16));
+    this.failures++;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.flush().catch(() => {});
+    }, delay);
+  }
+
+  /** Writes everything, then stops listening. Rejects (and keeps listening and retrying) if the edits could not be saved. */
   async destroy() {
-    this.doc.off('update', this.handler);
     await this.flush();
-  }
-
-  /** Queues updates made before this persister existed (see ProjectModel.replaceDoc). */
-  enqueue(updates: Uint8Array[]) {
-    if (!updates.length) return;
-    this.pending.push(...updates);
-    if (!this.timer) this.timer = setTimeout(() => void this.flush(), this.opts.flushMs ?? 250);
-  }
-
-  /** Stops persisting this document and drops unsaved updates (its state is being replaced). */
-  discard() {
     this.doc.off('update', this.handler);
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+  }
+
+  /** Queues updates made before this persister existed. */
+  enqueue(updates: Uint8Array[]) {
+    if (!updates.length) return;
+    this.pending.push(...updates);
+    this.arm();
+  }
+
+  /** Holds every write until `gate` settles (a document replacement must be stored before anything is appended to it). */
+  holdUntil(gate: Promise<unknown>) {
+    this.gate = gate;
+  }
+
+  /**
+   * Stops persisting this document and drops unsaved updates (its state is being replaced). The returned promise
+   * settles once a write already under way has finished, so it cannot land after the replacement.
+   */
+  discard(): Promise<void> {
+    this.discarded = true;
+    this.doc.off('update', this.handler);
+    if (this.timer) clearTimeout(this.timer);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.timer = this.retryTimer = null;
     this.pending = [];
+    if (this.error !== null) {
+      this.error = null;
+      this.opts.onStatus?.(this.docId);
+    }
+    return this.chain;
   }
 }

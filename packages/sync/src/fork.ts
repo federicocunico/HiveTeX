@@ -14,6 +14,7 @@ import {
 } from './merge.js';
 import type { Mesh } from './mesh.js';
 import { type FileKind, type ProjectModel, applyTextDiff } from './model.js';
+import type { StoreOp } from './persistence.js';
 
 /**
  * Git-style merge of work done while no peer was linked (design D1 of offline-mode-git-merge).
@@ -29,10 +30,27 @@ import { type FileKind, type ProjectModel, applyTextDiff } from './model.js';
 /** Origin of the edits the merge applies: shared normally, never the start of a new fork. */
 export const MERGE_ORIGIN = Symbol('offline-merge');
 
-type Stage = 'forked' | 'merging';
-interface ForkRecord {
+/**
+ * Recovery journal (version 2) of one offline merge. Stages only move forward:
+ * - forked: offline edits exist; each document's base is saved; documents still hold the offline state.
+ * - prepared: mine (the offline state) and the journal are saved and the documents were replaced by their bases, in one
+ *   atomic storage transition. Nothing is shared yet that was not shared before.
+ * - reconciling: the documents were exchanged with a peer and the merge is being applied.
+ * - committed: merged results and conflicts are durable; only the removal of the recovery data is left.
+ * A restart resumes from the stage on disk; the operation id names the merge across restarts.
+ */
+export type JournalStage = 'forked' | 'prepared' | 'reconciling' | 'committed';
+export interface ForkJournal {
+  v: 2;
+  opId: string;
+  stage: JournalStage;
+  docs: string[];
+}
+
+/** The version-1 record (stage 'forked' | 'merging'), still written beside the journal and read when no journal exists. */
+interface LegacyForkRecord {
   v: 1;
-  stage: Stage;
+  stage: 'forked' | 'merging';
   docs: string[];
 }
 
@@ -85,9 +103,15 @@ export interface OfflineForkOptions {
   announce?: (peerDevice: string, forked: boolean) => Promise<void>;
   /** How long to wait for a peer's status (older apps never send one: then it counts as "no unshared work"). */
   statusTimeoutMs?: number;
+  /** A merge step failed (storage, preparation): the journal is kept and the merge is retried at the next link. */
+  onError?: (e: unknown) => void;
 }
 
-const REC = 'fork';
+/** Version-1 record key: kept in step with the journal, so an interrupted merge also survives a downgrade to a build that reads it. */
+export const FORK_RECORD_KEY = 'fork';
+export const FORK_JOURNAL_KEY = 'fork:journal';
+const REC = FORK_RECORD_KEY;
+const JOURNAL = FORK_JOURNAL_KEY;
 const CONFLICTS = 'fork:conflicts';
 const baseKey = (d: string) => `fork:base:${d}`;
 const mineKey = (d: string) => `fork:mine:${d}`;
@@ -107,12 +131,29 @@ function filesOf(root: Y.Doc): FileList {
   return out;
 }
 
+/** The journal and its version-1 mirror, to be written in one transition with the data they describe. */
+function journalOps(j: ForkJournal): StoreOp[] {
+  const legacy: LegacyForkRecord = { v: 1, stage: j.stage === 'forked' ? 'forked' : 'merging', docs: [...j.docs] };
+  return [
+    { op: 'meta', key: JOURNAL, value: { ...j, docs: [...j.docs] } },
+    { op: 'meta', key: REC, value: legacy },
+  ];
+}
+
 const isRemote = (origin: unknown) => origin instanceof PeerConnection;
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export class OfflineFork {
-  private rec: ForkRecord | null = null;
+  private rec: ForkJournal | null = null;
   private bases = new Set<string>();
+  private baseStates = new Map<string, Uint8Array>();
+  private mineStates = new Map<string, Uint8Array>();
+  /** False while the swapped documents' recovery data is not known to be stored (a failed preparation write). */
+  private durable = true;
+  /** Recovery records this build cannot interpret (a newer version): never modified or deleted. */
+  private foreign = false;
+  /** Serializes recovery-journal writes; never rejects. */
+  private io: Promise<void> = Promise.resolve();
   private conflictList: MergeConflict[] = [];
   private theirsChanged = new Set<string>();
   private running: Promise<void> | null = null;
@@ -125,8 +166,7 @@ export class OfflineFork {
   /** Restores a fork or pending conflicts from storage, then starts watching local changes. */
   async start() {
     const store = this.o.model.store;
-    this.rec = ((await store.getMeta(REC)) as ForkRecord | undefined) ?? null;
-    this.bases = new Set(this.rec?.docs ?? []);
+    await this.restore();
     this.conflictList = ((await store.getMeta(CONFLICTS)) as MergeConflict[] | undefined) ?? [];
     this.unsubs.push(this.o.model.onBeforeChange((docId, doc, origin) => this.beforeChange(docId, doc, origin)));
     this.unsubs.push(
@@ -134,6 +174,44 @@ export class OfflineFork {
         if (isRemote(origin)) this.theirsChanged.add(docId);
       }),
     );
+  }
+
+  /** Reads the journal (or migrates a version-1 record to one). Records of an unknown version are left untouched. */
+  private async restore() {
+    const store = this.o.model.store;
+    const journal = (await store.getMeta(JOURNAL)) as { v?: unknown } | undefined;
+    const legacy = (await store.getMeta(REC)) as Partial<LegacyForkRecord> | undefined;
+    let rec: ForkJournal | null = null;
+    if (journal) {
+      const j = journal as Partial<ForkJournal>;
+      const stages: unknown[] = ['forked', 'prepared', 'reconciling', 'committed'];
+      if (j.v === 2 && stages.includes(j.stage) && Array.isArray(j.docs) && typeof j.opId === 'string') rec = j as ForkJournal;
+      else this.foreign = true;
+    } else if (legacy) {
+      if (legacy.v === 1 && (legacy.stage === 'forked' || legacy.stage === 'merging') && Array.isArray(legacy.docs)) {
+        // A version-1 merging record already has its mine/base copies saved: it resumes as 'prepared'.
+        rec = { v: 2, opId: `m${Date.now().toString(36)}${uid()}`, stage: legacy.stage === 'merging' ? 'prepared' : 'forked', docs: [...legacy.docs] };
+        // Additive: the old record and the base/mine copies stay as they are; a failed write loses nothing and is repeated at the next transition.
+        await store.transact(journalOps(rec)).catch((e) => this.o.onError?.(e));
+      } else this.foreign = true;
+    }
+    this.rec = rec;
+    this.bases = new Set(rec?.docs ?? []);
+    for (const d of rec?.docs ?? []) {
+      const b = (await store.getMeta(baseKey(d))) as Uint8Array | undefined;
+      if (b) this.baseStates.set(d, b);
+    }
+    if (rec?.stage === 'committed') await this.clear(rec.docs).catch((e) => this.o.onError?.(e)); // results are durable: only the cleanup was interrupted
+  }
+
+  /** True when a recovery record of a newer version was found: it is kept untouched and no new offline merge starts. */
+  get recoveryBlocked() {
+    return this.foreign;
+  }
+
+  /** The current recovery journal (stage and operation id), if an offline merge is pending. */
+  get journal(): Readonly<ForkJournal> | null {
+    return this.rec;
   }
 
   stop() {
@@ -160,21 +238,56 @@ export class OfflineFork {
       linked = true;
     }
     if (linked) return;
-    if (this.rec?.stage === 'merging') return; // swapped already: the merge decides
+    if (this.foreign) return; // a recovery record this build cannot read must not be overwritten
+    if (this.rec && this.rec.stage !== 'forked') return; // swapped already: the merge decides
     if (this.bases.has(docId)) return;
-    const store = this.o.model.store;
-    if (!this.rec) this.rec = { v: 1, stage: 'forked', docs: [] };
+    if (!this.rec) this.rec = { v: 2, opId: `m${Date.now().toString(36)}${uid()}`, stage: 'forked', docs: [] };
     // The file table as last shared is the base of the file-level merge: keep it as soon as anything diverges.
     if (docId !== ROOT_DOC_ID && !this.bases.has(ROOT_DOC_ID)) {
       this.bases.add(ROOT_DOC_ID);
       this.rec.docs.push(ROOT_DOC_ID);
-      void store.setMeta(baseKey(ROOT_DOC_ID), Y.encodeStateAsUpdate(this.o.model.root));
+      this.baseStates.set(ROOT_DOC_ID, Y.encodeStateAsUpdate(this.o.model.root));
     }
     this.bases.add(docId);
     this.rec.docs.push(docId);
-    void store.setMeta(baseKey(docId), Y.encodeStateAsUpdate(doc));
-    void store.setMeta(REC, { ...this.rec, docs: [...this.rec.docs] });
+    this.baseStates.set(docId, Y.encodeStateAsUpdate(doc));
+    void this.persistForked().catch((e) => this.o.onError?.(e));
     this.o.onChange?.();
+  }
+
+  /** Writes every base and the journal as one transition (repeated in full, so a failed earlier write is made up for). */
+  private persistForked(): Promise<void> {
+    const rec = this.rec;
+    if (!rec) return Promise.resolve();
+    const ops: StoreOp[] = [...this.baseOps(rec.docs), ...journalOps(rec)];
+    const run = this.io.then(() => this.o.model.store.transact(ops));
+    this.io = run.catch(() => {});
+    return run;
+  }
+
+  private preparedOps(j: ForkJournal): StoreOp[] {
+    const ops: StoreOp[] = [];
+    for (const [docId, value] of this.mineStates) ops.push({ op: 'meta', key: mineKey(docId), value });
+    return [...ops, ...this.baseOps(j.docs), ...journalOps(j)];
+  }
+
+  private baseOps(docs: string[]): StoreOp[] {
+    const ops: StoreOp[] = [];
+    for (const d of docs) {
+      const value = this.baseStates.get(d);
+      if (value) ops.push({ op: 'meta', key: baseKey(d), value });
+    }
+    return ops;
+  }
+
+  private async setStage(stage: JournalStage, extra: StoreOp[] = []) {
+    if (!this.rec) return;
+    const next: ForkJournal = { ...this.rec, stage, docs: [...this.rec.docs] };
+    const ops = [...extra, ...journalOps(next)];
+    const run = this.io.then(() => this.o.model.store.transact(ops));
+    this.io = run.catch(() => {});
+    await run;
+    this.rec = next;
   }
 
   /** A linked peer said whether it holds unshared work (wire this to the mesh's 'fork' app messages). */
@@ -212,9 +325,8 @@ export class OfflineFork {
    */
   async beforeSync(peer?: { deviceId: string }) {
     if (peer && this.o.announce) await this.o.announce(peer.deviceId, !!this.rec && this.rec.stage === 'forked').catch(() => {});
-    if (!this.rec) return;
+    if (!this.rec || this.foreign) return;
     const { model } = this.o;
-    const store = model.store;
     if (this.rec.stage === 'forked' && peer && this.o.selfDevice) {
       const theyForked = await this.peerForked(peer.deviceId);
       if (theyForked && this.o.selfDevice() < peer.deviceId) {
@@ -226,35 +338,49 @@ export class OfflineFork {
       // Load everything first, then capture this device's version and swap in one synchronous pass: an edit typed
       // meanwhile lands either in the captured version or in the swapped-in document, never in between.
       const docs = [...this.rec.docs];
-      const bases = new Map<string, Uint8Array>();
-      for (const docId of docs) {
-        await model.getDoc(docId);
-        bases.set(docId, ((await store.getMeta(baseKey(docId))) as Uint8Array | undefined) ?? Y.encodeStateAsUpdate(new Y.Doc()));
-      }
-      const mine = new Map<string, Uint8Array>();
-      const stored: Promise<void>[] = [];
+      for (const docId of docs) await model.getDoc(docId);
+      const empty = Y.encodeStateAsUpdate(new Y.Doc());
+      const swap: Array<{ docId: string; state: Uint8Array }> = [];
+      this.mineStates.clear();
       for (const docId of docs) {
         const doc = docId === ROOT_DOC_ID ? model.root : (model.getLoadedDoc(docId) as Y.Doc);
-        mine.set(docId, Y.encodeStateAsUpdate(doc));
-        stored.push(model.replaceDoc(docId, bases.get(docId) as Uint8Array));
+        swap.push({ docId, state: this.baseStates.get(docId) ?? empty });
+        this.mineStates.set(docId, Y.encodeStateAsUpdate(doc));
       }
-      this.rec = { ...this.rec, stage: 'merging' };
-      for (const [docId, m] of mine) await store.setMeta(mineKey(docId), m);
-      await store.setMeta(REC, this.rec);
-      await Promise.all(stored);
+      const prepared: ForkJournal = { ...this.rec, stage: 'prepared', docs };
+      // One atomic transition: mine, bases, the journal and the replacement documents are stored together, so a crash
+      // leaves either the offline state untouched (stage 'forked') or everything needed to resume (stage 'prepared').
+      // The in-memory swap is synchronous with the capture above: an edit typed meanwhile lands in one or the other.
+      const committed = model.replaceDocs(swap, this.preparedOps(prepared));
+      this.rec = prepared;
+      this.durable = false;
+      void committed.then(() => {
+        this.durable = true;
+      }, () => {});
+      await committed;
+    }
+    // A previous attempt swapped the documents but could not store its recovery data yet: store it now or do not merge.
+    if (this.rec.stage === 'prepared' && !this.durable) {
+      const run = this.io.then(() => model.store.transact(this.preparedOps(this.rec as ForkJournal)));
+      this.io = run.catch(() => {});
+      await run;
+      this.durable = true;
     }
     this.theirsChanged.clear();
-    this.running ??= this.merge().finally(() => {
-      this.running = null;
-    });
+    this.running ??= this.merge()
+      .catch((e) => this.o.onError?.(e))
+      .finally(() => {
+        this.running = null;
+      });
   }
 
   private async merge() {
     const rec = this.rec;
-    if (!rec || rec.stage !== 'merging') return;
+    if (!rec || (rec.stage !== 'prepared' && rec.stage !== 'reconciling')) return;
     const { model } = this.o;
     const store = model.store;
     await this.o.waitSynced(ROOT_DOC_ID);
+    await this.setStage('reconciling');
     if (!this.o.canEdit()) {
       await this.clear(rec.docs);
       this.o.onReport?.({ merged: [], taken: [], conflicts: 0, discarded: true });
@@ -326,20 +452,27 @@ export class OfflineFork {
     }
 
     report.conflicts = this.conflictList.length;
-    await store.setMeta(CONFLICTS, this.conflictList);
+    // The merged documents must be durable before the recovery data may go; the conflicts and the 'committed' stage
+    // are written together, so a restart either redoes the merge or knows it is complete.
+    await model.flush();
+    await this.setStage('committed', [{ op: 'meta', key: CONFLICTS, value: this.conflictList.length ? this.conflictList : undefined }]);
     await this.clear(rec.docs);
     this.o.onReport?.(report);
   }
 
+  /** Removes the recovery data (bases, mine copies, journal and its version-1 mirror) in one transition. */
   private async clear(docs: string[]) {
-    const store = this.o.model.store;
-    for (const d of docs) {
-      await store.setMeta(baseKey(d), undefined);
-      await store.setMeta(mineKey(d), undefined);
-    }
-    await store.setMeta(REC, undefined);
+    const ops: StoreOp[] = [];
+    for (const d of docs) ops.push({ op: 'meta', key: baseKey(d), value: undefined }, { op: 'meta', key: mineKey(d), value: undefined });
+    ops.push({ op: 'meta', key: JOURNAL, value: undefined }, { op: 'meta', key: REC, value: undefined });
+    const run = this.io.then(() => this.o.model.store.transact(ops));
+    this.io = run.catch(() => {});
+    await run;
     this.rec = null;
     this.bases.clear();
+    this.baseStates.clear();
+    this.mineStates.clear();
+    this.durable = true;
     this.o.onChange?.();
   }
 

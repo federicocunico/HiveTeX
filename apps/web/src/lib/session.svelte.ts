@@ -1,3 +1,4 @@
+import { exportRecoveryZip } from './recovery-export.js';
 import {
   CompileClient,
   CompileLeader,
@@ -145,6 +146,8 @@ export class ProjectSession {
   connecting = $state<Candidate[]>([]);
   syncingNow = $state(false);
   syncNowResult = $state('');
+  /** Edits could not be written to this device's storage (they are kept in memory and retried). Independent of peer sync. */
+  saveFailing = $state(false);
   private trusted: TrustedKey[] = [];
   store!: IndexedDbPersistence;
   private disposed = false;
@@ -164,6 +167,9 @@ export class ProjectSession {
     this.store = await IndexedDbPersistence.open(`hivetex-project-${this.project.id}`);
     this.model = new ProjectModel(this.store);
     await this.model.init();
+    this.model.onSaveState((st) => {
+      this.saveFailing = st.failing;
+    });
     this.refreshFiles();
     this.model.onFilesChanged(() => this.refreshFiles());
     // Who changed what (folder / editor / co-authors), kept on this device only.
@@ -276,11 +282,22 @@ export class ProjectSession {
     if (this.isLocal) this.offline = true;
     else void this.refreshTicketLoop();
     // Persist pending edits when the tab is hidden or closed (writes are normally batched every 250 ms).
-    this.flushHandler = () => void this.model.flush();
+    this.flushHandler = () => void this.model.flush().catch(() => {}); // a failure stays visible through saveFailing
     window.addEventListener('pagehide', this.flushHandler);
     document.addEventListener('visibilitychange', this.flushHandler);
+    // Leaving now would lose edits that could not be stored: let the browser ask first.
+    this.unloadGuard = (e: BeforeUnloadEvent) => {
+      if (this.saveFailing) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', this.unloadGuard);
   }
   private flushHandler: (() => void) | null = null;
+  private unloadGuard: ((e: BeforeUnloadEvent) => void) | null = null;
+
+  /** A zip of the project as held in memory right now, including edits storage refused (see recovery-export.ts). */
+  async exportRecovery() {
+    return exportRecoveryZip(this.model, (h) => this.blobs.fetch(h, 5000));
+  }
   private dedupeTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** After merging with peers, drop identical duplicate files (e.g. the same GitHub backup imported twice). */
@@ -1114,8 +1131,10 @@ export class ProjectSession {
     this.fork?.stop();
     this.election?.stop();
     this.mesh?.destroy();
-    await this.model?.destroy();
-    this.store?.close();
+    if (this.unloadGuard) window.removeEventListener('beforeunload', this.unloadGuard);
+    // Unsaved edits (failing storage) keep the database open: closing it would end their retries.
+    const saved = await this.model?.destroy().then(() => true, () => false);
+    if (saved !== false) this.store?.close();
   }
 }
 

@@ -12,7 +12,8 @@ export function sinceText(at: number | null, now = Date.now()): string {
 }
 
 /** One plain-language line for the status bar. "All changes synced" is only ever said when nothing is missing. */
-export function syncLabel(s: SyncSnapshot | null, now = Date.now()): string {
+export function syncLabel(s: SyncSnapshot | null, now = Date.now(), saveFailing = false): string {
+  if (saveFailing && (!s || s.stage === 'alone' || s.stage === 'offline')) return 'Edits are not saved on this device yet';
   if (!s) return 'Saved on this device';
   switch (s.stage) {
     case 'offline':
@@ -53,4 +54,9 @@ export function editorsByFile(people: Array<{ name: string; file: string | null 
   const out = new Map<string, string[]>();
   for (const p of people) if (p.file) out.set(p.file, [...(out.get(p.file) ?? []), p.name]);
   return out;
+}
+
+/** The persistent warning while edits cannot be written to this device's storage (null when saving works). */
+export function saveWarning(saveFailing: boolean): string | null {
+  return saveFailing ? 'Not saved on this device: storage is failing. Export a recovery copy now.' : null;
 }

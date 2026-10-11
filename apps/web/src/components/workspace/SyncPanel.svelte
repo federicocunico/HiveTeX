@@ -27,7 +27,7 @@
 <section class="panel" aria-labelledby="sync-title" data-testid="sync-panel">
   <PanelHead title="Sync" id="sync-title" />
   <div class="summary">
-    <p class="line" data-testid="sync-line">{syncLabel(status)}</p>
+    <p class="line" data-testid="sync-line">{syncLabel(status, Date.now(), session.saveFailing)}</p>
     {#if status && status.percent !== null}
       <div class="bar" role="progressbar" aria-label="Files received" aria-valuemin="0" aria-valuemax="100" aria-valuenow={status.percent}>
         <span style:width="{status.percent}%"></span>
