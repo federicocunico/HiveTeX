@@ -1,9 +1,9 @@
 import { MAX_BLOB_BYTES } from '@hivetex/protocol';
-import DiffMatchPatch from 'diff-match-patch';
 import diff from 'fast-diff';
 import ignore from 'ignore';
 import * as Y from 'yjs';
 import type { BlobManager } from './blobs.js';
+import { mergeText } from './merge.js';
 import type { Mesh } from './mesh.js';
 import { type FileEntry, type ProjectModel, applyTextDiff, sha256Hex } from './model.js';
 
@@ -106,7 +106,15 @@ export interface MirrorOptions {
   /** Current role of this device. Viewers never push disk changes; changed files are restored from the project. */
   getRole: () => 'owner' | 'editor' | 'viewer';
   onNotice?: (msg: string) => void;
+  /**
+   * Both the folder's copy and the project changed the same lines since they last agreed (while the app was closed):
+   * keep both versions for the member to resolve (OfflineFork.recordTextConflict). Without it the folder file is left
+   * as it is and the project is not changed.
+   */
+  onConflict?: (c: { fileId: string; path: string; base: string; disk: string; project: string }) => Promise<unknown>;
   debounceMs?: number;
+  /** First delay before a failed disk write is repeated; it doubles up to 8 s (default 500 ms). */
+  retryMs?: number;
   /** Project identity written into the folder's marker file. */
   marker?: { id: string; slug: string };
 }
@@ -134,6 +142,14 @@ export class MirrorSync {
   /** Persisted merge base (text) per path, so edits made while the app was closed merge 3-way on the next bind. */
   private savedBase = new Map<string, string>();
   private baseTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Text files on disk whose project text is not complete yet: reconciled when it is, never overwritten before. */
+  private deferred = new Set<string>();
+  /** Folder files left untouched because their overlapping changes could not be recorded as a conflict. */
+  private held = new Set<string>();
+  /** Consecutive failed writes per path (the retry delay grows with it). */
+  private failures = new Map<string, number>();
+  private fetching = false;
+  private fetchAgain = false;
 
   constructor(private o: MirrorOptions) {}
 
@@ -162,7 +178,17 @@ export class MirrorSync {
         if (f) this.scheduleWrite(f.path);
       }) as unknown as () => void,
     );
+    // Text the project did not have at bind time is reconciled (and written) once it is complete.
+    this.stopFns.push(
+      this.o.model.onAvailability((docId) => {
+        if (!docId.startsWith('f:')) return;
+        const f = this.o.model.byId(docId.slice(2));
+        if (f) void this.onContentReady(f);
+      }) as unknown as () => void,
+    );
+    this.stopFns.push(this.o.mesh.onPeerJoin(() => this.fetchContent()));
     await this.o.mesh.prefetchAll();
+    this.fetchContent();
     const saved = (await this.o.model.store.getMeta(BASE_META).catch(() => null)) as Record<string, string> | null;
     this.savedBase = new Map(Object.entries(saved ?? {}));
     await this.initialReconcile();
@@ -205,38 +231,148 @@ export class MirrorSync {
   private async initialReconcile() {
     const disk = (await this.o.fs.list()).filter((f) => !this.isIgnored(f.path));
     const have = new Map(this.o.model.list().map((f) => [f.path, f]));
-    const projectEmpty = have.size === 0;
-    // Disk -> project: new files (and, on first bind, differing text files: the user chose this folder).
     for (const f of disk) {
       const entry = have.get(f.path);
       const bytes = await this.o.fs.read(f.path);
       if (!bytes) continue;
+      // A viewer's folder never changes the project: differences are resolved from the project's side only.
+      if (this.o.getRole() === 'viewer') {
+        await this.viewerInitial(f.path, bytes, entry);
+        continue;
+      }
       this.lastWritten.set(f.path, await sha256Hex(bytes));
       this.onDisk.add(f.path);
-      if (!entry || projectEmpty) await this.importFile(f.path, bytes, entry);
-      else if (entry.kind === 'text' && isTextPath(f.path, bytes)) {
-        const ytext = await this.o.model.openText(entry.id);
-        const text = new TextDecoder().decode(bytes);
-        const project = ytext.toString();
-        if (project === text) continue;
-        const base = this.savedBase.get(f.path);
-        if (base === undefined) {
-          // Never bound before: the user chose this folder, take its version.
-          applyTextDiff(ytext, text, MIRROR_ORIGIN);
-        } else if (text === base) {
-          // Unchanged on disk while closed: the project's newer version is written back below.
-        } else if (project === base) {
-          applyTextDiff(ytext, text, MIRROR_ORIGIN);
-        } else {
-          // Both changed while the app was closed (folder edits + co-authors): 3-way merge from the saved base.
-          const dmp = new DiffMatchPatch();
-          const [merged] = dmp.patch_apply(dmp.patch_make(base, text), project);
-          applyTextDiff(ytext, merged, MIRROR_ORIGIN);
-        }
-      }
+      // Disk -> project: new files, and differing text files reconciled by what both sides last agreed on.
+      if (!entry) await this.importFile(f.path, bytes, entry);
+      else if (entry.kind === 'text' && isTextPath(f.path, bytes)) await this.reconcileText(entry, bytes);
     }
     // Project -> disk: everything not on disk yet.
     await this.writeAll();
+  }
+
+  /**
+   * One text file present in the folder and in the project's file list, at bind time or when its text became complete.
+   * Content the project does not have yet is never mistaken for an empty file: the folder's copy waits untouched.
+   */
+  private async reconcileText(entry: FileEntry, bytes: Uint8Array) {
+    const path = entry.path;
+    if (this.o.model.availability(`f:${entry.id}`) !== 'complete') {
+      this.deferred.add(path);
+      return;
+    }
+    this.deferred.delete(path);
+    const ytext = await this.o.model.openText(entry.id);
+    const text = new TextDecoder().decode(bytes);
+    const project = ytext.toString();
+    if (project === text) {
+      this.setBase(path, ytext); // verified equal: the baseline later merges start from
+      return;
+    }
+    const base = this.savedBase.get(path);
+    if (base === undefined) {
+      // Never bound before: the user chose this folder, take its version.
+      applyTextDiff(ytext, text, MIRROR_ORIGIN);
+      this.setBase(path, ytext);
+    } else if (text === base) {
+      // Unchanged on disk while closed: the project's newer version is written back below.
+    } else if (project === base) {
+      applyTextDiff(ytext, text, MIRROR_ORIGIN);
+      this.setBase(path, ytext);
+    } else {
+      // Both changed while the app was closed (folder edits + co-authors): 3-way merge from the saved base.
+      const r = mergeText(base, text, project);
+      if (r.kind === 'conflict') {
+        // The same lines changed on both sides: nothing is overwritten. The project keeps its text (written to the
+        // folder below) and the folder's version is kept as a conflict for the member to resolve.
+        if (this.o.onConflict) {
+          await this.o.onConflict({ fileId: entry.id, path, base, disk: text, project });
+          this.o.onNotice?.(`"${path}" was changed in the folder and in the project in the same place: both versions are kept, resolve it in the project.`);
+        } else {
+          this.held.add(path);
+          this.o.onNotice?.(`"${path}" was changed in the folder and in the project in the same place: the folder's file was left as it is.`);
+        }
+      } else if (r.kind !== 'theirs') {
+        applyTextDiff(ytext, r.text, MIRROR_ORIGIN);
+      }
+    }
+  }
+
+  /** A viewer's folder file at bind time: the project's version is restored; nothing reaches the project. */
+  private async viewerInitial(path: string, bytes: Uint8Array, entry: FileEntry | undefined) {
+    if (!entry || entry.kind === 'dir') {
+      this.o.onNotice?.(`"${path}" is not part of the project; it was left as it is and is not shared (read-only for you).`);
+      return;
+    }
+    const hash = await sha256Hex(bytes);
+    if (entry.kind === 'binary') {
+      if (entry.hash === hash) {
+        this.lastWritten.set(path, hash);
+        this.onDisk.add(path);
+      } else this.o.onNotice?.(`"${path}" differs from the project and is restored from it (read-only for you).`);
+      return;
+    }
+    if (this.o.model.availability(`f:${entry.id}`) !== 'complete') {
+      this.deferred.add(path); // compared and restored once the project's text is complete
+      return;
+    }
+    const project = (await this.o.model.openText(entry.id)).toString();
+    if (hash === (await sha256Hex(new TextEncoder().encode(project)))) {
+      this.lastWritten.set(path, hash);
+      this.onDisk.add(path);
+    } else this.o.onNotice?.(`"${path}" differs from the project and is restored from it (read-only for you).`);
+  }
+
+  /** A text file's content became complete: reconcile a folder copy that waited for it, then write it. */
+  private async onContentReady(f: FileEntry) {
+    if (!this.running || f.kind !== 'text') return;
+    try {
+      if (this.deferred.has(f.path)) {
+        const bytes = await this.readStable(f.path);
+        if (bytes && this.o.getRole() === 'viewer') {
+          this.deferred.delete(f.path);
+          await this.viewerInitial(f.path, bytes, f);
+        } else if (bytes) {
+          this.lastWritten.set(f.path, await sha256Hex(bytes));
+          this.onDisk.add(f.path);
+          await this.reconcileText(f, bytes);
+        } else this.deferred.delete(f.path);
+      }
+      const again = this.o.model.byId(f.id);
+      if (again && this.running) await this.writeEntry(again);
+    } catch {
+      /* a later event or the next bind reconciles it */
+    }
+  }
+
+  /**
+   * Asks the peers for every file's complete text, without waiting: files become writable as they are confirmed
+   * (see onContentReady). A request that arrives while one is running is repeated afterwards.
+   */
+  private fetchContent() {
+    if (!this.running) return;
+    if (this.fetching) {
+      this.fetchAgain = true;
+      return;
+    }
+    this.fetching = true;
+    void this.o.mesh
+      .awaitComplete()
+      .catch(() => {})
+      .finally(() => {
+        this.fetching = false;
+        if (this.fetchAgain) {
+          this.fetchAgain = false;
+          this.fetchContent();
+        }
+      });
+  }
+
+  /** The disk and the project hold this text right now: the base later three-way merges start from. */
+  private setBase(path: string, ytext: Y.Text) {
+    const doc = ytext.doc as Y.Doc;
+    const text = ytext.toString();
+    this.base.set(path, { text, state: Y.encodeStateAsUpdate(doc) });
+    this.rememberBase(path, text);
   }
 
   private async writeAll() {
@@ -245,7 +381,7 @@ export class MirrorSync {
 
   // ---- project -> disk ----
 
-  private scheduleWrite(path: string) {
+  private scheduleWrite(path: string, delayMs = this.o.debounceMs ?? 100) {
     const prev = this.pendingModel.get(path);
     if (prev) clearTimeout(prev);
     this.pendingModel.set(
@@ -254,7 +390,7 @@ export class MirrorSync {
         this.pendingModel.delete(path);
         const f = this.o.model.find(path);
         if (f) await this.writeEntry(f);
-      }, this.o.debounceMs ?? 100),
+      }, delayMs),
     );
   }
 
@@ -273,7 +409,12 @@ export class MirrorSync {
   }
 
   private async writeEntry(f: FileEntry) {
-    if (f.kind === 'dir' || this.isIgnored(f.path)) return;
+    if (f.kind === 'dir' || this.isIgnored(f.path) || this.held.has(f.path)) return;
+    // Text the project does not hold completely is unknown, not empty: writing it would erase the folder's copy.
+    if (f.kind === 'text' && this.o.model.availability(`f:${f.id}`) !== 'complete') {
+      this.fetchContent();
+      return;
+    }
     if (this.busy.has(f.path)) {
       this.dirty.add(f.path); // a write is in flight: redo it afterwards so the latest content wins
       return;
@@ -309,14 +450,48 @@ export class MirrorSync {
         }
       }
       const hash = await sha256Hex(bytes);
-      if (this.lastWritten.get(f.path) === hash && this.onDisk.has(f.path)) return;
+      if (this.lastWritten.get(f.path) === hash && this.onDisk.has(f.path)) {
+        // Disk and project agree: that is a baseline even though nothing needs writing.
+        if (baseSnap && this.base.get(f.path)?.text !== baseSnap.text) {
+          this.base.set(f.path, baseSnap);
+          this.rememberBase(f.path, baseSnap.text);
+        }
+        return;
+      }
       // The awaits above take time: if the file was renamed, moved or deleted meanwhile, writing would resurrect it
       // under its old name next to the new one.
       if (this.o.model.byId(f.id)?.path !== f.path || !this.running) return;
+      const previous = this.lastWritten.get(f.path);
+      const wasOnDisk = this.onDisk.has(f.path);
       this.lastWritten.set(f.path, hash); // set before writing so the watcher event is recognised as ours
       this.noteWrite(f.path, hash);
       this.onDisk.add(f.path);
-      await this.o.fs.write(f.path, bytes);
+      try {
+        await this.o.fs.write(f.path, bytes);
+      } catch (e) {
+        // Not on disk: forget that we thought so (a retry must not see an "already written" hash), keep the old
+        // baseline, and try again with a growing delay.
+        if (previous === undefined) this.lastWritten.delete(f.path);
+        else this.lastWritten.set(f.path, previous);
+        if (!wasOnDisk) this.onDisk.delete(f.path);
+        const n = (this.failures.get(f.path) ?? 0) + 1;
+        this.failures.set(f.path, n);
+        this.o.onNotice?.(`Could not write "${f.path}" to the folder (${e instanceof Error ? e.message : e}); trying again.`);
+        if (this.running) this.scheduleWrite(f.path, Math.min((this.o.retryMs ?? 500) * 2 ** (n - 1), 8000));
+        return;
+      }
+      this.failures.delete(f.path);
+      // Renamed or deleted while the write was under way: it just put the old name back on disk.
+      if (this.o.model.byId(f.id)?.path !== f.path) {
+        if (this.o.model.find(f.path)) this.dirty.add(f.path); // another file took the name: write that one
+        else {
+          this.onDisk.delete(f.path);
+          this.lastWritten.delete(f.path);
+          this.base.delete(f.path);
+          await this.o.fs.remove(f.path).catch(() => {});
+        }
+        return;
+      }
       if (baseSnap) {
         this.base.set(f.path, baseSnap);
         this.rememberBase(f.path, baseSnap.text);
@@ -372,6 +547,11 @@ export class MirrorSync {
     if (this.lastWritten.get(path) === hash || this.isRecentWrite(path, hash)) return; // echo of our own write
     this.lastWritten.set(path, hash);
     this.onDisk.add(path);
+    this.held.delete(path);
+    if (entry?.kind === 'text' && this.o.model.availability(`f:${entry.id}`) !== 'complete') {
+      this.deferred.add(path); // an edit on top of text the project does not hold yet: reconciled when it does
+      return;
+    }
     await this.importFile(path, bytes, entry);
   }
 
@@ -385,7 +565,7 @@ export class MirrorSync {
     const base = this.base.get(path);
     if (!base) {
       applyTextDiff(ytext, next, MIRROR_ORIGIN);
-      this.rememberBase(path, next);
+      this.setBase(path, ytext);
       return;
     }
     const fork = new Y.Doc();
@@ -451,8 +631,8 @@ export class MirrorSync {
       if (entry?.kind === 'text') await this.mergeDiskText(entry, path, text);
       else {
         if (entry) this.o.model.delete(entry.id, MIRROR_ORIGIN);
-        await this.o.model.createTextNow(path, text, MIRROR_ORIGIN);
-        this.rememberBase(path, text);
+        const id = await this.o.model.createTextNow(path, text, MIRROR_ORIGIN);
+        this.setBase(path, await this.o.model.openText(id));
       }
     } else {
       const hash = await this.o.blobs.add(bytes);

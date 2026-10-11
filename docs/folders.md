@@ -99,9 +99,32 @@ collaborators).
 
 - Only the folder changed → the folder's version is taken (edits made with Claude Code overnight show up).
 - Only the project changed → the folder is updated.
-- Both changed → the folder's edits are applied on top of the project's version. Where the folder and a collaborator
-  changed the same passage, a folder edit that no longer fits is skipped and the collaborator's text stays: check
-  that file after reopening (the applied folder edits are listed in **Changes**).
+- Both changed → the changes are merged line by line from the last synced version, so edits in different places both
+  survive. Where the folder and a collaborator changed the same lines, nothing is overwritten: the project keeps the
+  collaborator's text, the folder's version is kept as a conflict (the same **Resolve** bar as for offline edits, also
+  after a restart), and you decide which text wins. The folder file is updated to the project's text, so a copy of the
+  folder's version is only in the conflict until you resolve it.
+- The first time a folder is bound there is no synced version yet: a file that differs takes the folder's text (you
+  chose that folder). A file that already matches the project becomes the synced version right away, so edits that
+  a collaborator and a tool then make at the same time merge instead of one replacing the other.
+
+### While files are still arriving
+
+A file whose text has not reached this device yet is never treated as empty. The folder's copy stays exactly as it is
+(it is not overwritten and not merged into the project) until the text is complete; then it is reconciled as above and
+written. A file that is only named in the project but never arrives is simply left alone in the folder.
+
+### Read-only members
+
+A viewer's folder never changes the project, not even when it is bound or reopened. Files that differ from the project are
+restored from it, with a notice ("… differs from the project and is restored from it (read-only for you)"). Files that
+are not part of the project are left where they are with a notice and are not shared.
+
+### When a file cannot be written
+
+If a file cannot be written to the folder (disk full, locked by another program), the notice says so and the write is
+tried again with a growing delay. The project's text is never marked as written before it is on disk, and a file that
+was renamed or deleted while it was being written does not reappear under its old name.
 
 ## Changes view: see and undo what the tools did
 

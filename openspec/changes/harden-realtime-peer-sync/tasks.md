@@ -51,10 +51,10 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 7. Editor and folder correctness
 
-- [ ] 7.1 Add generation-checked editor mounting/rebinding and complete undo/view disposal; verify F16 with reverse-order file loads, replacement while loading, close while loading, and repeated switches that leave exactly one correctly bound editor.
-- [ ] 7.2 Initialize mirror baselines on equal-content binding and advance them only after successful writes; verify F15 with matching initial files, concurrent remote/local edits, failed disk write followed by retry, and rename/delete during a write.
-- [ ] 7.3 Make initial folder reconciliation use content readiness, enforce viewer permissions, and retain overlapping restart edits for explicit resolution; verify missing text never empties a disk file, viewer binds never mutate project content, and both conflict versions survive restart.
-- [ ] 7.4 Add real-browser delayed-load and folder-reconciliation regressions and update `docs/folders.md`; verify the selected file remains the typing target and documented initial-bind behavior matches viewer/editor tests.
+- [x] 7.1 Add generation-checked editor mounting/rebinding and complete undo/view disposal; verify F16 with reverse-order file loads, replacement while loading, close while loading, and repeated switches that leave exactly one correctly bound editor.
+- [x] 7.2 Initialize mirror baselines on equal-content binding and advance them only after successful writes; verify F15 with matching initial files, concurrent remote/local edits, failed disk write followed by retry, and rename/delete during a write.
+- [x] 7.3 Make initial folder reconciliation use content readiness, enforce viewer permissions, and retain overlapping restart edits for explicit resolution; verify missing text never empties a disk file, viewer binds never mutate project content, and both conflict versions survive restart.
+- [x] 7.4 Add real-browser delayed-load and folder-reconciliation regressions and update `docs/folders.md`; verify the selected file remains the typing target and documented initial-bind behavior matches viewer/editor tests.
 
 ## 8. Complete snapshots, compilation, export, and backup
 

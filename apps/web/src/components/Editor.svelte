@@ -158,13 +158,29 @@
     EditorView.contentAttributes.of({ 'aria-label': ro ? 'LaTeX source (read-only)' : 'LaTeX source editor' }),
   ];
 
-  async function mount(id: string) {
-    loading = true;
+  /** Releases the editor view and its undo manager (every rebinding and the close go through here). */
+  function release() {
     view?.destroy();
     view = null;
+    undo?.destroy();
+    undo = null;
+    ytext = null;
+  }
+
+  /**
+   * Bumped by every mount and by the close. A load that finishes after another mount began, or after the editor was
+   * closed, sees a stale generation and is dropped: only the latest selection ever gets an editor.
+   */
+  let generation = 0;
+
+  async function mount(id: string) {
+    const gen = ++generation;
+    loading = true;
+    release();
     await session.mesh.openDoc(`f:${id}`);
-    ytext = await session.model.openText(id);
-    if (!host) return;
+    const text = await session.model.openText(id);
+    if (gen !== generation || !host) return;
+    ytext = text;
     undo = new Y.UndoManager(ytext);
     view = new EditorView({
       parent: host,
@@ -239,14 +255,15 @@
     view.dispatch(setDiagnostics(view.state, out));
   }
 
-  // Mounted once per file: the file list changing under the editor (a co-author's new file, an offline merge) re-runs this
-  // effect with the same id, and a remount would destroy the editor while the member is typing into it.
-  let mountedId: string | null = null;
+  // Mounted once per session and file: the file list changing under the editor (a co-author's new file, an offline
+  // merge) re-runs this effect with the same inputs, and a remount would destroy the editor while the member is typing.
+  let mountedFor: { session: ProjectSession; id: string } | null = null;
   $effect(() => {
     const id = fileId;
+    const s = session;
     untrack(() => {
-      if (id === mountedId) return;
-      mountedId = id;
+      if (mountedFor && mountedFor.id === id && mountedFor.session === s) return;
+      mountedFor = { session: s, id };
       void mount(id);
     });
   });
@@ -257,6 +274,8 @@
     const id = fileId;
     const off = session.model.onDocReplaced((docId) => {
       if (docId !== `f:${id}`) return;
+      // A load still in flight may have read the old document: start a new one (it supersedes the pending mount).
+      if (loading) return void mount(id);
       const doc = session.model.getLoadedDoc(docId);
       if (!view || !doc) return void mount(id);
       const next = doc.getText('t');
@@ -301,8 +320,8 @@
   });
 
   onDestroy(() => {
-    view?.destroy();
-    undo?.destroy();
+    generation++; // a load still pending must not create an editor for a closed one
+    release();
   });
 </script>
 

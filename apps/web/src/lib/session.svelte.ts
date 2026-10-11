@@ -1113,6 +1113,8 @@ export class ProjectSession {
       fs: fsa,
       getRole: () => this.role,
       marker: { id: this.project.id, slug: this.project.slug },
+      // Folder and project changed the same lines while the app was closed: kept as a conflict to resolve.
+      onConflict: (c) => this.fork.recordTextConflict(c),
       onNotice: (m) => {
         this.mirrorNotice = m;
       },

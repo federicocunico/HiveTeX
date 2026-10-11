@@ -7,6 +7,7 @@ import {
   type FileList,
   type HunkDecision,
   type MergeRegion,
+  type TextMerge,
   applyDecisions,
   conflictCount,
   mergeFileLists,
@@ -643,6 +644,25 @@ export class OfflineFork {
     this.o.onChange?.();
     this.o.onReport?.(report);
     return report;
+  }
+
+  /**
+   * Keeps both versions of a text file whose copy in a bound folder and whose project text changed the same lines since
+   * they last agreed (`base`): the project keeps its text, the folder's version becomes a conflict to resolve like an
+   * offline one, and the pair is saved with the other conflicts so a restart loses neither. Returns the merge: anything
+   * but a conflict needs no decision and the caller applies it.
+   */
+  async recordTextConflict(c: { fileId: string; path: string; base: string; disk: string; project: string }): Promise<TextMerge> {
+    const r = mergeText(c.base, c.disk, c.project);
+    if (r.kind !== 'conflict') return r;
+    const json = JSON.stringify(r.regions);
+    const known = this.conflictList.some((x) => x.kind === 'text' && x.fileId === c.fileId && x.theirsAtMerge === c.project && JSON.stringify(x.regions) === json);
+    if (!known) {
+      this.conflictList.push({ id: uid(), kind: 'text', fileId: c.fileId, path: c.path, theirsAtMerge: c.project, regions: r.regions });
+      await this.persistConflicts();
+      this.o.onChange?.();
+    }
+    return r;
   }
 
   // ---- resolving ----
