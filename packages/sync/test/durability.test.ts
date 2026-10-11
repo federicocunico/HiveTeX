@@ -237,3 +237,24 @@ describe('Persistence.transact is atomic', () => {
     expect(await s.load('d')).toHaveLength(1);
   });
 });
+
+describe('loading a document', () => {
+  it('a failed load is not remembered: the next request loads it again', async () => {
+    const store = new FaultyPersistence();
+    const seed = new ProjectModel(store, FAST);
+    await seed.init();
+    const id = await seed.createTextNow('a.tex', 'saved\n');
+    await seed.flush();
+    await seed.destroy();
+    let failures = 1;
+    const load = store.load.bind(store);
+    store.load = async (docId: string) => {
+      if (docId.startsWith('f:') && failures-- > 0) throw new Error('load failed');
+      return load(docId);
+    };
+    const m = new ProjectModel(store, FAST);
+    await m.init();
+    await expect(m.openText(id)).rejects.toThrow('load failed');
+    expect((await m.openText(id)).toString()).toBe('saved\n');
+  });
+});

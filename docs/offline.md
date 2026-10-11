@@ -126,8 +126,8 @@ Conflicts survive a restart. Closing the app with a conflict pending loses nothi
 
 Each device keeps the last shared version of every document it changes while alone (the *base*), next to its own
 data. When a peer connects, and before anything is exchanged, the device sets aside its own version ("mine") and puts
-the base in place. Others therefore never receive offline edits half-merged. Once their version ("theirs") has
-arrived, `packages/sync/src/fork.ts` merges base, mine and theirs with diff3 (`packages/sync/src/merge.ts`), and
+the base in place. Others therefore never receive offline edits half-merged. Once the connected co-authors have
+**confirmed** their version ("theirs", see below), `packages/sync/src/fork.ts` merges base, mine and theirs with diff3 (`packages/sync/src/merge.ts`), and
 applies the result as normal edits. Specs: `openspec/specs/peer-sync` (*Offline editing*, *Resolving merge conflicts*)
 and `openspec/specs/local-mode`.
 
@@ -143,6 +143,7 @@ with an operation id and a stage that only moves forward:
 | `reconciling` | The documents were exchanged with a peer; the merge is being applied. |
 | `committed` | The merged documents and the conflicts are durable; only removing the recovery data is left. |
 
+The same stages describe an **interrupted merge**: restart, a lost link or a failed write at any point resumes from the stage on disk, and the next link runs the exchange again.
 A crash at any point resumes from the stage on disk: before `prepared` your version is still the stored one, afterwards
 it is in the "mine" copy; at `committed` the merge is not run again, so nothing is applied twice. The recovery data is
 removed in one transition, only after the merged documents were written.
@@ -153,3 +154,44 @@ to the journal and is read when there is no journal: it migrates *additively* (a
 again at the next step. A journal or record of a newer or unknown version is **never modified or deleted**: no new
 offline merge starts over it until a build that understands it opens the project. Do not open a project with a pending
 merge in an older build; export or finish the merge with a build that supports the journal first.
+
+**Rollback.** Going back to an older build is safe only while no merge is pending: with a journal present the recovery
+data must stay (the base, "mine" and journal records are never deleted by a build that does not finish the merge). A
+version-1 build reads the mirrored record (`forked` before preparation, `merging` afterwards) and finds the same copies,
+but it does not know the stage `reconciling` or `committed`, nor that a merge may be applied again without duplicating
+work. If you must roll back with a pending merge, finish it first in a build that supports the journal (reconnect to a
+co-author, or resolve the conflicts), or export a recovery copy. Fixtures for every path above are in
+`packages/sync/test/fork-journal.test.ts` (restart from each stage, version-1 migration, unknown journals kept untouched).
+
+### The merge waits for confirmation
+
+A merge only uses the co-authors' state when it was **confirmed for this attempt**: a connected co-author who can edit
+answered the request made after this link was set up, saying its copy of the file is complete. Nothing else counts: not a
+live update, not a late answer to an earlier link, not a timeout. If the file table or a file does not arrive in time
+(slow link, nobody holds it, the link drops, a co-author who may only view), the merge **stays pending** with all its
+recovery data. Nothing of the merge is applied until every file it needs is confirmed, so a failure never leaves a half-merged
+project. While a co-author stays linked the attempt is repeated every few seconds; a new link starts over from the journal.
+The Sync panel says *Your offline changes are kept and waiting for a co-author to confirm the project*.
+
+A **viewer** can neither confirm state nor hold work to merge with yours. When the first co-author to link is a viewer,
+your offline work is therefore shared as it is, at once, and an editor who joins later merges against it. (A member who can
+no longer edit never takes this path: the work is dropped, see below.)
+
+If preparing the merge fails (for example the recovery copy cannot be saved, or a document cannot be read), **no document is
+exchanged on that link**: the link is closed instead, so the others never see unmerged offline work, and the next link
+retries from the journal. Seeing who is online keeps working meanwhile.
+
+### Typing while merging
+
+You can keep typing during every step. Your version is captured and replaced in one synchronous step: a keystroke lands
+either in the captured version or in the document that replaces it, never in between, and the latter is stored with the
+replacement and merged with your offline text (restart included). The editor is bound to the new document in place and
+is not rebuilt when the file list changes, so no keystroke falls between the two (`e2e/offline-merge.spec.ts`). While conflicts wait, what you type elsewhere in the
+file is kept when you decide; if you type in the conflicting lines, you are asked again. A decision applied just before a
+crash is recognised when you decide again, and does not apply twice.
+
+### If you lose edit rights while working offline
+
+The explicit policy is unchanged: the work done offline is **not shared** and is dropped when the merge runs (the
+status bar says so); it never reaches anyone, not even when the other device would have shared its own work as it is. Pending
+conflicts stay, but their decisions cannot be applied by a member who may no longer edit the project.

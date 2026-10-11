@@ -144,7 +144,7 @@ describe('offline fork: git-style merge on reconnect', () => {
     await waitFor(() => a.fork.conflicts.length === 1, 5000);
     await a.model.flush();
     a.fork.stop();
-    const again = new OfflineFork({ model: a.model, isLinked: () => true, canEdit: () => true, waitSynced: async () => {} });
+    const again = new OfflineFork({ model: a.model, isLinked: () => true, canEdit: () => true, confirm: async () => 'confirmed' });
     await again.start();
     expect(again.conflicts).toHaveLength(1);
     expect(again.conflicts[0]).toMatchObject({ kind: 'text', path: 'main.tex' });

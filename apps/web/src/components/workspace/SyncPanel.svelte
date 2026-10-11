@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ProjectSession } from '../../lib/session.svelte.js';
   import { presenceColor } from '../../lib/presence.js';
-  import { editorsByFile, sinceText, syncLabel } from '../../lib/sync-view.js';
+  import { editorsByFile, mergeNotice, sinceText, syncLabel } from '../../lib/sync-view.js';
   import { RefreshCw } from '../../ui/icons.js';
   import Icon from '../../ui/Icon.svelte';
   import PanelHead from './PanelHead.svelte';
@@ -41,6 +41,7 @@
     <p class="meta" data-testid="last-sync">Last synced: {sinceText(status?.lastSyncAt ?? null)}</p>
     <p class="meta">{status?.peers ?? 0} connected{status?.connecting ? `, ${status.connecting} connecting` : ''}</p>
     {#if session.unsharedWork}<p class="meta" data-testid="sync-unshared">Changes made while nobody else was connected: merged when a co-author connects.</p>{/if}
+    {#if session.unsharedWork && mergeNotice(session.mergeError)}<p class="meta" role="status" data-testid="sync-merge-pending">{mergeNotice(session.mergeError)}</p>{/if}
     {#if session.lastMerge && (session.lastMerge.merged.length || session.lastMerge.taken.length)}
       <p class="meta" data-testid="sync-merged">
         Last offline merge: {session.lastMerge.taken.length} file{session.lastMerge.taken.length === 1 ? '' : 's'} taken as is{session.lastMerge.merged.length ? `, merged with others' changes: ${session.lastMerge.merged.join(', ')}` : ''}.

@@ -119,6 +119,8 @@ export function mergeFileLists(base: FileList, mine: FileList, theirs: FileList,
           if (m.kind === 'text') out.textToMerge.push(id);
         }
       }
+      // Already in the shared list: an earlier attempt of this same merge added it (see OfflineFork.merge); its text may not have followed.
+      if (m && t && m.kind === 'text' && t.kind === 'text' && mineTextChanged.has(id)) out.textToMerge.push(id);
       continue;
     }
     if (!m && !t) continue; // deleted on both sides

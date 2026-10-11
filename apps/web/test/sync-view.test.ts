@@ -50,3 +50,14 @@ describe('sync labels', () => {
     expect(editorsByFile([{ name: 'ada', file: 'a.tex' }, { name: 'kenji', file: 'a.tex' }, { name: 'x', file: null }]).get('a.tex')).toEqual(['ada', 'kenji']);
   });
 });
+
+describe('merge notice', () => {
+  it('explains a waiting merge, a failed preparation, and says nothing without an error', async () => {
+    const { mergeNotice } = await import('../src/lib/sync-view.js');
+    const { MergePending } = await import('@hivetex/sync');
+    expect(mergeNotice(null)).toBeNull();
+    expect(mergeNotice(new MergePending('root', 'timeout'))).toContain('waiting');
+    expect(mergeNotice(new MergePending('root', 'timeout'))).toContain('kept');
+    expect(mergeNotice(new Error('load failed'))).toContain('could not be prepared');
+  });
+});

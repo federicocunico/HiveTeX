@@ -11,21 +11,21 @@ import { waitFor } from './helpers.js';
 const OPTS = { flushMs: 1, retryMs: 5, maxRetryMs: 20 };
 const never = () => new Promise<void>(() => {});
 
-async function open(store: Persistence, waitSynced: () => Promise<void> = async () => {}) {
+async function open(store: Persistence, waitSynced: (docId: string) => Promise<void> = async () => {}) {
   const model = new ProjectModel(store, OPTS);
   await model.init();
   const reports: MergeReport[] = [];
   const errors: unknown[] = [];
-  const fork = new OfflineFork({ model, isLinked: () => false, canEdit: () => true, waitSynced, onReport: (r) => reports.push(r), onError: (e) => errors.push(e) });
+  const fork = new OfflineFork({ model, isLinked: () => false, canEdit: () => true, confirm: async (d) => (await waitSynced(d), 'confirmed' as const), onReport: (r) => reports.push(r), onError: (e) => errors.push(e) });
   await fork.start();
   return { model, fork, reports, errors };
 }
 
 /** A project of one file, synced as far as this device knows, then edited while no peer is linked. */
-async function offlineEdit(store: Persistence, waitSynced: () => Promise<void> = never) {
+async function offlineEdit(store: Persistence, waitSynced: (docId: string) => Promise<void> = never, content = 'base\n') {
   const seed = new ProjectModel(store, OPTS);
   await seed.init();
-  const id = await seed.createTextNow('main.tex', 'base\n');
+  const id = await seed.createTextNow('main.tex', content);
   await seed.flush();
   await seed.destroy();
   const s = await open(store, waitSynced);
@@ -208,4 +208,178 @@ describe('migration of version-1 recovery records', () => {
     expect(store.meta.get(FORK_RECORD_KEY)).toEqual({ v: 9, stage: 'whatever', docs: [] });
     expect(MERGE_ORIGIN).toBeDefined();
   });
+});
+
+describe('restart from every journal transition (F02)', () => {
+  /** What the others wrote meanwhile: lands in the swapped-in document as a remote edit would. */
+  const theirs = async (model: ProjectModel, id: string, at: number, s: string) => {
+    (await model.openText(id)).insert(at, s);
+  };
+
+  it('forked: the offline text survives a restart before anything was prepared, and is merged once', async () => {
+    const store = new MemoryPersistence();
+    const { model, id } = await offlineEdit(store);
+    await model.destroy();
+    expect(await docText(store, id)).toBe('OFFLINE base\n');
+    const again = await open(store);
+    expect(again.fork.journal).toMatchObject({ v: 2, stage: 'forked' });
+    await again.fork.beforeSync();
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    expect(await textOf(again.model, id)).toBe('OFFLINE base\n');
+    expect(again.reports).toHaveLength(1);
+  });
+
+  it('reconciling, results already applied: a restart merges again without duplicating the offline text', async () => {
+    const store = new FaultyPersistence();
+    const sync = async (d: string) => {
+      if (d.startsWith('f:')) store.failTransact = 1; // the commit transition fails: the crash happens after the merged result was applied
+    };
+    const { fork, id, model, errors } = await offlineEdit(store, sync);
+    await fork.beforeSync();
+    await waitFor(() => errors.length > 0);
+    await model.flush();
+    expect((store.meta.get(FORK_JOURNAL_KEY) as ForkJournal).stage).toBe('reconciling');
+    expect(await docText(store, id)).toBe('OFFLINE base\n'); // the merged result is stored, the recovery data still is too
+    const again = await open(store);
+    expect(again.fork.journal?.stage).toBe('reconciling');
+    await again.fork.beforeSync();
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    expect(await textOf(again.model, id)).toBe('OFFLINE base\n'); // exactly once
+    expect(again.errors).toEqual([]);
+  });
+
+  it('reconciling, with their edit in other lines: the restart keeps both edits exactly once', async () => {
+    const store = new FaultyPersistence();
+    let model!: ProjectModel;
+    let id = '';
+    const sync = async (d: string) => {
+      if (!d.startsWith('f:')) return;
+      await theirs(model, id, 'base\nmid\nend\n'.length, 'THEIRS\n');
+      store.failTransact = 1;
+    };
+    const s = await offlineEdit(store, sync, 'base\nmid\nend\n');
+    model = s.model;
+    id = s.id;
+    await s.fork.beforeSync();
+    await waitFor(() => s.errors.length > 0);
+    await s.model.flush();
+    const again = await open(store);
+    await again.fork.beforeSync();
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    expect(await textOf(again.model, id)).toBe('OFFLINE base\nmid\nend\nTHEIRS\n');
+  });
+
+  it('a failed commit does not turn one conflict into two when the merge is attempted again', async () => {
+    const store = new FaultyPersistence();
+    let model!: ProjectModel;
+    let id = '';
+    let first = true;
+    const sync = async (d: string) => {
+      if (!d.startsWith('f:') || !first) return;
+      first = false;
+      await theirs(model, id, 0, 'THEIRS ');
+      store.failTransact = 1;
+    };
+    const s = await offlineEdit(store, sync);
+    model = s.model;
+    id = s.id;
+    await s.fork.beforeSync();
+    await waitFor(() => s.errors.length > 0);
+    await s.fork.beforeSync(); // the next link retries from the journal
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    expect(s.fork.conflicts).toHaveLength(1);
+    expect((store.meta.get('fork:conflicts') as unknown[]).length).toBe(1);
+  });
+
+  it('a restart after a failed commit finds the conflict once, not twice', async () => {
+    const store = new FaultyPersistence();
+    let model!: ProjectModel;
+    let id = '';
+    const sync = async (d: string) => {
+      if (!d.startsWith('f:')) return;
+      await theirs(model, id, 0, 'THEIRS ');
+      store.failTransact = 1;
+    };
+    const s = await offlineEdit(store, sync);
+    model = s.model;
+    id = s.id;
+    await s.fork.beforeSync();
+    await waitFor(() => s.errors.length > 0);
+    expect(store.meta.has('fork:conflicts')).toBe(false); // not durable before the commit transition
+    const again = await open(store, async () => {});
+    await again.fork.beforeSync();
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    expect(again.fork.conflicts).toHaveLength(1);
+    expect(await textOf(again.model, id)).toContain('THEIRS');
+  });
+
+  it('committed with conflicts: a restart keeps them and only finishes the cleanup', async () => {
+    const store = new MemoryPersistence();
+    let model!: ProjectModel;
+    let id = '';
+    const sync = async (d: string) => {
+      if (d.startsWith('f:')) await theirs(model, id, 0, 'THEIRS ');
+    };
+    const s = await offlineEdit(store, sync);
+    model = s.model;
+    id = s.id;
+    await s.fork.beforeSync();
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    // as if the crash came right after the commit transition: journal committed, recovery copies still present
+    store.meta.set(FORK_JOURNAL_KEY, { v: 2, opId: 'op', stage: 'committed', docs: [ROOT_DOC_ID, `f:${id}`] });
+    store.meta.set(`fork:mine:f:${id}`, new Uint8Array([0]));
+    const again = await open(store);
+    expect(again.fork.active).toBe(false);
+    expect(again.fork.conflicts).toHaveLength(1);
+    expect(store.meta.has(`fork:mine:f:${id}`)).toBe(false);
+    expect(again.reports).toEqual([]);
+  });
+});
+
+describe('documented recovery paths (docs/offline.md, Recovery journal)', () => {
+  it('a journal and a version-1 record side by side: the journal decides and the record is left as written', async () => {
+    const store = new MemoryPersistence();
+    const { fork, id } = await offlineEdit(store);
+    fork.beforeSync().catch(() => {});
+    await waitFor(() => (store.meta.get(FORK_JOURNAL_KEY) as ForkJournal).stage === 'prepared');
+    const legacyBefore = structuredClone(store.meta.get(FORK_RECORD_KEY));
+    const again = await open(store);
+    expect(again.fork.journal?.stage).toBe('prepared');
+    expect(store.meta.get(FORK_RECORD_KEY)).toEqual(legacyBefore);
+    await again.fork.beforeSync();
+    await waitFor(() => !store.meta.has(FORK_JOURNAL_KEY));
+    expect(await textOf(again.model, id)).toBe('OFFLINE base\n');
+  });
+
+  it('the version-1 mirror reads as forked before preparation and as merging from then on, so a downgrade still finds the work', async () => {
+    const store = new MemoryPersistence();
+    const { fork } = await offlineEdit(store);
+    expect(store.meta.get(FORK_RECORD_KEY)).toMatchObject({ v: 1, stage: 'forked' });
+    fork.beforeSync().catch(() => {});
+    await waitFor(() => (store.meta.get(FORK_JOURNAL_KEY) as ForkJournal).stage === 'prepared');
+    expect(store.meta.get(FORK_RECORD_KEY)).toMatchObject({ v: 1, stage: 'merging' });
+  });
+
+  for (const [name, journal] of [
+    ['an unknown stage', { v: 2, opId: 'x', stage: 'sharded', docs: [] }],
+    ['a malformed document list', { v: 2, opId: 'x', stage: 'prepared', docs: 'f:a' }],
+    ['no operation id', { v: 2, stage: 'prepared', docs: [] }],
+    ['a newer version', { v: 4, opId: 'x', stage: 'prepared', docs: [], more: 1 }],
+  ] as const) {
+    it(`a journal with ${name} is kept byte for byte and blocks a new merge`, async () => {
+      const store = new MemoryPersistence();
+      store.meta.set(FORK_JOURNAL_KEY, journal);
+      store.meta.set('fork:mine:f:a', new Uint8Array([7]));
+      const before = structuredClone([...store.meta]);
+      const { fork, model } = await open(store);
+      expect(fork.recoveryBlocked).toBe(true);
+      const id = await model.createTextNow('n.tex', 'x');
+      (await model.openText(id)).insert(0, 'y');
+      await fork.beforeSync();
+      await model.flush();
+      expect(store.meta.get(FORK_JOURNAL_KEY)).toEqual(journal);
+      for (const [k, v] of before) expect(store.meta.get(k)).toEqual(v);
+      expect(store.meta.has(FORK_RECORD_KEY)).toBe(false); // nothing was written over it
+    });
+  }
 });

@@ -33,6 +33,11 @@ export interface MeshOptions {
    */
   beforeSync?: (peer: PeerInfo) => Promise<void>;
   /**
+   * `beforeSync` rejected: nothing may be exchanged with that peer in this attempt (its documents would still hold
+   * unmerged work), so its connection is closed and the error reported here. The next link runs `beforeSync` again.
+   */
+  onSyncGateError?: (peer: PeerInfo, error: unknown) => void;
+  /**
    * Whether this device announces and answers correlated synchronization receipts (default true). Off, it behaves
    * like a client that predates them (plain STEP1/STEP2 only), which is how interoperability is tested.
    */
@@ -145,6 +150,8 @@ export class Mesh {
   private policyTimer: ReturnType<typeof setInterval>;
   /** Document frames wait for this (see MeshOptions.beforeSync). */
   private syncGate: Promise<void> = Promise.resolve();
+  /** Connections whose `beforeSync` failed: no document frame is read from or sent to them. */
+  private gateFailed = new WeakSet<PeerConnection>();
   private unsub: () => void;
   readonly rejected: string[] = [];
 
@@ -293,7 +300,20 @@ export class Mesh {
     this.applying.set(conn, new Set());
     if (this.o.beforeSync) {
       const run = this.o.beforeSync;
-      this.syncGate = this.syncGate.then(() => run(info)).catch(() => {});
+      this.syncGate = this.syncGate.then(async () => {
+        try {
+          await run(info);
+        } catch (e) {
+          // Fail closed: a rejected preparation must not turn into an unprepared exchange.
+          this.gateFailed.add(conn);
+          try {
+            this.o.onSyncGateError?.(info, e);
+          } catch {
+            /* a reporting callback must not reopen the gate */
+          }
+          conn.close();
+        }
+      });
     }
     conn.onFrame((c, type, payload) => void this.onFrame(c, type, payload));
     conn.onTicketRefreshed((c, nc) => this.onTicketRefreshed(c, nc));
@@ -397,6 +417,7 @@ export class Mesh {
 
   private async startSync(conn: PeerConnection) {
     await this.syncGate;
+    if (this.gateFailed.has(conn)) return;
     const ids = await this.o.model.knownDocIds();
     // Root first, so the file table is current before file docs are reconciled.
     ids.sort((a, b) => (a === ROOT_DOC_ID ? -1 : b === ROOT_DOC_ID ? 1 : 0));
@@ -718,7 +739,10 @@ export class Mesh {
     const info = this.conns.get(conn);
     if (!info) return;
     try {
-      if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE) await this.syncGate;
+      if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE) {
+        await this.syncGate;
+        if (this.gateFailed.has(conn)) return;
+      }
       switch (type) {
         case MsgType.STEP1: {
           const { docId, data } = unpackDoc(payload);

@@ -48,6 +48,8 @@
       if (r === 'conflict-again') toast(`Co-authors changed the same lines of ${current.path} meanwhile: decide again.`, 'error');
       else toast(`${current.path}: merged and shared.`, 'ok');
       decisions = [];
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error'); // e.g. edit rights were lost: the conflict stays
     } finally {
       busy = false;
     }
@@ -58,6 +60,8 @@
     busy = true;
     try {
       await s.resolveFileConflict(current.id, choice);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error');
     } finally {
       busy = false;
     }

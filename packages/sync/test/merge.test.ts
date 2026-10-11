@@ -55,6 +55,12 @@ describe('file list merge', () => {
     expect(r.textToMerge).toEqual(['n']);
   });
 
+  it('a file an earlier attempt of the same merge already added still gets its text merged', () => {
+    const r = mergeFileLists({}, { n: t('new.tex') }, { n: t('new.tex') }, new Set(['n']), none);
+    expect(r.add).toEqual([]);
+    expect(r.textToMerge).toEqual(['n']);
+  });
+
   it('a path added on both sides with different files is a conflict', () => {
     const r = mergeFileLists({}, { a: t('x.tex') }, { b: t('x.tex') }, none, none);
     expect(r.conflicts).toEqual([{ type: 'add-add', path: 'x.tex', mineId: 'a', theirsId: 'b' }]);

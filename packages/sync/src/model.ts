@@ -404,7 +404,12 @@ export class ProjectModel {
     const p = (async () => {
       const doc = new Y.Doc({ gc: true });
       const persister = new DocPersister(this.store, docId, doc, this.persistenceOptions());
-      await persister.hydrate();
+      try {
+        await persister.hydrate();
+      } catch (e) {
+        this.loading.delete(docId); // a failed load is not remembered: the next request tries again
+        throw e;
+      }
       doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
       this.watchBefore(docId, doc);
       this.docs.set(docId, doc);

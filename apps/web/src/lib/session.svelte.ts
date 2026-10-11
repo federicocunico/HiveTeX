@@ -139,6 +139,8 @@ export class ProjectSession {
   private fork!: OfflineFork;
   /** This device holds changes not shared yet (they are merged at the next link). */
   unsharedWork = $state(false);
+  /** Why the merge of offline changes is waiting or could not be prepared (they are kept); null when nothing is wrong. */
+  mergeError = $state<unknown>(null);
   /** Conflicts between this device's offline work and others' changes, waiting for the member's decision. */
   conflicts = $state<MergeConflict[]>([]);
   /** The last merge of offline work (for the Sync panel). */
@@ -223,8 +225,12 @@ export class ProjectSession {
       canEdit: () => this.canWrite,
       enabled: () => !this.isLocal,
       onReport: (r) => this.onMergeReport(r),
+      onError: (e) => {
+        this.mergeError = e;
+      },
       onChange: () => {
         this.unsharedWork = this.fork.active;
+        if (!this.fork.active) this.mergeError = null;
         this.conflicts = [...this.fork.conflicts];
       },
       ...forkMeshOptions(
@@ -243,6 +249,10 @@ export class ProjectSession {
       trusted: this.trusted,
       getTicket: () => this.ticket,
       beforeSync: (peer) => this.fork.beforeSync(peer),
+      // a failed preparation closes that link's document exchange; the next link tries again
+      onSyncGateError: (_peer, e) => {
+        this.mergeError = e;
+      },
       // test hook only: shortens the revocation grace period in end-to-end tests
       ...(Number(localStorage.getItem('hivetex.epochGraceMs')) ? { epochGraceMs: Number(localStorage.getItem('hivetex.epochGraceMs')) } : {}),
     });
@@ -944,6 +954,7 @@ export class ProjectSession {
 
   private onMergeReport(r: MergeReport) {
     this.lastMerge = r;
+    this.mergeError = null;
     this.unsharedWork = this.fork.active;
     this.conflicts = [...this.fork.conflicts];
     if (r.discarded) {

@@ -93,3 +93,25 @@ test('offline edits to different lines merge with a warning, and typing during t
   await expect(e.getByTestId('conflicts-pill')).toHaveCount(0);
   await close();
 });
+
+test('typing is not dropped while the file list changes under the editor', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { o, e, close } = await pair(browser);
+  // a co-author keeps adding files (as a merge does when it replaces and re-applies documents) while the owner types
+  const adding = e.evaluate(async () => {
+    const s = (window as unknown as { __p2p: { session: { model: { createTextNow(p: string, c: string): Promise<string> } } } }).__p2p.session;
+    for (let i = 0; i < 8; i++) {
+      await s.model.createTextNow(`extra-${i}.tex`, '');
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  });
+  await o.locator('.cm-line').nth(2).click();
+  await o.keyboard.press('End');
+  const typed = ' typed-while-files-change-1234567890';
+  await o.keyboard.type(typed, { delay: 30 });
+  await adding;
+  const want = BASE.replace('line three\n', `line three${typed}\n`);
+  await expect.poll(() => editorText(o), { timeout: 30_000 }).toBe(want);
+  await expect(o.locator('.cm-content')).toContainText(typed.trim());
+  await close();
+});

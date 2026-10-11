@@ -239,9 +239,16 @@
     view.dispatch(setDiagnostics(view.state, out));
   }
 
+  // Mounted once per file: the file list changing under the editor (a co-author's new file, an offline merge) re-runs this
+  // effect with the same id, and a remount would destroy the editor while the member is typing into it.
+  let mountedId: string | null = null;
   $effect(() => {
     const id = fileId;
-    untrack(() => void mount(id));
+    untrack(() => {
+      if (id === mountedId) return;
+      mountedId = id;
+      void mount(id);
+    });
   });
 
   // The offline merge can replace a file's document (see @hivetex/sync fork.ts). Rebind in place, synchronously:

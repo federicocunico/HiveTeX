@@ -44,10 +44,10 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 6. Crash-safe offline merge execution
 
-- [ ] 6.1 Persist base/mine/journal atomically before document replacement and commit results/conflicts before clearing recovery state; verify F02 by restarting from each journal transition with exact content preserved once.
-- [ ] 6.2 Require current-round remote confirmation and fail closed on preparation error, timeout, or disconnect; verify F03 with slow root/file responses, failed checkpoint writes, late replies, and eventual reconnect/conflict resolution without premature sharing.
-- [ ] 6.3 Protect edits typed during capture, replacement, and conflict resolution, and retain the existing explicit demotion policy; verify concurrent typing and restart tests plus a demoted member never publishing unauthorized changes.
-- [ ] 6.4 Document recovery stages, interrupted-merge behavior, version compatibility, and rollback restrictions in `docs/offline.md`; verify migration/restart fixtures demonstrate every documented recovery path without deleting unknown journals.
+- [x] 6.1 Persist base/mine/journal atomically before document replacement and commit results/conflicts before clearing recovery state; verify F02 by restarting from each journal transition with exact content preserved once.
+- [x] 6.2 Require current-round remote confirmation and fail closed on preparation error, timeout, or disconnect; verify F03 with slow root/file responses, failed checkpoint writes, late replies, and eventual reconnect/conflict resolution without premature sharing.
+- [x] 6.3 Protect edits typed during capture, replacement, and conflict resolution, and retain the existing explicit demotion policy; verify concurrent typing and restart tests plus a demoted member never publishing unauthorized changes.
+- [x] 6.4 Document recovery stages, interrupted-merge behavior, version compatibility, and rollback restrictions in `docs/offline.md`; verify migration/restart fixtures demonstrate every documented recovery path without deleting unknown journals.
 
 ## 7. Editor and folder correctness
 

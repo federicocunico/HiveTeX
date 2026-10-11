@@ -12,7 +12,7 @@ import {
   mergeFileLists,
   mergeText,
 } from './merge.js';
-import type { Mesh } from './mesh.js';
+import type { Mesh, ReconcileOutcome } from './mesh.js';
 import { type FileKind, type ProjectModel, applyTextDiff } from './model.js';
 import type { StoreOp } from './persistence.js';
 
@@ -94,8 +94,13 @@ export interface OfflineForkOptions {
   enabled?: () => boolean;
   /** False for viewers (their offline changes are dropped, as read-only enforcement does). */
   canEdit: () => boolean;
-  /** Resolves once the document was synced with a peer (or after a timeout: then the local state is taken as theirs). */
-  waitSynced: (docId: string) => Promise<void>;
+  /**
+   * Asks the linked peers for the document's complete state and says how that ended (Mesh.reconcile). The merge only
+   * uses remote state that was `confirmed`; anything else keeps it pending. It must stop when `signal` aborts.
+   */
+  confirm: (docId: string, signal: AbortSignal) => Promise<ReconcileOutcome>;
+  /** While a peer stays linked, a failed merge attempt (unconfirmed state, storage) is repeated: after 0.25 s, then doubling up to this long (default 5 s). */
+  retryMs?: number;
   onReport?: (r: MergeReport) => void;
   onChange?: () => void;
   /** This device's id, and how to tell a linked peer whether we hold unshared work (see beforeSync). */
@@ -103,11 +108,25 @@ export interface OfflineForkOptions {
   announce?: (peerDevice: string, forked: boolean) => Promise<void>;
   /** How long to wait for a peer's status (older apps never send one: then it counts as "no unshared work"). */
   statusTimeoutMs?: number;
-  /** A merge step failed (storage, preparation): the journal is kept and the merge is retried at the next link. */
+  /** A merge step failed (storage, preparation, state not confirmed): the journal is kept and the merge is retried. */
   onError?: (e: unknown) => void;
 }
 
 /** Version-1 record key: kept in step with the journal, so an interrupted merge also survives a downgrade to a build that reads it. */
+/** The merge could not proceed yet (state not confirmed, link lost): the journal stays and the attempt is repeated. */
+export class MergePending extends Error {
+  constructor(
+    readonly docId: string,
+    readonly outcome: ReconcileOutcome,
+  ) {
+    super(`offline merge pending: ${docId} was not confirmed (${outcome})`);
+    this.name = 'MergePending';
+  }
+}
+
+/** A newer attempt replaced this one: its answers are ignored. */
+class Superseded extends Error {}
+
 export const FORK_RECORD_KEY = 'fork';
 export const FORK_JOURNAL_KEY = 'fork:journal';
 const REC = FORK_RECORD_KEY;
@@ -156,7 +175,12 @@ export class OfflineFork {
   private io: Promise<void> = Promise.resolve();
   private conflictList: MergeConflict[] = [];
   private theirsChanged = new Set<string>();
-  private running: Promise<void> | null = null;
+  /** Merge attempts run one after the other; only the latest may still apply a result (see startMerge). */
+  private mergeLoop: Promise<void> = Promise.resolve();
+  private attempt: AbortController | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retries = 0;
+  private stopped = false;
   private unsubs: Array<() => void> = [];
   private peerStatus = new Map<string, boolean>();
   private statusWaiters = new Map<string, (forked: boolean) => void>();
@@ -215,6 +239,10 @@ export class OfflineFork {
   }
 
   stop() {
+    this.stopped = true;
+    this.attempt?.abort();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     for (const u of this.unsubs) u();
     this.unsubs = [];
   }
@@ -323,22 +351,37 @@ export class OfflineFork {
    * work against the old state and the two results would be interleaved): the one with the lower device id shares its
    * work as it is, the other merges against it, so any conflict is decided on that one device.
    */
-  async beforeSync(peer?: { deviceId: string }) {
+  async beforeSync(peer?: { deviceId: string; claims?: { role?: string } }) {
     if (peer && this.o.announce) await this.o.announce(peer.deviceId, !!this.rec && this.rec.stage === 'forked').catch(() => {});
     if (!this.rec || this.foreign) return;
     const { model } = this.o;
+    // A viewer can neither hold work to merge with ours nor confirm anyone's state, so with only viewers linked there is
+    // nothing to merge against: the work is shared as it is (a later editor merges against it, as with the tie-break below).
+    // A member who can no longer edit takes the normal path instead, which drops the work.
+    if (this.rec.stage === 'forked' && peer?.claims?.role === 'viewer' && this.o.canEdit()) {
+      await this.clear(this.rec.docs);
+      return;
+    }
     if (this.rec.stage === 'forked' && peer && this.o.selfDevice) {
       const theyForked = await this.peerForked(peer.deviceId);
-      if (theyForked && this.o.selfDevice() < peer.deviceId) {
+      // A member who can no longer edit shares nothing as it is: the merge below replaces the documents and drops the work.
+      if (theyForked && this.o.selfDevice() < peer.deviceId && this.o.canEdit()) {
         await this.clear(this.rec.docs);
         return;
       }
     }
+    let justPrepared = false;
     if (this.rec.stage === 'forked') {
+      justPrepared = true;
       // Load everything first, then capture this device's version and swap in one synchronous pass: an edit typed
       // meanwhile lands either in the captured version or in the swapped-in document, never in between.
-      const docs = [...this.rec.docs];
-      for (const docId of docs) await model.getDoc(docId);
+      // Loading takes time, and a document first edited meanwhile joins the fork: capture only once the set is stable.
+      let docs = [...this.rec.docs];
+      for (;;) {
+        for (const docId of docs) await model.getDoc(docId);
+        if (this.rec.docs.length === docs.length) break;
+        docs = [...this.rec.docs];
+      }
       const empty = Y.encodeStateAsUpdate(new Y.Doc());
       const swap: Array<{ docId: string; state: Uint8Array }> = [];
       this.mineStates.clear();
@@ -366,21 +409,75 @@ export class OfflineFork {
       await run;
       this.durable = true;
     }
-    this.theirsChanged.clear();
-    this.running ??= this.merge()
-      .catch((e) => this.o.onError?.(e))
-      .finally(() => {
-        this.running = null;
-      });
+    if (justPrepared) this.theirsChanged.clear();
+    this.retries = 0; // a new link starts the schedule over
+    this.startMerge();
   }
 
-  private async merge() {
+  /**
+   * Starts a merge attempt for the current link, replacing an earlier one: its late answers are ignored (its signal
+   * is aborted and it checks that after every wait), and it finishes before this one starts, so two attempts never
+   * apply a result at the same time. A failed attempt keeps the journal and is repeated while a peer stays linked.
+   */
+  private startMerge() {
+    if (this.stopped) return;
+    this.attempt?.abort();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const ac = new AbortController();
+    this.attempt = ac;
+    const run = this.mergeLoop.then(async () => {
+      if (ac.signal.aborted) return;
+      try {
+        await this.merge(ac.signal);
+      } catch (e) {
+        ac.abort(); // stops any other request this attempt still has out
+        if (e instanceof Superseded) return;
+        this.o.onError?.(e);
+        this.scheduleRetry(ac);
+      }
+    });
+    this.mergeLoop = run;
+  }
+
+  private scheduleRetry(ac: AbortController) {
+    if (this.stopped || this.attempt !== ac || !this.rec || this.foreign) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      let linked = false;
+      try {
+        linked = this.o.isLinked();
+      } catch {
+        /* treated as not linked: the next link starts the attempt */
+      }
+      if (linked && this.attempt === ac && this.rec && (this.rec.stage === 'prepared' || this.rec.stage === 'reconciling')) this.startMerge();
+    }, Math.min(this.o.retryMs ?? 5000, 250 * 2 ** Math.min(this.retries++, 10)));
+  }
+
+  private async merge(signal: AbortSignal) {
     const rec = this.rec;
     if (!rec || (rec.stage !== 'prepared' && rec.stage !== 'reconciling')) return;
     const { model } = this.o;
     const store = model.store;
-    await this.o.waitSynced(ROOT_DOC_ID);
-    await this.setStage('reconciling');
+    const live = () => {
+      if (signal.aborted) throw new Superseded();
+    };
+    // Only a peer's confirmation of this attempt's own request counts: a timeout, a lost link or an unavailable
+    // document leaves the merge pending, and nothing is applied or cleared.
+    const confirm = async (docId: string) => {
+      // A superseded attempt stops waiting at once, whatever its request ends up answering.
+      const gone = new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(new Superseded());
+        else signal.addEventListener('abort', () => reject(new Superseded()), { once: true });
+      });
+      gone.catch(() => {});
+      const outcome = await Promise.race([this.o.confirm(docId, signal), gone]);
+      live();
+      if (outcome !== 'confirmed') throw new MergePending(docId, outcome);
+    };
+    await confirm(ROOT_DOC_ID);
+    if (this.rec?.stage === 'prepared') await this.setStage('reconciling');
+    live();
     if (!this.o.canEdit()) {
       await this.clear(rec.docs);
       this.o.onReport?.({ merged: [], taken: [], conflicts: 0, discarded: true });
@@ -393,17 +490,39 @@ export class OfflineFork {
     const baseFiles = filesOf(baseRoot);
     const mineFiles = filesOf(mineRoot);
     const theirsFiles = filesOf(model.root);
-    // A text file deleted here but kept there: whether they edited it decides delete vs conflict, so wait for its content.
+    // Everything the merge reads is confirmed before any of it is applied, so a missing answer never leaves a half-applied
+    // result: a text file deleted here but kept there (whether they edited it decides delete vs conflict) and every edited
+    // file that exists on both sides.
+    const forked = new Set(rec.docs);
+    const needed: string[] = [];
     for (const [fid, f] of Object.entries(baseFiles)) {
-      if (f.kind === 'text' && !mineFiles[fid] && theirsFiles[fid]) await this.o.waitSynced(`f:${fid}`);
+      if (f.kind === 'text' && theirsFiles[fid] && (!mineFiles[fid] || forked.has(`f:${fid}`))) needed.push(`f:${fid}`);
     }
+    await Promise.all(needed.map(confirm));
     const forkedText = new Set(rec.docs.filter((d) => d.startsWith('f:')).map((d) => d.slice(2)));
     const theirsText = new Set([...this.theirsChanged].filter((d) => d.startsWith('f:')).map((d) => d.slice(2)));
     const fm = mergeFileLists(baseFiles, mineFiles, theirsFiles, forkedText, theirsText);
     const mineMeta = (id: string) => mineRoot.getMap('files').get(id) as Y.Map<unknown> | undefined;
     const report: MergeReport = { merged: [], taken: [], conflicts: 0 };
-    const mineText = async (fileId: string) => docFromState(await state(mineKey(`f:${fileId}`))).getText('t').toString();
-    const baseText = async (fileId: string) => docFromState(await state(baseKey(`f:${fileId}`))).getText('t').toString();
+    // Found conflicts join the list only with the commit: an attempt that fails halfway and is repeated must not list them twice.
+    const found: MergeConflict[] = [];
+    // Load what the application needs first: from here on it only waits for the documents of files this merge creates.
+    const mineTexts = new Map<string, string>();
+    const baseTexts = new Map<string, string>();
+    const ytexts = new Map<string, Awaited<ReturnType<ProjectModel['openText']>>>();
+    const textOf = async (key: string) => docFromState(await state(key)).getText('t').toString();
+    for (const c of fm.conflicts) {
+      const fid = c.type === 'add-add' ? c.mineId : c.id;
+      if ((mineMeta(fid)?.get('kind') ?? 'text') === 'text') mineTexts.set(fid, await textOf(mineKey(`f:${fid}`)));
+    }
+    for (const fileId of fm.textToMerge) {
+      mineTexts.set(fileId, await textOf(mineKey(`f:${fileId}`)));
+      if (baseFiles[fileId]) {
+        baseTexts.set(fileId, await textOf(baseKey(`f:${fileId}`)));
+        if (model.byId(fileId)) ytexts.set(fileId, await model.openText(fileId));
+      }
+    }
+    live();
 
     // 1. the file table
     for (const { id, state: f } of fm.add) {
@@ -423,27 +542,22 @@ export class OfflineFork {
             kind,
             hash: (m.get('hash') as string | undefined) ?? null,
             ...(m.get('size') !== undefined ? { size: Number(m.get('size')) } : {}),
-            ...(kind === 'text' ? { text: await mineText(fid) } : {}),
+            ...(kind === 'text' ? { text: mineTexts.get(fid) ?? '' } : {}),
           }
         : undefined;
-      this.conflictList.push({ id: uid(), kind: 'file', conflict: c, ...(mine ? { mine } : {}) });
+      found.push({ id: uid(), kind: 'file', conflict: c, ...(mine ? { mine } : {}) });
     }
 
     // 2. text contents
     for (const fileId of fm.textToMerge) {
       if (!model.byId(fileId)) continue;
-      const docId = `f:${fileId}`;
-      const isNew = !baseFiles[fileId];
-      if (!isNew) await this.o.waitSynced(docId);
-      const base = isNew ? '' : await baseText(fileId);
-      const mine = await mineText(fileId);
-      const ytext = await model.openText(fileId);
+      const ytext = ytexts.get(fileId) ?? (await model.openText(fileId));
       // No await from here until the result is applied: edits arriving meanwhile must not be overwritten.
       const theirs = ytext.toString();
       const path = model.byId(fileId)?.path ?? fileId;
-      const r = mergeText(base, mine, theirs);
+      const r = mergeText(baseTexts.get(fileId) ?? '', mineTexts.get(fileId) ?? '', theirs);
       if (r.kind === 'conflict') {
-        this.conflictList.push({ id: uid(), kind: 'text', fileId, path, theirsAtMerge: theirs, regions: r.regions });
+        found.push({ id: uid(), kind: 'text', fileId, path, theirsAtMerge: theirs, regions: r.regions });
         continue;
       }
       if (r.kind === 'theirs') continue;
@@ -451,11 +565,13 @@ export class OfflineFork {
       (r.kind === 'clean' ? report.merged : report.taken).push(path);
     }
 
-    report.conflicts = this.conflictList.length;
+    const conflicts = [...this.conflictList, ...found];
+    report.conflicts = conflicts.length;
     // The merged documents must be durable before the recovery data may go; the conflicts and the 'committed' stage
     // are written together, so a restart either redoes the merge or knows it is complete.
     await model.flush();
-    await this.setStage('committed', [{ op: 'meta', key: CONFLICTS, value: this.conflictList.length ? this.conflictList : undefined }]);
+    await this.setStage('committed', [{ op: 'meta', key: CONFLICTS, value: conflicts.length ? conflicts : undefined }]);
+    this.conflictList = conflicts;
     await this.clear(rec.docs);
     this.o.onReport?.(report);
   }
@@ -538,6 +654,7 @@ export class OfflineFork {
   async resolveText(conflictId: string, decisions: Array<HunkDecision | undefined>): Promise<'resolved' | 'conflict-again'> {
     const c = this.conflictList.find((x) => x.id === conflictId);
     if (!c || c.kind !== 'text') throw new Error('no such conflict');
+    this.requireEdit();
     const resolved = applyDecisions(c.regions, decisions);
     const ytext = await this.o.model.openText(c.fileId);
     const now = ytext.toString();
@@ -557,6 +674,7 @@ export class OfflineFork {
   async resolveFile(conflictId: string, choice: FileChoice) {
     const c = this.conflictList.find((x) => x.id === conflictId);
     if (!c || c.kind !== 'file') throw new Error('no such conflict');
+    this.requireEdit();
     const { model } = this.o;
     const k = c.conflict;
     const restoreMine = async (id: string, path?: string) => {
@@ -578,6 +696,11 @@ export class OfflineFork {
     await this.drop(conflictId);
   }
 
+  /** Decisions change the shared project: a member who lost edit rights keeps the conflicts but cannot apply them. */
+  private requireEdit() {
+    if (!this.o.canEdit()) throw new Error('Read-only members cannot resolve offline conflicts: they would edit the shared project.');
+  }
+
   private async drop(conflictId: string) {
     this.conflictList = this.conflictList.filter((x) => x.id !== conflictId);
     await this.persistConflicts();
@@ -589,11 +712,11 @@ export class OfflineFork {
   }
 }
 
-/** Connects an OfflineFork to a mesh: the fork status handshake and waiting for synced documents. */
-export function forkMeshOptions(mesh: () => Mesh, selfDevice: () => string, ms = 8000): Pick<OfflineForkOptions, 'isLinked' | 'waitSynced' | 'selfDevice' | 'announce'> {
+/** Connects an OfflineFork to a mesh: the fork status handshake and confirmed document state. */
+export function forkMeshOptions(mesh: () => Mesh, selfDevice: () => string, ms = 8000): Pick<OfflineForkOptions, 'isLinked' | 'confirm' | 'selfDevice' | 'announce'> {
   return {
     isLinked: () => (mesh()?.peers.length ?? 0) > 0,
-    waitSynced: (docId) => meshWaitSynced(mesh(), ms)(docId),
+    confirm: async (docId, signal) => (await mesh().reconcile(docId, { signal, timeoutMs: ms })).outcome,
     selfDevice,
     announce: (peerDevice, forked) => mesh().sendApp(peerDevice, 'fork', { forked }),
   };
@@ -603,26 +726,6 @@ export function forkMeshOptions(mesh: () => Mesh, selfDevice: () => string, ms =
 export function listenForkStatus(mesh: Mesh, fork: OfflineFork) {
   mesh.onApp('fork', (from, body) => fork.receiveStatus(from.deviceId, !!(body as { forked?: unknown })?.forked));
   mesh.onPeerLeave((p) => fork.forgetPeer(p.deviceId));
-}
-
-/** OfflineForkOptions.waitSynced over a mesh: resolves when a peer's state for the document arrived, or after `ms`. */
-export function meshWaitSynced(mesh: Mesh, ms = 8000) {
-  return (docId: string) =>
-    new Promise<void>((resolve) => {
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        off();
-        clearTimeout(timer);
-        resolve();
-      };
-      const off = mesh.onDocSynced((id) => {
-        if (id === docId) finish();
-      });
-      const timer = setTimeout(finish, ms);
-      void mesh.openDoc(docId).catch(finish);
-    });
 }
 
 /** `chapter (mine).tex` from `chapter.tex`. */

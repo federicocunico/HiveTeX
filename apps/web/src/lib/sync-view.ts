@@ -71,3 +71,10 @@ export function editorsByFile(people: Array<{ name: string; file: string | null 
 export function saveWarning(saveFailing: boolean): string | null {
   return saveFailing ? 'Not saved on this device: storage is failing. Export a recovery copy now.' : null;
 }
+
+/** What to tell the member while their offline changes wait to be merged (null when nothing is wrong). */
+export function mergeNotice(error: unknown): string | null {
+  if (!error) return null;
+  if (error instanceof Error && error.name === 'MergePending') return 'Your offline changes are kept and waiting for a co-author to confirm the project. They are merged as soon as one does.';
+  return 'Your offline changes are kept, but could not be prepared for merging yet. This is retried when a co-author connects.';
+}
