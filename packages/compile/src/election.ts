@@ -48,8 +48,9 @@ export class Election {
     },
   ) {
     this.self = { ...selfRecord, stamp: 1 };
-    mesh.onApp('cap', (from, body) => this.onCap(from, body as CapabilityRecord));
-    mesh.onApp('beat', (from, body) => this.onBeat(from, body as Beat));
+    // Leadership inputs are privileged: the mesh drops them from a peer that is a viewer when they arrive.
+    mesh.onApp('cap', (from, body) => this.onCap(from, body as CapabilityRecord), { editorOnly: true });
+    mesh.onApp('beat', (from, body) => this.onBeat(from, body as Beat), { editorOnly: true });
     mesh.onPeerJoin((p) => {
       void mesh.sendApp(p.deviceId, 'cap', this.self);
       // Share what we know about devices the newcomer cannot see directly.

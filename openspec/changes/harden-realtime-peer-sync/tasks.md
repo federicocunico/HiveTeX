@@ -20,9 +20,9 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 3. Epoch authority and delayed authorization
 
-- [ ] 3.1 Accept enforced epoch advances only from verified same-project authority, including the local ticket refresh path; verify F05 with forged numeric epochs from viewers, wrong-project/expired evidence, and valid refreshed tickets.
-- [ ] 3.2 Retain per-device ticket freshness across connection replacement and recheck generation/role before delayed document application; verify F18 with demotion during a deferred load and reconnect using an older editor ticket.
-- [ ] 3.3 Validate privileged application messages at their handler boundary and update `docs/protocol.md` and `docs/security.md`; verify existing tampered-viewer tests still pass and unsupported epoch hints neither evict peers nor cause repeated refresh storms.
+- [x] 3.1 Accept enforced epoch advances only from verified same-project authority, including the local ticket refresh path; verify F05 with forged numeric epochs from viewers, wrong-project/expired evidence, and valid refreshed tickets.
+- [x] 3.2 Retain per-device ticket freshness across connection replacement and recheck generation/role before delayed document application; verify F18 with demotion during a deferred load and reconnect using an older editor ticket.
+- [x] 3.3 Validate privileged application messages at their handler boundary and update `docs/protocol.md` and `docs/security.md`; verify existing tampered-viewer tests still pass and unsupported epoch hints neither evict peers nor cause repeated refresh storms.
 
 ## 4. Discovery and session lifecycle
 

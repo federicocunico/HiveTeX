@@ -223,12 +223,14 @@ export class CompileClient {
   constructor(
     private o: { mesh: Mesh; model: ProjectModel; blobs: BlobManager; election?: Election; leader?: CompileLeader },
   ) {
-    o.mesh.onApp('compiled', (from, body) => void this.onResult(from, body as CompileResult));
+    o.mesh.onApp('compiled', (from, body) => void this.onResult(from, body as CompileResult), { editorOnly: true });
     o.election?.onLeaderChange((l) => {
-      const r = l ? this.pending.get(l) : undefined;
-      if (r && l) {
+      const held = l ? this.pending.get(l) : undefined;
+      if (held && l) {
         this.pending.delete(l);
-        void this.accept(r);
+        // The sender may have been demoted or have left while its result waited for our election view to agree.
+        const sender = this.o.mesh.peers.find((p) => p.deviceId === l);
+        if (sender && sender.claims.role !== 'viewer') void this.accept(held);
       }
     });
     // Results produced on this very device are delivered locally (the mesh only reaches other peers).

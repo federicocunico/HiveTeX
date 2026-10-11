@@ -29,7 +29,8 @@ for each control.
 | Join guessing | 80-bit random IDs, generic errors, 5 failures / 15 min per account and per IP, password hashed with argon2id | projects tests |
 | Peer authentication | EdDSA tickets (pinned keys, `typ`/`alg` checked, ≤ 15 min), key-possession proof signed over **both DTLS fingerprints** | `packages/sync/test/handshake.test.ts`, `server/test/p2p-e2e.test.ts` (MITM) |
 | Read-only | updates, blob announcements, compile results from viewers dropped and never forwarded | `packages/sync/test/mesh.test.ts`, `e2e/full-flow.spec.ts` |
-| Revocation | epoch gossip, 60 s refresh grace, stale-epoch peers refused afterwards, removed users cannot get tickets | mesh tests, `e2e/full-flow.spec.ts` |
+| Revocation | epochs advance only from verified same-project tickets (an invented number is a rate-limited hint), per-device ticket freshness kept across reconnects, 60 s refresh grace, stale-epoch peers refused afterwards, removed users cannot get tickets | `packages/sync/test/epoch-authority.test.ts`, mesh tests, `e2e/full-flow.spec.ts` |
+| Delayed work | document frames and privileged `APP` messages are authorized against the sender's current connection and role when applied, not when received | `packages/sync/test/epoch-authority.test.ts` |
 | Content privacy | nothing but encrypted setup traffic reaches the server | `server/test/p2p-e2e.test.ts` › keeps document text … off the control plane |
 | Signaling | in-band ticket auth (never in URLs), 64 KB messages, 60 msgs / 10 s, closed at ticket expiry | `server/test/signal.test.ts` |
 | Input validation | Valibot schemas on every body, 64 KB body limit, path-safety on project paths (no `..`, absolute, backslash, control chars; unsafe paths from peers are neutralised), zip-slip and zip-bomb checks | server tests, `packages/sync/test/model-sync.test.ts`, `apps/web/test/libs.test.ts` |
@@ -42,7 +43,9 @@ for each control.
 ## Findings from the review (all fixed)
 
 1. **Reconnection after removal** – a removed member could keep re-joining the mesh with a stale ticket. *Fix*: stale-epoch peers are
-   refused once the 60 s grace has passed; the owner's client announces the new epoch immediately after each change.
+   refused once the 60 s grace has passed; the owner's client announces the new epoch immediately after each change. Epoch
+   announcements are only trusted with a verified ticket attached: a member could otherwise announce an enormous epoch and make
+   honest members look stale (audit F05).
 2. **Timing oracle on password recovery** – sending mail only for registered addresses made response time reveal registration.
    *Fix*: the mail is sent after the response (`waitUntil` on Vercel).
 3. **Path injection through the CRDT** – a malicious editor could write `../../x` into the shared file table, which would escape

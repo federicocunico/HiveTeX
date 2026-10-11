@@ -110,9 +110,13 @@ describe('membership epoch policy (6.2)', () => {
 
     // owner's membership view moves to epoch 2 (e.g. someone was removed)
     net.auth.epoch = 2;
-    const ownerKeys = (owner as unknown as { mesh: { o: { keys: unknown } } }).mesh.o.keys;
-    void ownerKeys;
-    owner.mesh.broadcast(0x20, new TextEncoder().encode(JSON.stringify({ epoch: 2 })));
+    // the owner's client fetches its epoch-2 ticket; peers learn the epoch from that verified evidence
+    await owner.mesh.refreshOwnTicket(
+      await net.auth.mint(
+        { pid: 'proj1', uid: 'u-owen', uname: 'owen', dev: owner.dev, keys: (owner.mesh as unknown as { o: { keys: never } }).o.keys, role: 'owner', ep: 2 },
+        { iat: Math.floor(clock.t / 1000) },
+      ),
+    );
     await waitFor(() => owner.mesh.peers.length === 2 && owner.mesh.epoch === 2 && stale.mesh.epoch === 2 && fresh.mesh.epoch === 2).catch((e) => { throw new Error(`epochs ${owner.mesh.peers.length} ${stale.mesh.epoch} ${fresh.mesh.epoch}: ${e}`); });
 
     clock.t += 30_000;
@@ -205,7 +209,12 @@ describe('ticket refresh monotonicity (security)', () => {
 
     // owner demotes dee: epoch 2, dee's honest client fetches its new viewer ticket
     net.auth.epoch = 2;
-    owner.mesh.broadcast(0x20, new TextEncoder().encode(JSON.stringify({ epoch: 2 })));
+    await owner.mesh.refreshOwnTicket(
+      await net.auth.mint(
+        { pid: 'proj1', uid: 'u-owen', uname: 'owen', dev: owner.dev, keys: (owner.mesh as unknown as { o: { keys: never } }).o.keys, role: 'owner', ep: 2 },
+        { iat: Math.floor(clock.t / 1000) },
+      ),
+    );
     clock.t += 5_000;
     dee.mesh.refreshOwnTicket(await mint('viewer', 2, Math.floor(clock.t / 1000)));
     await waitFor(() => owner.mesh.peers[0]?.claims.role === 'viewer');

@@ -52,7 +52,7 @@ never for blobs). Document frames use `[docIdLen: u16 BE][docId utf8][data]`.
 | 0x11 | STEP2 | doc frame: Yjs update for what the requester is missing |
 | 0x12 | UPDATE | doc frame: incremental Yjs update |
 | 0x13 | AWARENESS | y-protocols awareness update (presence, cursors) |
-| 0x20 | EPOCH | JSON `{epoch}` – highest membership epoch seen |
+| 0x20 | EPOCH | JSON `{epoch, ticket?}` – highest membership epoch seen, with the verified ticket that proves it (see below) |
 | 0x21 | TICKET | JSON `{ticket}` – refreshed membership ticket |
 | 0x30 | BLOB_HAVE | JSON `{hashes}` |
 | 0x31 | BLOB_WANT | JSON `{hash, from, to}` – chunk range request |
@@ -63,6 +63,19 @@ never for blobs). Document frames use `[docIdLen: u16 BE][docId utf8][data]`.
 
 Types a `viewer` connection may send (everything else is dropped): `HELLO`, `AUTH`, `STEP1`, `AWARENESS`, `EPOCH`,
 `TICKET`, `BLOB_WANT`, `BLOB_NONE`, `PEERS`, `APP`.
+
+### Epoch authority and delayed authorization
+
+* The enforced membership epoch only advances from a **verified ticket of this project** (signature, expiry, project id): a peer's
+  own hello/refresh ticket, our own freshly issued ticket (verified the same way before it is shared), or the `ticket` attached to
+  an `EPOCH` frame, which any member may relay. The epoch becomes the epoch *in the ticket*; the number beside it is ignored.
+* An `EPOCH` frame without a ticket (legacy clients) or with a ticket that fails verification is only a **hint**: it never
+  changes policy, is never rebroadcast, and prompts at most one ticket refresh per 30 s (`epochHintRefreshMs`).
+* A receiver remembers each device's newest verified (epoch, issued-at) for the session, across connection replacement; a
+  reconnect presenting an older ticket is refused (`stale device ticket`).
+* Document frames that waited for the sync gate or a document load are applied only if the connection is still the device's
+  active one and the sender is still not a viewer when they are applied. `APP` topics that are privileged (election `cap`/`beat`,
+  `compiled`) are registered `editorOnly`, so the sender's role is checked when the message is dispatched.
 
 ## Authentication handshake
 

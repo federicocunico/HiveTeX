@@ -1,4 +1,4 @@
-import type { StoredDeviceKeys } from '@hivetex/crypto';
+import { type StoredDeviceKeys, verifyTicket } from '@hivetex/crypto';
 import { MsgType, ROOT_DOC_ID, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import {
   Awareness,
@@ -22,6 +22,8 @@ export interface MeshOptions {
   now?: () => Date;
   /** Seconds a peer with a stale epoch has to present a refreshed ticket. */
   epochGraceMs?: number;
+  /** Minimum time between ticket refreshes provoked by unverified epoch hints (default 30 s). */
+  epochHintRefreshMs?: number;
   policyIntervalMs?: number;
   /** A peer that sent nothing (not even pings) for this long is considered gone. Default 20 s. */
   deadAfterMs?: number;
@@ -68,6 +70,11 @@ export class Mesh {
   private leaveCbs = new Set<(p: PeerInfo) => void>();
   private maxEpoch = 0;
   private maxEpochSince = 0;
+  /** The verified ticket that proves `maxEpoch`; relayed so peers can verify the epoch themselves. */
+  private epochEvidence: { raw: string; claims: TicketClaims } | null = null;
+  private lastHintRefreshAt = 0;
+  /** Newest verified (epoch, issued-at) seen per device in this session; survives connection replacement. */
+  private deviceMarks = new Map<string, { ep: number; iat: number }>();
   private epochCbs = new Set<(epoch: number) => void>();
   private policyTimer: ReturnType<typeof setInterval>;
   /** Document frames wait for this (see MeshOptions.beforeSync). */
@@ -118,7 +125,10 @@ export class Mesh {
   onPeerLeave(cb: (p: PeerInfo) => void) {
     this.leaveCbs.add(cb);
   }
-  /** Fires when any peer reveals a newer membership epoch than we have seen (time to refresh our ticket). */
+  /**
+   * Fires when a newer membership epoch is verified, or a peer merely hints at one (time to refresh our ticket).
+   * Hints never change policy and provoke at most one callback per `epochHintRefreshMs`.
+   */
   onEpochAdvance(cb: (epoch: number) => void) {
     this.epochCbs.add(cb);
   }
@@ -127,9 +137,13 @@ export class Mesh {
     this.docSyncedCbs.add(cb);
     return () => this.docSyncedCbs.delete(cb);
   }
-  onApp(topic: string, h: AppHandler) {
+  /**
+   * `editorOnly` topics are privileged: the sender's role is checked when the message is dispatched (not when the
+   * frame was decoded), so a demoted peer's message is never handed to the handler.
+   */
+  onApp(topic: string, h: AppHandler, opts: { editorOnly?: boolean } = {}) {
     const s = this.appHandlers.get(topic) ?? new Set();
-    s.add(h);
+    s.add(opts.editorOnly ? (from, body) => (from.claims.role === 'viewer' || from.conn.role === 'viewer' ? undefined : h(from, body)) : h);
     this.appHandlers.set(topic, s);
   }
   onRaw(type: number, h: RawHandler) {
@@ -159,6 +173,14 @@ export class Mesh {
       conn.close();
       throw new Error('connected to self');
     }
+    // A device that already presented a newer ticket in this session cannot go back to an older one (an older
+    // editor ticket would restore privileges the owner has since lowered), even on a fresh connection.
+    const mark = this.deviceMarks.get(claims.dev);
+    if (mark && (claims.ep < mark.ep || claims.iat < mark.iat)) {
+      conn.close();
+      this.rejected.push('stale device ticket');
+      throw new Error('stale device ticket');
+    }
     // A peer still presenting a ticket from before an epoch bump (someone was removed / demoted) is refused
     // once the grace period for refreshing has passed: otherwise a removed member could keep reconnecting.
     if (claims.ep < this.maxEpoch && this.now() - this.maxEpochSince > (this.o.epochGraceMs ?? 60_000)) {
@@ -186,10 +208,11 @@ export class Mesh {
     conn.onFrame((c, type, payload) => void this.onFrame(c, type, payload));
     conn.onTicketRefreshed((c, nc) => this.onTicketRefreshed(c, nc));
     conn.onClose(() => this.dropConn(conn));
-    this.noteEpoch(claims.ep);
+    this.noteDeviceTicket(claims);
+    this.noteEpoch(claims, conn.ticketRaw);
     for (const cb of this.joinCbs) cb(info);
     this.announceNeighbours();
-    await this.safeSend(conn, MsgType.EPOCH, jsonBytes({ epoch: this.maxEpoch }));
+    await this.safeSend(conn, MsgType.EPOCH, this.epochFrame());
     await this.startSync(conn);
     return info;
   }
@@ -353,6 +376,9 @@ export class Mesh {
           if (data.length > MAX_UPDATE) return;
           if (!this.interest.get(conn)?.has(docId) && !this.requested.get(conn)?.has(docId)) return;
           const doc = await this.o.model.getDoc(docId);
+          // Waiting for the gate and the load can outlive the connection, its replacement, or the sender's role.
+          if (this.conns.get(conn) !== info || conn.role === 'viewer' || info.claims.role === 'viewer') return;
+          if (!this.interest.get(conn)?.has(docId) && !this.requested.get(conn)?.has(docId)) return;
           Y.applyUpdate(doc, data, conn);
           for (const cb of this.docSyncedCbs) cb(docId, info);
           return;
@@ -361,12 +387,17 @@ export class Mesh {
           applyAwarenessUpdate(this.awareness, payload, conn);
           return;
         case MsgType.EPOCH: {
-          const { epoch } = parseJson<{ epoch: number }>(payload);
-          if (Number.isFinite(epoch)) this.noteEpoch(epoch);
+          const { epoch, ticket } = parseJson<{ epoch?: unknown; ticket?: unknown }>(payload);
+          // Only a verified same-project ticket moves the enforced epoch (to the epoch it carries). A bare number,
+          // or evidence that fails verification, is at most a hint to refresh our own ticket.
+          const verified = typeof ticket === 'string' ? await this.verifyEvidence(ticket) : null;
+          if (verified) this.noteEpoch(verified, ticket as string);
+          else if (typeof epoch === 'number' && Number.isSafeInteger(epoch)) this.noteEpochHint(epoch);
           return;
         }
         case MsgType.APP: {
           const { topic, body } = parseJson<{ topic: string; body: unknown }>(payload);
+          if (typeof topic !== 'string') return;
           for (const h of this.appHandlers.get(topic) ?? []) h(info, body);
           return;
         }
@@ -410,25 +441,67 @@ export class Mesh {
 
   // ---- membership epoch / ticket policy ----
 
-  private noteEpoch(e: number) {
-    if (e <= this.maxEpoch) return;
+  private async verifyEvidence(ticket: string): Promise<TicketClaims | null> {
+    try {
+      const claims = await verifyTicket(ticket, this.o.trusted, this.o.now ? { now: this.o.now() } : {});
+      return claims.pid === this.o.projectId ? claims : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private epochFrame() {
+    return jsonBytes({ epoch: this.maxEpoch, ...(this.epochEvidence ? { ticket: this.epochEvidence.raw } : {}) });
+  }
+
+  /** Advances the enforced epoch from a ticket whose signature, project and expiry were verified. */
+  private noteEpoch(claims: TicketClaims, raw: string) {
+    const e = claims.ep;
+    if (e < this.maxEpoch) return;
+    if (e === this.maxEpoch) {
+      if (!this.epochEvidence || claims.exp > this.epochEvidence.claims.exp) this.epochEvidence = { raw, claims };
+      return;
+    }
     this.maxEpoch = e;
+    this.epochEvidence = { raw, claims };
     const now = this.now();
     this.maxEpochSince = now;
     for (const cb of this.epochCbs) cb(e);
     for (const [c, i] of this.conns) if ((c.claims ?? i.claims).ep < e && !this.staleSince.has(c)) this.staleSince.set(c, now);
-    this.broadcast(MsgType.EPOCH, jsonBytes({ epoch: e }));
+    this.broadcast(MsgType.EPOCH, this.epochFrame());
   }
 
-  /** The control plane issued us a fresh ticket: share it so peers see our current role and epoch. */
-  refreshOwnTicket(ticket: string) {
+  /** A peer claims a newer epoch without proof: never policy, only a rate-limited prompt to refresh our ticket. */
+  private noteEpochHint(e: number) {
+    if (e <= this.maxEpoch) return;
+    const now = this.now();
+    if (now - this.lastHintRefreshAt < (this.o.epochHintRefreshMs ?? 30_000)) return;
+    this.lastHintRefreshAt = now;
+    for (const cb of this.epochCbs) cb(e);
+  }
+
+  private noteDeviceTicket(c: TicketClaims) {
+    const m = this.deviceMarks.get(c.dev);
+    this.deviceMarks.set(c.dev, { ep: Math.max(m?.ep ?? 0, c.ep), iat: Math.max(m?.iat ?? 0, c.iat) });
+  }
+
+  /**
+   * The control plane issued us a fresh ticket: after verifying it like any peer's, share it so peers see our current
+   * role and epoch, and advance our own enforced epoch. Resolves false (sharing nothing) for an invalid ticket.
+   */
+  async refreshOwnTicket(ticket: string): Promise<boolean> {
+    const claims = await this.verifyEvidence(ticket);
+    if (!claims) return false;
     this.broadcast(MsgType.TICKET, jsonBytes({ ticket }));
+    this.noteEpoch(claims, ticket);
+    return true;
   }
 
   private onTicketRefreshed(conn: PeerConnection, claims: TicketClaims) {
     const info = this.conns.get(conn);
     if (info) info.claims = claims;
-    this.noteEpoch(claims.ep);
+    this.noteDeviceTicket(claims);
+    this.noteEpoch(claims, conn.ticketRaw);
     if (claims.ep >= this.maxEpoch) this.staleSince.delete(conn);
     else if (!this.staleSince.has(conn)) this.staleSince.set(conn, this.now());
   }
