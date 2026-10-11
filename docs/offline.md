@@ -94,6 +94,12 @@ cannot tell whether that co-author's own copy is whole. Specs: `openspec/specs/p
 *Sync progress visibility*, *Manual sync*, *Safe identical-file consolidation*); wire details in `docs/protocol.md`
 (*Availability and reconciliation*); tests: `packages/sync/test/{availability,reconcile,sync-retry,sync-outcome}.test.ts`.
 
+### Known limit: several tabs
+
+Opening the same project in several tabs of the same browser profile is not supported. The tabs share one stored device
+identity, a new connection from one tab replaces the other's, and the tabs do not coordinate saving. Keep one tab per
+project.
+
 ## When this device cannot save
 
 Edits are written to this device's storage a fraction of a second after you type. Whether they are *saved on this
@@ -178,7 +184,10 @@ The Sync panel says *Your offline changes are kept and waiting for a co-author t
 
 A **viewer** can neither confirm state nor hold work to merge with yours. When the first co-author to link is a viewer,
 your offline work is therefore shared as it is, at once, and an editor who joins later merges against it. (A member who can
-no longer edit never takes this path: the work is dropped, see below.)
+no longer edit never takes this path: the work is dropped, see below.) The trade-off: if an editor who is not linked yet
+changed the same lines meanwhile, the conflict shows up when that editor links, not right away. Waiting for an editor
+instead would keep your work unshared for as long as none is online. Spec: `openspec/specs/peer-sync` (*Offline work when
+only viewers are linked*).
 
 If preparing the merge fails (for example the recovery copy cannot be saved, or a document cannot be read), **no document is
 exchanged on that link**: the link is closed instead, so the others never see unmerged offline work, and the next link

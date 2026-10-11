@@ -118,7 +118,10 @@ written. A file that is only named in the project but never arrives is simply le
 
 A viewer's folder never changes the project, not even when it is bound or reopened. Files that differ from the project are
 restored from it, with a notice ("… differs from the project and is restored from it (read-only for you)"). Files that
-are not part of the project are left where they are with a notice and are not shared.
+are not part of the project when the folder is bound or reopened are left where they are with a notice and are not shared:
+the project's file list may not have fully arrived yet, and deleting them could empty the folder by mistake. After that,
+changes made in the folder are reverted: edited files are restored, and new files are removed ("… is read-only for you;
+your local change was reverted").
 
 ### When a file cannot be written
 

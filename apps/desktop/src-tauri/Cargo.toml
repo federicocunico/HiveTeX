@@ -1,6 +1,6 @@
 [package]
 name = "hivetex-desktop"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 default-run = "hivetex-desktop"
 license = "AGPL-3.0-or-later"
@@ -32,6 +32,8 @@ zip = { version = "4", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1"
 lzma-rs = "0.3"
+# TinyTeX for Windows ships as a 7-Zip self-extractor: its archive is unpacked in-process (no extractor window).
+sevenz-rust2 = { version = "=0.23.0", default-features = false, features = ["util"] }
 tiny_http = "0.12"
 getrandom = "0.3"
 
@@ -55,3 +57,7 @@ tauri-plugin-updater = "2"
 # Automated desktop UI tests only: `mirror_pick` returns the folder named by HIVETEX_TEST_PICK_DIR instead of opening
 # the native dialog (WebDriver cannot drive OS dialogs). Never enabled in release builds.
 test-picker = []
+
+[dev-dependencies]
+# builds 7z fixtures for the self-extractor tests
+sevenz-rust2 = { version = "=0.23.0", default-features = false, features = ["util", "compress"] }

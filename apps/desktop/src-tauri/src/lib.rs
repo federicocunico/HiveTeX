@@ -2,6 +2,7 @@ pub mod managed;
 pub mod helper;
 pub mod mirror;
 pub mod probe;
+pub mod proc;
 pub mod rtc;
 pub mod secrets;
 pub mod tex;
@@ -14,7 +15,7 @@ use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
 fn tex_detect() -> Option<tex::EngineInfo> {
-    tex::detect()
+    tex::detect_fresh()
 }
 
 /// Compiles on a blocking thread so the UI stays responsive. Packages the compiler downloads on the way are reported as
@@ -55,7 +56,9 @@ async fn managed_install(app: tauri::AppHandle, component: String) -> Result<man
             let _ = emitter.emit("managed://progress", ManagedProgress { component: name.clone(), received, total });
         }
     };
-    managed::install(&client, &root, asset, &progress).await
+    let res = managed::install(&client, &root, asset, &progress).await;
+    tex::forget_engine();
+    res
 }
 
 #[derive(serde::Serialize)]
@@ -87,7 +90,9 @@ fn managed_remove(app: tauri::AppHandle, component: String) -> Result<(), String
         return Err("unknown component".into());
     }
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    managed::remove(&root, &component)?;
+    let res = managed::remove(&root, &component);
+    tex::forget_engine();
+    res?;
     if component == "tectonic" {
         let _ = std::fs::remove_dir_all(root.join("tectonic-cache"));
     }

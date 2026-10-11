@@ -64,6 +64,13 @@ retries the connection to co-authors who are online, asks every co-author again 
 missing; it tells you what it did. A notification appears when everything has arrived, or when nothing has progressed
 for a minute while files are still missing.
 
+While files are missing on this device, **compiling, downloading the project (.zip) and GitHub backup** wait for them or
+are refused, and the message names the files that have not arrived. They never use an empty stand-in. Once everything
+has arrived, they work again, offline too. See [What is here, what is saved, what is current](offline.md#what-is-here-what-is-saved-what-is-current).
+
+**Known limit:** opening the same project in several tabs of the same browser profile is not supported. The tabs share
+one device identity and do not coordinate, so use one tab per project.
+
 ### Offline work and conflicts
 
 Edits made while no co-author is connected are merged like git when one connects: changes in different places merge

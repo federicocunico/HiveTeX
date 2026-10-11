@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+use crate::proc::background_command;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -129,9 +130,8 @@ pub fn find_exe_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
 }
 
 fn version_text(exe: &Path) -> String {
-    Command::new(exe)
+    background_command(exe)
         .arg("--version")
-        .stdin(Stdio::null())
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default()
@@ -141,6 +141,63 @@ pub fn detect() -> Option<EngineInfo> {
     // HIVETEX_IGNORE_SYSTEM_TEX=1: behave as on a machine without TeX (tests of the managed compilers).
     let path = if std::env::var_os("HIVETEX_IGNORE_SYSTEM_TEX").is_some() { None } else { std::env::var_os("PATH") };
     detect_with(path.as_deref(), managed_root().map(PathBuf::as_path))
+}
+
+/// The last detection, reused by compiles: each detection starts processes (`--version`), and a save must not.
+/// Refreshed when the UI asks (`detect_fresh`), cleared when a managed compiler is installed or removed.
+pub struct EngineCache(std::sync::Mutex<Option<EngineInfo>>);
+
+impl EngineCache {
+    pub const fn new() -> Self {
+        EngineCache(std::sync::Mutex::new(None))
+    }
+
+    fn slot(&self) -> std::sync::MutexGuard<'_, Option<EngineInfo>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The remembered engine while its executable is still there (a file check, no process); else detects again.
+    /// "Nothing found" is not remembered, so a TeX installed meanwhile is found by the next compile.
+    pub fn get_or_detect(&self, detect: &dyn Fn() -> Option<EngineInfo>) -> Option<EngineInfo> {
+        if let Some(info) = self.slot().clone().filter(still_installed) {
+            return Some(info);
+        }
+        self.refresh(detect)
+    }
+
+    pub fn refresh(&self, detect: &dyn Fn() -> Option<EngineInfo>) -> Option<EngineInfo> {
+        let info = detect();
+        *self.slot() = info.clone();
+        info
+    }
+
+    pub fn forget(&self) {
+        *self.slot() = None;
+    }
+}
+
+static ENGINE: EngineCache = EngineCache::new();
+
+/// Detects now and remembers the result for later compiles (compiler panel, project open).
+pub fn detect_fresh() -> Option<EngineInfo> {
+    ENGINE.refresh(&detect)
+}
+
+/// Forgets the remembered engine (a managed compiler was installed or removed).
+pub fn forget_engine() {
+    ENGINE.forget();
+}
+
+/// Whether a detected engine's executable still exists.
+fn still_installed(info: &EngineInfo) -> bool {
+    if info.flavor.starts_with("tectonic") {
+        return info.bin_dir.as_ref().is_some_and(|b| b.join(if cfg!(windows) { "tectonic.exe" } else { "tectonic" }).is_file());
+    }
+    let Some(engine) = info.supports.first() else { return false };
+    match &info.bin_dir {
+        Some(b) => find_exe_in(engine, b.as_os_str()).is_some(),
+        None => find_exe(engine).is_some(),
+    }
 }
 
 /// `detect` over an explicit search path (tests).
@@ -264,12 +321,8 @@ fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: O
             });
         }
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW | CREATE_SUSPENDED is awkward with std; assign the job right after spawn instead.
-        cmd.creation_flags(0x0800_0000);
-    }
+    // The window is already hidden (background_command); CREATE_SUSPENDED is awkward with std, so the job is
+    // assigned right after spawn instead.
     let mut child = cmd.spawn()?;
     #[cfg(windows)]
     let _job = winjob::JobGuard::attach(&child, memory_mb);
@@ -338,7 +391,7 @@ mod winjob {
 }
 
 fn base_command(exe: PathBuf, dir: &Path) -> Command {
-    let mut c = Command::new(exe);
+    let mut c = background_command(exe);
     c.current_dir(dir)
         // TeX Live path restrictions (paranoid: no reads/writes outside the working tree).
         .env("openout_any", "p")
@@ -433,7 +486,7 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
     let log_path = out_dir.join(format!("{stem}.log"));
     let _ = fs::remove_file(&pdf_path);
 
-    let Some(info) = detect() else {
+    let Some(info) = ENGINE.get_or_detect(&detect) else {
         resp.log = "! No TeX installation found (install TeX Live, MiKTeX or MacTeX)".into();
         return resp;
     };
@@ -697,7 +750,7 @@ fn roots_from(kpse: &Path) -> Vec<PathBuf> {
             "TEXMFROOT", "TEXMFDIST", "TEXMFMAIN", "TEXMFLOCAL", "TEXMFSYSVAR", "TEXMFSYSCONFIG", "TEXMFVAR",
             "TEXMFCONFIG", "TEXMFHOME", "TEXMFCACHE", "SELFAUTOPARENT",
         ] {
-            let Ok(o) = Command::new(&kpse).arg(format!("-var-value={var}")).stdin(Stdio::null()).stderr(Stdio::null()).output() else { continue };
+            let Ok(o) = background_command(kpse).arg(format!("-var-value={var}")).stderr(Stdio::null()).output() else { continue };
             for v in String::from_utf8_lossy(&o.stdout).trim().split(sep) {
                 let v = v.trim().trim_start_matches("!!");
                 // unexpanded brace/variable lists are not usable roots
@@ -811,6 +864,50 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
         }
+    }
+
+    fn managed_tinytex(bin: &Path) -> EngineInfo {
+        EngineInfo { flavor: "tinytex (managed)".into(), supports: vec!["pdflatex".into()], has_latexmk: false, verified_reads: true, bin_dir: Some(bin.to_path_buf()) }
+    }
+
+    #[test]
+    fn saves_reuse_the_detected_engine() {
+        let bin = tmp("cache-reuse");
+        fake_exe(&bin, "pdflatex");
+        let cache = EngineCache::new();
+        let calls = std::cell::Cell::new(0);
+        let detect = || {
+            calls.set(calls.get() + 1);
+            Some(managed_tinytex(&bin))
+        };
+        for _ in 0..10 {
+            assert!(cache.get_or_detect(&detect).is_some());
+        }
+        assert_eq!(calls.get(), 1, "ten compiles, one detection");
+        cache.refresh(&detect);
+        assert_eq!(calls.get(), 2, "the UI asking always detects again");
+    }
+
+    #[test]
+    fn forgotten_or_vanished_engine_is_detected_again() {
+        let bin = tmp("cache-forget");
+        fake_exe(&bin, "pdflatex");
+        let cache = EngineCache::new();
+        let calls = std::cell::Cell::new(0);
+        let found = std::cell::Cell::new(true);
+        let detect = || {
+            calls.set(calls.get() + 1);
+            found.get().then(|| managed_tinytex(&bin))
+        };
+        cache.get_or_detect(&detect);
+        cache.forget(); // a managed compiler was installed or removed
+        cache.get_or_detect(&detect);
+        assert_eq!(calls.get(), 2);
+        fs::remove_dir_all(&bin).unwrap(); // the engine was uninstalled behind our back
+        found.set(false);
+        assert!(cache.get_or_detect(&detect).is_none());
+        assert!(cache.get_or_detect(&detect).is_none());
+        assert_eq!(calls.get(), 4, "\"nothing found\" is not remembered");
     }
 
     #[test]

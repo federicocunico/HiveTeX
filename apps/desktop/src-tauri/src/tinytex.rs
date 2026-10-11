@@ -3,7 +3,7 @@
 //! Never used for a TeX installation HiveTeX did not install.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use crate::proc::background_command;
 
 /// Rounds of "install what is missing, build again" per compile.
 pub const MAX_ROUNDS: usize = 3;
@@ -52,11 +52,18 @@ pub type Runner<'a> = &'a dyn Fn(&[&str]) -> Option<(bool, String)>;
 pub fn tlmgr_runner(bin_dir: &Path) -> impl Fn(&[&str]) -> Option<(bool, String)> {
     let exe: PathBuf = if cfg!(windows) { bin_dir.join("tlmgr.bat") } else { bin_dir.join("tlmgr") };
     move |args: &[&str]| {
-        let out = Command::new(&exe).args(args).output().ok()?;
+        let out = background_command(&exe).args(args).output().ok()?;
         let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
         text.push_str(&String::from_utf8_lossy(&out.stderr));
-        Some((out.status.success(), text))
+        Some(outcome(out.status.success(), text))
     }
+}
+
+/// tlmgr's result from its exit status and output. `tlmgr.bat` exits 0 even when tlmgr stopped ("Terminating"), so a
+/// stop it reports counts as a failure whatever the status says.
+fn outcome(exit_ok: bool, text: String) -> (bool, String) {
+    let stopped = text.lines().any(|l| l.contains(": Terminating"));
+    (exit_ok && !stopped, text)
 }
 
 /// Installs the packages providing `files`; reports each with `on_install`. Returns the packages installed.
@@ -136,6 +143,15 @@ mod tests {
         let got = install_missing(&["tikz-cd.sty".into()], &mut tried, &run, &|_| {});
         assert_eq!(got, vec!["tikz-cd"]);
         assert_eq!(*calls.borrow(), vec!["search --global --file /tikz-cd.sty", "install tikz-cd", "update --self", "install tikz-cd"]);
+    }
+
+    #[test]
+    fn a_stop_reported_with_exit_code_zero_is_a_failure() {
+        // what tlmgr.bat returns on Windows when tlmgr is too old for its repository
+        let text = "tlmgr itself needs to be updated.\r\n===\r\ntlmgr.pl: Terminating; please see warning above!\r\n".to_string();
+        assert!(!outcome(true, text).0);
+        assert!(outcome(true, "[1/1] install: tikz-cd [7k]\r\nrunning mktexlsr ...\r\n".into()).0);
+        assert!(!outcome(false, String::new()).0);
     }
 
     #[test]

@@ -11,7 +11,7 @@ pub enum ArchiveKind {
     Zip,
     TarGz,
     TarXz,
-    /// 7-Zip self-extracting archive (TinyTeX on Windows): run with `-y -o<dir>`.
+    /// 7-Zip self-extracting archive (TinyTeX on Windows): its 7z payload is unpacked in-process, never run.
     SevenZipSfx,
 }
 
@@ -212,15 +212,54 @@ pub fn extract(archive: &Path, kind: ArchiveKind, into: &Path) -> Result<(), Str
             let _ = std::fs::remove_file(&tar_path);
             res
         }
-        ArchiveKind::SevenZipSfx => {
-            drop(file);
-            let status = std::process::Command::new(archive)
-                .arg("-y")
-                .arg(format!("-o{}", into.display()))
-                .status()
-                .map_err(|e| format!("cannot run the installer: {e}"))?;
-            if status.success() { Ok(()) } else { Err(format!("the installer exited with {status}")) }
-        }
+        ArchiveKind::SevenZipSfx => extract_7z_sfx(file, into),
+    }
+}
+
+/// The 7z archive inside a self-extracting `.exe`, unpacked here instead of running the extractor (which would show
+/// its own window). The library refuses entries that would land outside `into`.
+fn extract_7z_sfx(mut file: std::fs::File, into: &Path) -> Result<(), String> {
+    let base = find_7z_start(&mut file).ok_or("the installer does not contain a 7z archive")?;
+    let into = into.canonicalize().map_err(|e| e.to_string())?;
+    let reader = Offset::new(std::io::BufReader::new(file), base).map_err(|e| e.to_string())?;
+    sevenz_rust2::decompress(reader, &into).map_err(|e| format!("cannot unpack: {e}"))
+}
+
+const SEVEN_Z_SIGNATURE: [u8; 6] = [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C];
+
+/// Offset of the 7z signature within the first 4 MB (the extractor stub precedes the archive).
+fn find_7z_start(file: &mut std::fs::File) -> Option<u64> {
+    let mut head = Vec::new();
+    Read::by_ref(file).take(4 << 20).read_to_end(&mut head).ok()?;
+    head.windows(SEVEN_Z_SIGNATURE.len()).position(|w| w == SEVEN_Z_SIGNATURE).map(|p| p as u64)
+}
+
+/// A reader that starts at `base`: the archive's own offsets count from its signature, not from the file start.
+struct Offset<R> {
+    inner: R,
+    base: u64,
+}
+
+impl<R: std::io::Seek> Offset<R> {
+    fn new(mut inner: R, base: u64) -> std::io::Result<Self> {
+        inner.seek(std::io::SeekFrom::Start(base))?;
+        Ok(Offset { inner, base })
+    }
+}
+
+impl<R: Read> Read for Offset<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+impl<R: std::io::Seek> std::io::Seek for Offset<R> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let abs = match pos {
+            std::io::SeekFrom::Start(n) => self.inner.seek(std::io::SeekFrom::Start(self.base + n))?,
+            other => self.inner.seek(other)?,
+        };
+        abs.checked_sub(self.base).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek before the archive"))
     }
 }
 
@@ -270,6 +309,34 @@ mod tests {
 
     fn sha(b: &[u8]) -> String {
         Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn self_extractor_is_unpacked_without_running_it() {
+        let d = tmp("sfx");
+        let src = d.join("src").join("TinyTeX");
+        std::fs::create_dir_all(src.join("bin").join("windows")).unwrap();
+        std::fs::write(src.join("bin").join("windows").join("pdflatex.exe"), b"engine").unwrap();
+        std::fs::write(src.join("README"), b"tinytex").unwrap();
+        let archive = d.join("payload.7z");
+        sevenz_rust2::compress_to_path(d.join("src"), &archive).unwrap();
+        // stub + archive, as in TinyTeX-1-windows.exe; the stub is never executed (it is not even a program here)
+        let mut sfx = b"MZ not a real extractor stub".repeat(1000);
+        sfx.extend(std::fs::read(&archive).unwrap());
+        let exe = d.join("TinyTeX-1-windows.exe");
+        std::fs::write(&exe, sfx).unwrap();
+
+        extract(&exe, ArchiveKind::SevenZipSfx, &d.join("out")).unwrap();
+        assert_eq!(std::fs::read(d.join("out").join("TinyTeX").join("bin").join("windows").join("pdflatex.exe")).unwrap(), b"engine");
+        assert_eq!(std::fs::read(d.join("out").join("TinyTeX").join("README")).unwrap(), b"tinytex");
+    }
+
+    #[test]
+    fn self_extractor_without_archive_is_refused() {
+        let d = tmp("sfx-empty");
+        let exe = d.join("x.exe");
+        std::fs::write(&exe, b"MZ just a program".repeat(100)).unwrap();
+        assert!(extract(&exe, ArchiveKind::SevenZipSfx, &d.join("out")).is_err());
     }
 
     /// Serves `body` for any GET.

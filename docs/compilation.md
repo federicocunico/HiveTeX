@@ -86,6 +86,12 @@ Nothing has to be installed to compile. Each device uses the first compiler avai
 - LuaLaTeX needs a TeX distribution or full LaTeX. A device that cannot run the project's engine is never elected.
 - When a package is missing, the build output explains what to do (install full LaTeX, check the name, ...). The raw
   log stays available.
+- Every program the desktop app starts on its own (TeX detection, the build, `kpsewhich`, `tlmgr`) runs without a
+  window, so opening a project or saving never flashes a console or takes focus. All of them start through
+  `proc::background_command` (`apps/desktop/src-tauri/src/proc.rs`). A test fails if code starts a process any other
+  way; only *Open in terminal* is meant to be visible. TeX detection runs when a project opens or the Compiler panel
+  is shown. Compiles reuse its result. TinyTeX's Windows self-extractor is never run: its 7z archive is unpacked
+  in-process. Spec: `openspec/specs/background-processes`.
 
 The pinned downloads (Tectonic 0.17.0, TinyTeX v2026.10) are verified by SHA-256 before they are unpacked. A weekly
 workflow (`.github/workflows/pinned-assets.yml`, `node scripts/check-pinned-assets.mjs`) checks they are still
