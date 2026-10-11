@@ -35,6 +35,43 @@ failed IPC send closes the channel and the connection that owns it, and nothing 
 Outbound frames are encoded concurrently but handed to the transport in call order on each channel, so a compressed
 frame is never overtaken by a small uncompressed one sent after it.
 
+## Discovery and session lifecycle
+
+**Signaling messages** (JSON over the `/api/signal` WebSocket): the relay sends `challenge`; the client answers `auth`
+(ticket + signature of the challenge with its device key); then `ready` (the devices present), `join`, `leave`, `sig`
+(an encrypted envelope for one device) and `pong`; the client sends `sig` and `ping`. `ready` carries `tickets` (one
+per other device, as before) and, additively, `sessions` (device id → session id of that entry). Older clients ignore
+the field, and older relays omit it.
+
+**Presence is a lease.** Each device's entry (`<session id>|<ticket>`) expires 90 s after it was last written, on its
+own: another device's heartbeat never keeps it alive. An open, authenticated socket sends `ping` every 30 s (`heartbeatMs`),
+which renews the lease only if the entry still belongs to the session that sent it (compare-and-renew). A session whose
+lease already ran out (a throttled background tab) announces itself again, but only when no entry exists; a late
+heartbeat or close of an older session of the same device never renews, replaces or removes the entry of the newer one,
+and a `leave` is announced only when an entry was actually removed. A client ignores the `leave` of a session other than the
+latest it saw (from `join` or `ready.sessions`). So an idle member stays discoverable for a late joiner whichever of the
+two device ids is lower. Redis keeps the expiry inside each hash field (`<expiry ms>;<value>`) because it can only expire a
+whole hash; `getPresence` hides and prunes expired fields.
+
+**Relay credentials.** `POST /turn` returns `iceServers` and `expiresAt` (one hour). The connection manager keeps the
+answer until 60 s before that time (10 minutes if no expiry is given), then asks again before the next attempt uses it.
+Attempts that start while a request is in flight share it, the wait is bounded (`iceTimeoutMs`, 5 s) and is separate from the
+20 s link deadline, and a failure is never kept: the attempt goes ahead with the STUN servers it already knew, and the next
+one asks again after a backoff of 1 s doubling to 60 s with jitter (at least 30 s after a 429, or the `Retry-After` the
+server sent).
+
+**One attempt per device.** The slot for a device is reserved before the attempt awaits its configuration and is held
+through the peer handshake, so duplicate announcements (relay join, peer exchange) share it. Every continuation (awaited
+configuration, sealing, socket and RTC callbacks, retry timers) checks the manager's generation: `stop()` cancels all
+timers, closes the socket and links, removes the manager's mesh handlers and invalidates what is pending, so pausing and
+resuming repeatedly never leaves handlers, transports or timers behind. Messages of a socket that is no longer the current
+one are ignored.
+
+**Diagnostics** (`ConnectionManager.candidates()` / `diagnostics()`, the Sync panel) contain device ids, attempt counts,
+timestamps and error text only. The relay sees device ids, session ids, tickets and ciphertext, never project content
+(`server/test/p2p-e2e.test.ts` checks this). Tests: `packages/sync/test/connect-lifecycle.test.ts`,
+`server/test/signal.test.ts` (leases, with a backend whose clock the test moves), `server/test/p2p-e2e.test.ts`.
+
 ## Frame format
 
 `[type: u8][payload]`. The high bit (`0x80`) of `type` marks a deflate-raw compressed payload (used for payloads > 1 KiB,

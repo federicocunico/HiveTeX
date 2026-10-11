@@ -13,10 +13,16 @@ import type { Deps } from '../deps.js';
 export interface SignalBackend {
   publish(channel: string, message: string): Promise<void>;
   subscribe(channel: string, cb: (message: string) => void): Promise<() => void>;
-  /** Presence values are `<session id>|<ticket>`: a device's newer session replaces the entry of its older one. */
+  /**
+   * Presence values are `<session id>|<ticket>`: a device's newer session replaces the entry of its older one. Every
+   * device has its own lease of `ttlSec` seconds (an entry never keeps another device's entry alive).
+   */
   setPresence(projectId: string, deviceId: string, value: string, ttlSec: number): Promise<void>;
+  /** Extends the lease only if the live entry still belongs to session `sid` (compare-and-renew). True when renewed. */
+  renewPresence(projectId: string, deviceId: string, sid: string, ttlSec: number): Promise<boolean>;
   /** Removes the entry only if it still belongs to session `sid` (compare-and-delete). True when removed. */
   removePresence(projectId: string, deviceId: string, sid: string): Promise<boolean>;
+  /** The devices whose lease has not expired. */
   getPresence(projectId: string): Promise<Record<string, string>>;
 }
 
@@ -26,11 +32,32 @@ export function presenceTicket(value: string): string {
   return i >= 0 && !value.slice(0, i).includes('.') ? value.slice(i + 1) : value;
 }
 
+/** The session id of a presence value, or undefined for an older bare-ticket entry. */
+export function presenceSid(value: string): string | undefined {
+  const i = value.indexOf('|');
+  return i >= 0 && !value.slice(0, i).includes('.') ? value.slice(0, i) : undefined;
+}
+
 export class MemorySignalBackend implements SignalBackend {
   private subs = new Map<string, Set<(m: string) => void>>();
-  private presence = new Map<string, Map<string, string>>();
+  private presence = new Map<string, Map<string, { value: string; exp: number }>>();
   /** Everything ever published, so tests can assert the server only saw ciphertext. */
   readonly log: string[] = [];
+
+  /** `now` (epoch ms) lets tests move the clock: leases expire like the production backend's. */
+  constructor(private o: { now?: () => number } = {}) {}
+  private now() {
+    return (this.o.now ?? Date.now)();
+  }
+  private live(p: string, d: string) {
+    const e = this.presence.get(p)?.get(d);
+    if (!e) return undefined;
+    if (e.exp <= this.now()) {
+      this.presence.get(p)?.delete(d);
+      return undefined;
+    }
+    return e;
+  }
 
   async publish(channel: string, message: string) {
     this.log.push(message);
@@ -42,20 +69,40 @@ export class MemorySignalBackend implements SignalBackend {
     this.subs.set(channel, s);
     return () => void s.delete(cb);
   }
-  async setPresence(p: string, d: string, value: string, _ttlSec?: number) {
+  async setPresence(p: string, d: string, value: string, ttlSec = 90) {
     const m = this.presence.get(p) ?? new Map();
-    m.set(d, value);
+    m.set(d, { value, exp: this.now() + ttlSec * 1000 });
     this.presence.set(p, m);
   }
+  async renewPresence(p: string, d: string, sid: string, ttlSec = 90) {
+    const e = this.live(p, d);
+    if (!e?.value.startsWith(`${sid}|`)) return false;
+    e.exp = this.now() + ttlSec * 1000;
+    return true;
+  }
   async removePresence(p: string, d: string, sid: string) {
-    const m = this.presence.get(p);
-    if (!m?.get(d)?.startsWith(`${sid}|`)) return false;
-    m.delete(d);
+    if (!this.live(p, d)?.value.startsWith(`${sid}|`)) return false;
+    this.presence.get(p)?.delete(d);
     return true;
   }
   async getPresence(p: string) {
-    return Object.fromEntries(this.presence.get(p) ?? []);
+    const out: Record<string, string> = {};
+    for (const d of [...(this.presence.get(p)?.keys() ?? [])]) {
+      const e = this.live(p, d);
+      if (e) out[d] = e.value;
+    }
+    return out;
   }
+}
+
+/**
+ * Redis stores each device lease as a hash field `<expiry ms>;<presence value>`: Redis can only expire a whole hash,
+ * so the lease is part of the value and read back by every `getPresence` (which also prunes expired fields).
+ */
+const LEASE = /^(\d+);([\s\S]*)$/;
+export function parseLease(stored: string): { exp: number | null; value: string } {
+  const m = LEASE.exec(stored);
+  return m ? { exp: Number(m[1]), value: m[2] as string } : { exp: null, value: stored };
 }
 
 /** Upstash Redis: pub/sub over REST (SSE) for cross-instance delivery; presence in a TTL'd hash. */
@@ -83,8 +130,14 @@ export async function createUpstashSignalBackend(url: string, token: string): Pr
     },
     async setPresence(projectId, deviceId, value, ttlSec) {
       const key = `presence:${projectId}`;
-      await redis.hset(key, { [deviceId]: value });
-      await redis.expire(key, ttlSec);
+      await redis.hset(key, { [deviceId]: `${Date.now() + ttlSec * 1000};${value}` });
+      // Garbage collection of idle projects only: the leases themselves are per field.
+      await redis.expire(key, Math.max(ttlSec, 3600));
+    },
+    async renewPresence(projectId, deviceId, sid, ttlSec) {
+      const now = Date.now();
+      const renewed = await redis.eval(RENEW_IF_SESSION, [`presence:${projectId}`], [deviceId, `${sid}|`, String(now + ttlSec * 1000), String(now)]);
+      return Number(renewed) === 1;
     },
     async removePresence(projectId, deviceId, sid) {
       // Atomic compare-and-delete: a closing old session must not remove the entry of the device's new session.
@@ -92,14 +145,45 @@ export async function createUpstashSignalBackend(url: string, token: string): Pr
       return Number(removed) === 1;
     },
     async getPresence(projectId) {
-      return (await redis.hgetall<Record<string, string>>(`presence:${projectId}`)) ?? {};
+      const key = `presence:${projectId}`;
+      const now = Date.now();
+      const out: Record<string, string> = {};
+      for (const [dev, stored] of Object.entries((await redis.hgetall<Record<string, string>>(key)) ?? {})) {
+        const { exp, value } = parseLease(String(stored));
+        if (exp === null || exp > now) out[dev] = value;
+        else void redis.eval(PRUNE_IF_UNCHANGED, [key], [dev, String(stored)]).catch(() => {}); // best effort
+      }
+      return out;
     },
   };
 }
 
 /** KEYS[1] presence hash; ARGV[1] device id; ARGV[2] "<sid>|" prefix the entry must still have. */
 export const REMOVE_IF_SESSION = `local v = redis.call('HGET', KEYS[1], ARGV[1])
-if v and string.sub(v, 1, string.len(ARGV[2])) == ARGV[2] then
+if v then
+  local rest = string.match(v, '^%d+;(.*)$') or v
+  if string.sub(rest, 1, string.len(ARGV[2])) == ARGV[2] then
+    redis.call('HDEL', KEYS[1], ARGV[1])
+    return 1
+  end
+end
+return 0`;
+
+/**
+ * Compare-and-renew. ARGV[1] device id; ARGV[2] "<sid>|" prefix; ARGV[3] new expiry (ms); ARGV[4] now (ms).
+ * An entry that already expired is not renewed (the session re-announces itself instead).
+ */
+export const RENEW_IF_SESSION = `local v = redis.call('HGET', KEYS[1], ARGV[1])
+if not v then return 0 end
+local exp, rest = string.match(v, '^(%d+);(.*)$')
+if not rest then rest = v end
+if string.sub(rest, 1, string.len(ARGV[2])) ~= ARGV[2] then return 0 end
+if exp and tonumber(exp) <= tonumber(ARGV[4]) then return 0 end
+redis.call('HSET', KEYS[1], ARGV[1], ARGV[3] .. ';' .. rest)
+return 1`;
+
+/** Removes an expired lease unless it changed meanwhile. ARGV[1] device id; ARGV[2] the exact stored value. */
+export const PRUNE_IF_UNCHANGED = `if redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2] then
   redis.call('HDEL', KEYS[1], ARGV[1])
   return 1
 end
@@ -111,7 +195,8 @@ export interface SocketLike {
 }
 
 const MAX_MSG = 64 * 1024;
-const PRESENCE_TTL = 90;
+/** A device's presence lease. Clients renew it with a `ping` every 30 s (see ConnectionManager). */
+export const PRESENCE_TTL = 90;
 
 export async function verifyServerTicket(deps: Deps, ticket: string): Promise<TicketClaims> {
   const keys: TrustedKey[] = deps.config.ticketPublicJwks;
@@ -159,6 +244,19 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     }
   };
 
+  /**
+   * Heartbeat: extend this session's own lease. A lease that already ran out (throttled tab) is announced again, but an
+   * entry of another session is never touched: an old session's late ping must not take the device back from its newer one.
+   */
+  async function renewLease(c: TicketClaims) {
+    const renewed = await backend.renewPresence(c.pid, c.dev, sid, PRESENCE_TTL).catch(() => true);
+    if (renewed || closed) return;
+    const current = await backend.getPresence(c.pid).catch(() => null);
+    if (!current || c.dev in current) return;
+    await backend.setPresence(c.pid, c.dev, `${sid}|${ticketStr}`, PRESENCE_TTL);
+    if (closed) await backend.removePresence(c.pid, c.dev, sid); // closed while re-announcing
+  }
+
   async function onAuth(ticket: string, sig: string) {
     let c: TicketClaims;
     try {
@@ -188,7 +286,14 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     });
     const presence = await backend.getPresence(c.pid);
     await backend.setPresence(c.pid, c.dev, `${sid}|${ticket}`, PRESENCE_TTL);
-    send({ t: 'ready', tickets: Object.entries(presence).filter(([d]) => d !== c.dev).map(([, v]) => presenceTicket(v)) });
+    const others = Object.entries(presence).filter(([d]) => d !== c.dev);
+    // `sessions` (device -> session id) is additive: clients that only know `tickets` keep working.
+    const sessions: Record<string, string> = {};
+    for (const [d, v] of others) {
+      const s = presenceSid(v);
+      if (s) sessions[d] = s;
+    }
+    send({ t: 'ready', tickets: others.map(([, v]) => presenceTicket(v)), sessions });
     await backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'join', dev: c.dev, ticket, sid }));
   }
 
@@ -220,7 +325,7 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
           JSON.stringify({ t: 'sig', from: claims.dev, fromTicket: ticketStr, to: m.to, env: m.env }),
         );
       } else if (m.t === 'ping') {
-        await backend.setPresence(claims.pid, claims.dev, `${sid}|${ticketStr}`, PRESENCE_TTL);
+        await renewLease(claims);
         send({ t: 'pong' });
       }
     },

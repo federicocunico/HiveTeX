@@ -119,11 +119,14 @@ export class Mesh {
     return this.maxEpoch;
   }
 
+  /** Returns a function that removes the handler again. */
   onPeerJoin(cb: (p: PeerInfo) => void) {
     this.joinCbs.add(cb);
+    return () => void this.joinCbs.delete(cb);
   }
   onPeerLeave(cb: (p: PeerInfo) => void) {
     this.leaveCbs.add(cb);
+    return () => void this.leaveCbs.delete(cb);
   }
   /**
    * Fires when a newer membership epoch is verified, or a peer merely hints at one (time to refresh our ticket).
@@ -143,8 +146,10 @@ export class Mesh {
    */
   onApp(topic: string, h: AppHandler, opts: { editorOnly?: boolean } = {}) {
     const s = this.appHandlers.get(topic) ?? new Set();
-    s.add(opts.editorOnly ? (from, body) => (from.claims.role === 'viewer' || from.conn.role === 'viewer' ? undefined : h(from, body)) : h);
+    const wrapped: AppHandler = opts.editorOnly ? (from, body) => (from.claims.role === 'viewer' || from.conn.role === 'viewer' ? undefined : h(from, body)) : h;
+    s.add(wrapped);
     this.appHandlers.set(topic, s);
+    return () => void s.delete(wrapped);
   }
   onRaw(type: number, h: RawHandler) {
     this.rawHandlers.set(type, h);

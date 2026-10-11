@@ -26,12 +26,12 @@ All tasks below are implementation work for a later apply request. The completed
 
 ## 4. Discovery and session lifecycle
 
-- [ ] 4.1 Reserve connection attempts before asynchronous configuration and own all setup/retry callbacks through generations; verify F10 with duplicate discovery, deferred ICE, stop-before-resolution, authentication failure, and repeated pause/resume without leaked handlers or transports.
-- [ ] 4.2 Implement session-scoped per-device signaling leases and heartbeat renewal, including compare-and-renew and additive ready-session IDs; verify F08 using an expiry-aware backend for idle late joins in both device-ID orderings and old-session heartbeat/cleanup races.
-- [ ] 4.3 Preserve TURN expiry, share refresh requests, bound acquisition time, and make initial failure retryable; verify F09 with an advanced fake clock, failed first fetch, hanging fetch, concurrent peer attempts, and rate-limit backoff.
-- [ ] 4.4 Separate local identity, registration, trusted-key, and ticket recovery in `ProjectSession`; verify F07 by opening a cached shared project offline, restoring connectivity, and observing automatic peer synchronization without a reload or false revocation.
-- [ ] 4.5 Cancel session-owned ticket refreshes, timers, subscriptions, and pending callbacks on close or pause; verify late API/RTC responses do not recreate closed work and explicit local mode makes no server request.
-- [ ] 4.6 Document heartbeat, TURN renewal, offline-start recovery, and lifecycle diagnostics in `docs/protocol.md` and `docs/offline.md`; verify descriptions match the new tests and contain no project content in server diagnostics.
+- [x] 4.1 Reserve connection attempts before asynchronous configuration and own all setup/retry callbacks through generations; verify F10 with duplicate discovery, deferred ICE, stop-before-resolution, authentication failure, and repeated pause/resume without leaked handlers or transports.
+- [x] 4.2 Implement session-scoped per-device signaling leases and heartbeat renewal, including compare-and-renew and additive ready-session IDs; verify F08 using an expiry-aware backend for idle late joins in both device-ID orderings and old-session heartbeat/cleanup races.
+- [x] 4.3 Preserve TURN expiry, share refresh requests, bound acquisition time, and make initial failure retryable; verify F09 with an advanced fake clock, failed first fetch, hanging fetch, concurrent peer attempts, and rate-limit backoff.
+- [x] 4.4 Separate local identity, registration, trusted-key, and ticket recovery in `ProjectSession`; verify F07 by opening a cached shared project offline, restoring connectivity, and observing automatic peer synchronization without a reload or false revocation.
+- [x] 4.5 Cancel session-owned ticket refreshes, timers, subscriptions, and pending callbacks on close or pause; verify late API/RTC responses do not recreate closed work and explicit local mode makes no server request.
+- [x] 4.6 Document heartbeat, TURN renewal, offline-start recovery, and lifecycle diagnostics in `docs/protocol.md` and `docs/offline.md`; verify descriptions match the new tests and contain no project content in server diagnostics.
 
 ## 5. Explicit availability and synchronization completion
 

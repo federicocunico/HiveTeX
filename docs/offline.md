@@ -45,6 +45,26 @@ While you are connected, editing stays live and character by character: nothing 
 - **Adjacent lines** (with no unchanged line between your change and theirs) count as the same place, as in git. So
   does a long paragraph written on a single line: start sentences on new lines if you edit the same paragraph often.
 
+## Starting without the server
+
+A shared project that is already on this device opens and is editable when the server cannot be reached. Which parts
+exist locally is handled separately, and each missing part is recovered on its own:
+
+| Part | Offline start | When the server is reachable again |
+|---|---|---|
+| Device keys and, if it was registered before, its device id | read from this device; a registered device keeps its identity | nothing to do |
+| Registration (a device that was never registered) | skipped, a temporary id is used and **nothing is requested with it** | registered once (concurrent requests share one), then the id replaces the temporary one everywhere |
+| Trusted ticket keys | the copy cached in this browser tab, if any | loaded into the same list the connections verify with |
+| Membership ticket | none | requested; the first one starts peer discovery |
+
+Recovery needs no reload: it is tried every 15 s and immediately when the browser reports that it is online again, and
+the edits made meanwhile are merged like any other offline work (see above). A refusal while registering or loading keys
+is treated as "server unreachable", never as removal from the project: only a refusal of the ticket request itself, for a
+registered device, shows the access-removed state. *Work offline* and closing the project stop these requests and cancel
+a ticket request in flight, so a late answer starts nothing; *Resume* asks again. A local project (no account) makes no
+server request at all. Specs: `openspec/specs/peer-sync` (*Automatic synchronization recovery*, *Connection lifecycle
+isolation*); tests: `apps/web/test/session-recovery.test.ts`.
+
 ## When this device cannot save
 
 Edits are written to this device's storage a fraction of a second after you type. Whether they are *saved on this

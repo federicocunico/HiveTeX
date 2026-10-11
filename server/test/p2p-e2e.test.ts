@@ -217,6 +217,32 @@ describe('P2P bootstrap and content privacy (5.3, 6.9)', () => {
     expect(backend.log.length).toBeGreaterThan(0); // the relay did carry (encrypted) setup traffic
   });
 
+  for (const idleIs of ['lower', 'higher'] as const) {
+    it(`an idle device stays discoverable beyond the presence lease, so a late joiner connects (idle device has the ${idleIs} id)`, async () => {
+      const clock = { ms: Date.now() };
+      backend = new MemorySignalBackend({ now: () => clock.ms }); // leases expire when this clock passes them
+      const { owner, pid, join } = await setupProject(`idle-lease-${idleIs}`);
+      const bob = await join('bob');
+      const bobId = (await env.db.select().from(schema.users)).find((u) => u.username === 'bob')?.id;
+      await owner.patch(`/projects/${pid}/members/${bobId}`, { role: 'editor' });
+      const opts = { heartbeatMs: 20, linkTimeoutMs: 5000 };
+      const devs = [await makeDevice(owner, pid, 'a', opts), await makeDevice(bob, pid, 'b', opts)].sort((x, y) => (x.dev < y.dev ? -1 : 1));
+      const [lo, hi] = devs as [Dev, Dev];
+      const idle = idleIs === 'lower' ? lo : hi;
+      const late = idleIs === 'lower' ? hi : lo;
+      idle.mgr.start();
+      await sleep(30);
+      expect(idle.mgr.socketOpen).toBe(true);
+      for (let i = 0; i < 6; i++) {
+        clock.ms += 30_000; // 3 minutes alone: far beyond the 90 s lease
+        await sleep(60); // the heartbeat renews it between the jumps
+      }
+      expect(Object.keys(await backend.getPresence(pid))).toEqual([idle.dev]);
+      late.mgr.start();
+      await waitFor(() => idle.mesh.peers.length === 1 && late.mesh.peers.length === 1);
+    });
+  }
+
   it('fails closed if the relay swaps SDP fingerprints (man-in-the-middle)', async () => {
     const { owner, pid, join } = await setupProject('mitm-project-1');
     const bob = await join('bob');

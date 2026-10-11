@@ -86,6 +86,14 @@ export class Election {
     this.recompute();
   }
 
+  /** The device id was only registered after the election started (offline start): adopt it. Nobody knew the old one. */
+  setDevice(dev: string) {
+    if (dev === this.self.dev) return;
+    this.self = { ...this.self, dev, stamp: this.self.stamp + 1 };
+    this.mesh.broadcastApp('cap', this.self);
+    this.recompute();
+  }
+
   get selfRecord() {
     return this.self;
   }

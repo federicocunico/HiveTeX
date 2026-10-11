@@ -84,6 +84,19 @@ describe('leader election (8.1, 8.2)', () => {
     expect(Date.now() - t0).toBeLessThan(5000);
   });
 
+  it('adopts the device id registered after an offline start, and peers then see that id', async () => {
+    net = await Net.create();
+    const [a, b] = [await net.add('a', 'editor'), await net.add('b', 'editor')];
+    const ea = elect(a, { perf: 3, dev: 'offline-temporary' }); // started before the device had a server id
+    expect(ea.leader()).toBe('offline-temporary');
+    ea.setDevice(a.dev);
+    expect(ea.leader()).toBe(a.dev);
+    expect(ea.isLeader()).toBe(true);
+    const eb = elect(b, { perf: 1 });
+    await net.link(a, b);
+    await waitFor(() => eb.leader() === a.dev);
+  });
+
   it('never elects an opted-out device or a viewer', async () => {
     net = await Net.create();
     const [strong, weak, viewer] = [await net.add('strong', 'editor'), await net.add('weak', 'editor'), await net.add('view', 'viewer')];

@@ -70,9 +70,18 @@ export async function localKeys(userId: string): Promise<Stored> {
 export async function ensureRegistered(userId: string, label: string): Promise<{ keys: StoredDeviceKeys; deviceId: string }> {
   const s = await localKeys(userId);
   if (s.deviceId) return { keys: s.keys, deviceId: s.deviceId };
-  const r = await api<{ deviceId: string }>('POST', '/devices', { ed25519Pub: s.keys.edPub, x25519Pub: s.keys.xPub, label });
-  await put(userId, { keys: s.keys, deviceId: r.deviceId });
-  return { keys: s.keys, deviceId: r.deviceId };
+  return { keys: s.keys, deviceId: await registerKeys(userId, s.keys, label) };
+}
+
+/**
+ * Registers `keys` (the ones a session already runs with) with the control plane and remembers the device id. Needs the
+ * network; the keys themselves are local (see `localKeys`).
+ */
+export async function registerKeys(userId: string, keys: StoredDeviceKeys, label: string): Promise<string> {
+  const r = await api<{ deviceId: string }>('POST', '/devices', { ed25519Pub: keys.edPub, x25519Pub: keys.xPub, label });
+  // Remembering the id is best effort: the registration is idempotent, so a failed write is simply repeated next time.
+  await put(userId, { keys, deviceId: r.deviceId }).catch(() => {});
+  return r.deviceId;
 }
 
 export async function forgetDevice(userId: string) {

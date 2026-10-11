@@ -23,7 +23,16 @@ export interface ManagerOptions {
   signalUrl: string;
   wsFactory: (url: string) => WebSocketLike;
   rtcFactory: RtcFactory;
-  getIceServers: () => Promise<unknown[]>;
+  /**
+   * Connection configuration (STUN/TURN servers). Either a bare list, or the control plane's answer with the expiry of
+   * its relay credentials: the manager then asks again before they expire. May reject (e.g. rate limited, with an
+   * optional `status` and `retryAfterMs` on the error): the attempt goes ahead without the relay and a later one asks again.
+   */
+  getIceServers: () => Promise<unknown[] | IceConfig>;
+  /** Longest wait for `getIceServers` before an attempt goes ahead without it. Default 5 s. */
+  iceTimeoutMs?: number;
+  /** Jitter source for the credential retry backoff (tests). */
+  random?: () => number;
   now?: () => Date;
   /** The relay closes sockets after ~300 s; reconnect slightly earlier. */
   reconnectAfterMs?: number;
@@ -32,7 +41,22 @@ export interface ManagerOptions {
   linkTimeoutMs?: number;
   /** Upper bound of the retry backoff towards a device that is online but not connected. Default 30 s. */
   maxBackoffMs?: number;
+  /**
+   * How often an open signaling socket renews this device's presence lease (the relay expires it after 90 s).
+   * Default 30 s.
+   */
+  heartbeatMs?: number;
 }
+
+export interface IceConfig {
+  iceServers: unknown[];
+  /** Epoch ms after which the relay credentials in `iceServers` no longer work. */
+  expiresAt?: number;
+}
+
+/** Credentials are refreshed this long before they expire, and when the expiry is unknown they are kept this long. */
+const ICE_REFRESH_MARGIN_MS = 60_000;
+const ICE_DEFAULT_TTL_MS = 10 * 60_000;
 
 /** An online co-author device we know of but are not linked to (yet). */
 export interface Candidate {
@@ -95,30 +119,50 @@ export class ConnectionManager {
   private gone = new Set<string>();
   private stages = new Map<string, DeviceStages>();
   private stateCbs = new Set<() => void>();
-  private iceServers: Promise<unknown[]> | null = null;
+  /** The last configuration obtained, with its expiry. Failures are never stored here. */
+  private ice: { servers: unknown[]; expiresAt: number } | null = null;
+  /** The acquisition in flight, shared by every attempt that starts meanwhile. */
+  private iceFetch: Promise<unknown[]> | null = null;
+  private iceFailures = 0;
+  /** No new request before this time (epoch ms): backoff after failures and rate limits. */
+  private iceRetryAt = 0;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private rotateTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = 1000;
   private stopped = true;
+  /** Bumped by every stop: continuations of older setup (awaited configuration, crypto, sockets) check it. */
+  private gen = 0;
+  /** Every timer this manager owns, so stop() can cancel them all (including per-device retries). */
+  private timers = new Set<ReturnType<typeof setTimeout>>();
+  /** Connection attempts in setup (configuration, link creation), per device: reserved before the first await. */
+  private opening = new Map<string, Promise<RtcLink | null>>();
+  /** Devices whose transport is being authenticated by the mesh: the attempt still owns them. */
+  private authenticating = new Set<string>();
+  private unsubs: Array<() => void> = [];
+  /** (Re)starts the heartbeat of the current socket; set by openSocket. */
+  private beat: (() => void) | null = null;
   private selfDev: string;
   readonly stats = { socketOpens: 0, signalsViaServer: 0, signalsViaMesh: 0 };
 
   constructor(private o: ManagerOptions) {
     this.selfDev = JSON.parse(fromUtf8(fromB64u(o.getTicket().split('.')[1] ?? ''))).dev as string;
-    o.mesh.onPeerJoin((p) => this.onPeerJoin(p));
-    o.mesh.onPeerLeave((p) => {
-      this.evaluate();
-      this.emitState();
-      // The peer may simply have restarted: try to reach it again shortly (bounded by the link attempt itself).
-      setTimeout(() => {
-        const known = this.known.get(p.deviceId);
-        const back = this.onRelay.has(p.deviceId) || this.reannounced.delete(p.deviceId);
-        if (known && !this.stopped && back) this.maybeConnect(known);
-      }, 1500);
-    });
-    o.mesh.onApp('pex', (from, body) => void this.onPex(from, body as { tickets: string[] }));
-    o.mesh.onApp('rtc', (from, body) => void this.onRtcViaMesh(from, body as RtcEnvelope));
+  }
+
+  /** A timer owned by this manager: cancelled by stop(), and a no-op if the manager was stopped meanwhile. */
+  private later(ms: number, fn: () => void) {
+    const gen = this.gen;
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      if (!this.stopped && gen === this.gen) fn();
+    }, ms);
+    this.timers.add(t);
+    return t;
+  }
+  private cancel(t: ReturnType<typeof setTimeout> | null) {
+    if (!t) return;
+    clearTimeout(t);
+    this.timers.delete(t);
   }
 
   get socketOpen() {
@@ -168,7 +212,7 @@ export class ConnectionManager {
       l.close();
       this.links.delete(dev);
     }
-    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.cancel(this.retryTimer);
     this.retryTimer = null;
     this.backoff = 1000;
     this.evaluate();
@@ -186,17 +230,110 @@ export class ConnectionManager {
   }
 
   start() {
+    if (!this.stopped) return;
     this.stopped = false;
+    const mesh = this.o.mesh;
+    this.unsubs.push(
+      mesh.onPeerJoin((p) => this.onPeerJoin(p)),
+      mesh.onPeerLeave((p) => {
+        this.evaluate();
+        this.emitState();
+        // The peer may simply have restarted: try to reach it again shortly (bounded by the link attempt itself).
+        this.later(1500, () => {
+          const known = this.known.get(p.deviceId);
+          const back = this.onRelay.has(p.deviceId) || this.reannounced.delete(p.deviceId);
+          if (known && back) this.maybeConnect(known);
+        });
+      }),
+      mesh.onApp('pex', (from, body) => void this.onPex(from, body as { tickets: string[] })),
+      mesh.onApp('rtc', (from, body) => void this.onRtcViaMesh(from, body as RtcEnvelope)),
+    );
     this.evaluate();
   }
 
+  /** Cancels everything this manager owns: timers, socket, links, pending setup and mesh handlers. */
   stop() {
     this.stopped = true;
-    for (const t of [this.idleTimer, this.rotateTimer, this.retryTimer]) if (t) clearTimeout(t);
-    this.ws?.close();
+    this.gen++;
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    this.idleTimer = this.rotateTimer = this.retryTimer = null;
+    for (const u of this.unsubs.splice(0)) u();
+    const ws = this.ws;
     this.ws = null;
+    this.onRelay.clear();
+    ws?.close();
     for (const l of this.links.values()) l.close();
     this.links.clear();
+    this.opening.clear();
+    this.authenticating.clear();
+    this.iceFetch = null;
+  }
+
+  private nowMs() {
+    return (this.o.now ?? (() => new Date()))().getTime();
+  }
+
+  /** STUN entries of the last configuration (credential-less), usable while relay credentials cannot be had. */
+  private stunOnly() {
+    return (this.ice?.servers ?? []).filter((s) => (s as { credential?: unknown }).credential === undefined);
+  }
+
+  /**
+   * The connection configuration for a new attempt: the cached one until shortly before its expiry, otherwise one shared
+   * acquisition. A failure or a stall never blocks the attempt (it proceeds without relay credentials) and is never cached:
+   * a later attempt asks again once the backoff has passed.
+   */
+  private iceConfig(): Promise<unknown[]> {
+    const now = this.nowMs();
+    if (this.ice && now < this.ice.expiresAt - ICE_REFRESH_MARGIN_MS) return Promise.resolve(this.ice.servers);
+    if (this.iceFetch) return this.iceFetch;
+    if (now < this.iceRetryAt) return Promise.resolve(this.stunOnly());
+    const gen = this.gen;
+    const p: Promise<unknown[]> = new Promise<unknown[]>((resolve) => {
+      let settled = false;
+      const done = (servers: unknown[]) => {
+        if (settled) return;
+        settled = true;
+        this.cancel(timer);
+        resolve(servers);
+      };
+      const timer = this.later(this.o.iceTimeoutMs ?? 5000, () => {
+        this.iceFailed();
+        done(this.stunOnly());
+      });
+      this.o.getIceServers().then(
+        (r) => {
+          const cfg: IceConfig = Array.isArray(r) ? { iceServers: r } : r;
+          // Credentials that arrive after the deadline are still good for the next attempt.
+          if (gen === this.gen) {
+            this.ice = { servers: cfg.iceServers, expiresAt: cfg.expiresAt ?? this.nowMs() + ICE_DEFAULT_TTL_MS };
+            this.iceFailures = 0;
+            this.iceRetryAt = 0;
+          }
+          done(cfg.iceServers);
+        },
+        (e: unknown) => {
+          if (gen === this.gen) this.iceFailed(e);
+          done(this.stunOnly());
+        },
+      );
+    }).finally(() => {
+      if (this.iceFetch === p) this.iceFetch = null;
+    });
+    this.iceFetch = p;
+    return p;
+  }
+
+  /** Exponential backoff with jitter (1 s ... 60 s), at least the rate limit's advised delay when there is one. */
+  private iceFailed(e?: unknown) {
+    const n = ++this.iceFailures;
+    const jitter = 0.75 + 0.5 * (this.o.random ?? Math.random)();
+    let wait = Math.min(60_000, 1000 * 2 ** Math.min(n - 1, 10)) * jitter;
+    const err = e as { status?: number; retryAfterMs?: number } | undefined;
+    if (err?.status === 429) wait = Math.max(wait, 30_000);
+    if (typeof err?.retryAfterMs === 'number') wait = Math.max(wait, err.retryAfterMs);
+    this.iceRetryAt = this.nowMs() + wait;
   }
 
   // ---- when do we need the control plane? ----
@@ -213,19 +350,18 @@ export class ConnectionManager {
   private evaluate() {
     if (this.stopped) return;
     if (this.wantSocket()) {
-      if (this.idleTimer) {
-        clearTimeout(this.idleTimer);
-        this.idleTimer = null;
-      }
+      this.cancel(this.idleTimer);
+      this.idleTimer = null;
       if (!this.ws) this.openSocket();
     } else if (this.ws && !this.idleTimer) {
-      this.idleTimer = setTimeout(() => {
+      this.idleTimer = this.later(this.o.idleCloseMs ?? 3000, () => {
         this.idleTimer = null;
         if (!this.wantSocket()) {
-          this.ws?.close();
+          const ws = this.ws;
           this.ws = null;
+          ws?.close();
         }
-      }, this.o.idleCloseMs ?? 3000);
+      });
     }
   }
 
@@ -233,23 +369,43 @@ export class ConnectionManager {
     const ws = this.o.wsFactory(this.o.signalUrl);
     this.ws = ws;
     this.stats.socketOpens++;
+    // Events of a socket that is no longer the current one (stopped, rotated, replaced) are ignored, and the timers
+    // belong to the socket that started them.
+    let rotate: ReturnType<typeof setTimeout> | null = null;
+    let beat: ReturnType<typeof setTimeout> | null = null;
+    // Presence is a lease: renew it while this socket is the live, authenticated one (see the `ready` message).
+    this.beat = () => {
+      this.cancel(beat);
+      const every = this.o.heartbeatMs ?? 30_000;
+      beat = this.later(every, () => {
+        if (this.ws !== ws || ws.readyState !== WS_OPEN) return;
+        ws.send(JSON.stringify({ t: 'ping' }));
+        this.beat?.();
+      });
+    };
+    const cancelBeat = () => this.cancel(beat);
     ws.onopen = () => {
+      if (this.ws !== ws) return;
       // Authentication happens when the relay's challenge arrives (see onServerMessage).
       this.backoff = 1000;
-      this.rotateTimer = setTimeout(() => {
-        // proactive rotation before the platform cuts the connection
-        ws.close();
-      }, this.o.reconnectAfterMs ?? 280_000);
+      // proactive rotation before the platform cuts the connection
+      rotate = this.later(this.o.reconnectAfterMs ?? 280_000, () => ws.close());
     };
-    ws.onmessage = (ev) => void this.onServerMessage(String(ev.data), ws);
+    ws.onmessage = (ev) => {
+      if (this.ws === ws) void this.onServerMessage(String(ev.data), ws);
+    };
     const lost = () => {
-      if (this.ws === ws) {
-        this.ws = null;
-        this.onRelay.clear();
-      }
-      if (this.rotateTimer) clearTimeout(this.rotateTimer);
+      this.cancel(rotate);
+      cancelBeat();
+      if (this.ws !== ws) return;
+      this.ws = null;
+      this.onRelay.clear();
       if (this.stopped || !this.wantSocket()) return;
-      this.retryTimer = setTimeout(() => this.evaluate(), this.backoff);
+      this.cancel(this.retryTimer);
+      this.retryTimer = this.later(this.backoff, () => {
+        this.retryTimer = null;
+        this.evaluate();
+      });
       this.backoff = Math.min(this.backoff * 2, 30_000);
     };
     ws.onclose = lost;
@@ -257,7 +413,7 @@ export class ConnectionManager {
   }
 
   private async onServerMessage(raw: string, ws?: WebSocketLike) {
-    let m: { t: string; nonce?: string; tickets?: string[]; ticket?: string; dev?: string; sid?: string; from?: string; fromTicket?: string; env?: string };
+    let m: { t: string; nonce?: string; tickets?: string[]; sessions?: Record<string, unknown>; ticket?: string; dev?: string; sid?: string; from?: string; fromTicket?: string; env?: string };
     try {
       m = JSON.parse(raw);
     } catch {
@@ -265,13 +421,19 @@ export class ConnectionManager {
     }
     if (m.t === 'challenge' && typeof m.nonce === 'string') {
       // Prove we hold the device key named in our ticket (a copied ticket alone must not be enough).
+      const gen = this.gen;
       const ticket = this.o.getTicket();
       const sig = await sign(this.o.keys, utf8(signalAuthMessage(this.o.projectId, this.selfDev, m.nonce)));
+      if (this.stopped || gen !== this.gen || (ws && this.ws !== ws)) return;
       (ws ?? this.ws)?.send(JSON.stringify({ t: 'auth', ticket, sig: toB64u(sig) }));
       return;
     }
     if (m.t === 'ready') {
       this.onRelay.clear();
+      this.sessions.clear();
+      this.beat?.();
+      // `sessions` is additive (older relays omit it): it lets us tell a later leave of an older session from a departure.
+      for (const [dev, sid] of Object.entries(m.sessions ?? {})) if (typeof sid === 'string') this.sessions.set(dev, sid);
       for (const t of m.tickets ?? []) {
         const k = await this.learn(t, true);
         if (k) this.onRelay.add(k.claims.dev);
@@ -306,6 +468,7 @@ export class ConnectionManager {
   // ---- peers we know about ----
 
   private async learn(raw: string, viaRelay = false): Promise<Known | null> {
+    const gen = this.gen;
     let claims: TicketClaims;
     try {
       claims = await verifyTicket(raw, this.o.trusted, this.o.now ? { now: this.o.now() } : {});
@@ -313,6 +476,7 @@ export class ConnectionManager {
       return null;
     }
     if (claims.pid !== this.o.projectId || claims.dev === this.selfDev) return null;
+    if (this.stopped || gen !== this.gen) return null;
     const k = { claims, raw };
     // A linked device announced with another ticket than its link's: a new session of it (routine peer exchange repeats
     // the ticket we already have).
@@ -334,25 +498,47 @@ export class ConnectionManager {
     return this.o.mesh.peers.some((p) => p.deviceId === dev);
   }
 
+  /** An attempt towards `dev` already exists: connected, being set up, linking, or authenticating. */
+  private busy(dev: string) {
+    return this.connected(dev) || this.links.has(dev) || this.opening.has(dev) || this.authenticating.has(dev);
+  }
+
   /** The device with the lower id initiates, so exactly one side offers. */
   private maybeConnect(k: Known) {
     const dev = k.claims.dev;
-    if (this.stopped || this.connected(dev) || this.links.has(dev)) return;
-    if (this.selfDev < dev) void this.createLink(dev, true).then((l) => l.start());
+    if (this.stopped || this.busy(dev)) return;
+    if (this.selfDev < dev) {
+      void this.attempt(dev, true)
+        .then((l) => l?.start())
+        .catch(() => this.retryLater(dev));
+    }
   }
 
-  private async createLink(dev: string, initiator: boolean): Promise<RtcLink> {
-    this.iceServers ??= this.o.getIceServers().catch(() => []);
-    const ice = await this.iceServers;
+  /** The one current attempt towards `dev`: reserved before anything is awaited, so every caller shares it. */
+  private attempt(dev: string, initiator: boolean): Promise<RtcLink | null> {
+    const current = this.opening.get(dev);
+    if (current) return current;
+    const gen = this.gen;
+    const p: Promise<RtcLink | null> = this.createLink(dev, initiator, gen).finally(() => {
+      if (this.opening.get(dev) === p) this.opening.delete(dev);
+    });
+    this.opening.set(dev, p);
+    return p;
+  }
+
+  /** Resolves null when the manager was stopped while the configuration loaded. */
+  private async createLink(dev: string, initiator: boolean, gen: number): Promise<RtcLink | null> {
+    const ice = await this.iceConfig();
+    if (this.stopped || gen !== this.gen) return null;
     // A connection attempt can stall without ever failing (a lost signaling message, ICE stuck on a loaded
     // machine): without a deadline the stale entry would block every later attempt towards that device.
-    const timer = setTimeout(() => {
+    const timer = this.later(this.o.linkTimeoutMs ?? 20_000, () => {
       if (this.links.get(dev) !== link) return;
       link.close();
       this.links.delete(dev);
       this.lastErrors.set(dev, 'connection attempt timed out');
       this.retryLater(dev);
-    }, this.o.linkTimeoutMs ?? 20_000);
+    });
     this.stage(dev).firstAttemptAt ??= Date.now();
     const link = new RtcLink({
       factory: this.o.rtcFactory,
@@ -360,12 +546,20 @@ export class ConnectionManager {
       initiator,
       send: (s) => void this.sendSignal(dev, s),
       onTransport: (t) => {
-        clearTimeout(timer);
-        this.links.delete(dev);
-        this.o.mesh.addTransport(t).catch(() => this.retryLater(dev));
+        this.cancel(timer);
+        if (this.links.get(dev) === link) this.links.delete(dev);
+        if (this.stopped || gen !== this.gen) return void t.close();
+        // The attempt keeps owning the device until the mesh has authenticated (or refused) the transport.
+        this.authenticating.add(dev);
+        this.o.mesh
+          .addTransport(t)
+          .catch(() => this.retryLater(dev))
+          .finally(() => {
+            if (gen === this.gen) this.authenticating.delete(dev);
+          });
       },
       onFail: (why) => {
-        clearTimeout(timer);
+        this.cancel(timer);
         if (this.links.get(dev) === link) this.links.delete(dev);
         this.lastErrors.set(dev, why);
         this.retryLater(dev);
@@ -389,10 +583,10 @@ export class ConnectionManager {
     this.emitState();
     const cap = this.o.maxBackoffMs ?? 30_000;
     const base = Math.min(cap, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** Math.min(n, 20) : 1000 * 2 ** Math.min(n - 1, 20));
-    setTimeout(() => {
+    this.later(base, () => {
       const k = this.known.get(dev);
-      if (k && !this.stopped && !this.gone.has(dev) && !this.connected(dev) && !this.links.has(dev)) this.maybeConnect(k);
-    }, base);
+      if (k && !this.gone.has(dev)) this.maybeConnect(k);
+    });
   }
 
   // ---- encrypted signaling ----
@@ -403,8 +597,10 @@ export class ConnectionManager {
 
   private async sendSignal(to: string, sig: LinkSignal) {
     const peer = this.known.get(to);
-    if (!peer) return;
+    if (!peer || this.stopped) return;
+    const gen = this.gen;
     const env = await seal(this.o.keys, peer.claims.devX, utf8(JSON.stringify(sig)), this.aad(this.selfDev, to));
+    if (this.stopped || gen !== this.gen) return; // stopped while sealing: transmit nothing
     if (this.socketOpen && (this.onRelay.has(to) || this.o.mesh.peers.length === 0)) {
       this.stats.signalsViaServer++;
       this.ws?.send(JSON.stringify({ t: 'sig', to, env: b64(env) }));
@@ -419,17 +615,20 @@ export class ConnectionManager {
   }
 
   private async onEnvelope(fromTicket: string, env: Uint8Array) {
+    const gen = this.gen;
     const k = await this.learn(fromTicket);
-    if (!k) return;
+    if (!k || this.stopped || gen !== this.gen) return;
     let sig: LinkSignal;
     try {
       sig = JSON.parse(fromUtf8(await open(this.o.keys, k.claims.devX, env, this.aad(k.claims.dev, this.selfDev)))) as LinkSignal;
     } catch {
       return; // not for us / tampered
     }
-    let link = this.links.get(k.claims.dev);
+    if (this.stopped || gen !== this.gen) return;
+    let link: RtcLink | null | undefined = this.links.get(k.claims.dev);
     // An offer from a device we still think is connected means it restarted: answer it; the mesh replaces the old link.
-    if (!link && sig.k === 'offer') link = await this.createLink(k.claims.dev, false);
+    // (An attempt already in setup is shared, not duplicated.)
+    if (!link && sig.k === 'offer') link = await this.attempt(k.claims.dev, false);
     await link?.handle(sig);
   }
 

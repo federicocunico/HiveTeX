@@ -58,7 +58,7 @@ import { type PresentPerson, peopleFromAwareness, presenceColor } from './presen
 import { COMPILE_MODE_KEY, type CompileMode, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
 import { folderPermission, webFs } from './fs-access.js';
 import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
-import { ensureRegistered } from './keys.js';
+import { localKeys, registerKeys } from './keys.js';
 
 export interface ProjectInfo {
   id: string;
@@ -148,13 +148,27 @@ export class ProjectSession {
   syncNowResult = $state('');
   /** Edits could not be written to this device's storage (they are kept in memory and retried). Independent of peer sync. */
   saveFailing = $state(false);
+  /**
+   * The ticket authority's public keys. One array for the whole session: the mesh and the connection manager verify
+   * against this very object, so keys loaded after an offline start reach them without rebuilding anything.
+   */
   private trusted: TrustedKey[] = [];
+  private trustedLoaded = false;
+  private loadingTrusted: Promise<void> | null = null;
+  /** The control plane knows this device (`deviceId` is its id, not a temporary `offline-*` one). */
+  private registered = false;
+  private registering: Promise<void> | null = null;
+  /** Identity handed to compile and backup; `dev` follows the registration. */
+  private selfRef = { dev: '', uname: '' };
+  /** Bumped by every ticket request, pause and close: only the latest, still-wanted request may act on its answer. */
+  private ticketSeq = 0;
+  private onlineHandler: (() => void) | null = null;
   store!: IndexedDbPersistence;
   private disposed = false;
   private deviceId = '';
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private snapTimer: ReturnType<typeof setTimeout> | null = null;
-  private keys!: Awaited<ReturnType<typeof ensureRegistered>>['keys'];
+  private keys!: Awaited<ReturnType<typeof localKeys>>['keys'];
 
   constructor(
     readonly project: ProjectInfo,
@@ -178,25 +192,27 @@ export class ProjectSession {
     this.changelog.onChange(() => void this.refreshChanges());
     void this.refreshChanges();
 
-    let reg: Awaited<ReturnType<typeof ensureRegistered>> | null = null;
+    // Offline-first: the local identity (device keys, the id a registration gave them) never needs the network. What
+    // is missing (registration, trusted keys, a ticket) is recovered by the ticket loop whenever the control plane is
+    // reachable, each part on its own (see recoverIdentity).
     try {
-      reg = await ensureRegistered(this.user.id, navigator.userAgent.slice(0, 48));
-      const k = await api<{ keys: TrustedKey[] }>('GET', '/keys');
-      this.trusted = k.keys;
-      sessionStorage.setItem('hivetex.trusted', JSON.stringify(this.trusted));
+      this.trusted.push(...(JSON.parse(sessionStorage.getItem('hivetex.trusted') ?? '[]') as TrustedKey[]));
     } catch {
-      this.offline = true;
-      try {
-        this.trusted = JSON.parse(sessionStorage.getItem('hivetex.trusted') ?? '[]');
-      } catch {
-        this.trusted = [];
-      }
-      // Offline-first: work locally with a throwaway identity until the control plane is reachable.
-      const { generateDeviceKeys } = await import('@hivetex/crypto');
-      reg = { keys: await generateDeviceKeys(), deviceId: `offline-${crypto.randomUUID()}` };
+      /* no cached keys */
     }
-    this.keys = reg.keys;
-    this.deviceId = reg.deviceId;
+    let local: Awaited<ReturnType<typeof localKeys>>;
+    try {
+      local = await localKeys(this.user.id);
+    } catch {
+      // Device storage is unavailable: run with keys that live only in memory.
+      const { generateDeviceKeys } = await import('@hivetex/crypto');
+      local = { keys: await generateDeviceKeys(isDesktop ? { forceNoble: true } : {}), deviceId: null };
+    }
+    this.keys = local.keys;
+    this.registered = !!local.deviceId;
+    // A temporary id until registered: nothing is ever requested from the control plane with it.
+    this.deviceId = local.deviceId || `offline-${crypto.randomUUID()}`;
+    this.selfRef = { dev: this.deviceId, uname: this.user.username };
 
     // Before the mesh exists, so a local edit made before any link is already recorded as unshared work.
     this.fork = new OfflineFork({
@@ -255,7 +271,7 @@ export class ProjectSession {
       mesh: this.mesh,
       model: this.model,
       blobs: this.blobs,
-      self: { dev: this.deviceId, uname: this.user.username },
+      self: this.selfRef,
       getRole: () => this.role,
       project: { id: this.project.id, slug: this.project.slug },
       getToken: () => getGithubToken(),
@@ -280,7 +296,14 @@ export class ProjectSession {
     });
     // A local project (no account, local-mode spec) never meets anyone: no ticket, no connections.
     if (this.isLocal) this.offline = true;
-    else void this.refreshTicketLoop();
+    else {
+      void this.refreshTicketLoop();
+      // Network back (the browser says so): do not wait for the retry timer.
+      this.onlineHandler = () => {
+        if (this.offline) void this.refreshTicketLoop();
+      };
+      window.addEventListener('online', this.onlineHandler);
+    }
     // Persist pending edits when the tab is hidden or closed (writes are normally batched every 250 ms).
     this.flushHandler = () => void this.model.flush().catch(() => {}); // a failure stays visible through saveFailing
     window.addEventListener('pagehide', this.flushHandler);
@@ -573,7 +596,7 @@ export class ProjectSession {
       blobs: this.blobs,
       election: this.election,
       engine: engineProxy,
-      self: { dev: this.deviceId, uname: this.user.username },
+      self: this.selfRef,
     });
     this.client = new CompileClient({ mesh: this.mesh, model: this.model, blobs: this.blobs, election: this.election, leader: this.leader });
     this.client.onChange(() => void this.onCompileChange());
@@ -716,12 +739,77 @@ export class ProjectSession {
     return decodeClaims(this.ticket)?.ep ?? 0;
   }
 
+  /** Registers this device when the control plane does not know it yet. Concurrent callers share one request. */
+  private registerDevice(): Promise<void> {
+    this.registering ??= (async () => {
+      try {
+        const id = await registerKeys(this.user.id, this.keys, navigator.userAgent.slice(0, 48));
+        if (this.disposed) return;
+        this.registered = true;
+        this.adoptDevice(id);
+      } finally {
+        this.registering = null;
+      }
+    })();
+    return this.registering;
+  }
+
+  /** Loads the trusted ticket keys in place (see `trusted`). Concurrent callers share one request. */
+  private loadTrusted(): Promise<void> {
+    this.loadingTrusted ??= (async () => {
+      try {
+        const k = await api<{ keys: TrustedKey[] }>('GET', '/keys');
+        if (this.disposed) return;
+        this.trusted.splice(0, this.trusted.length, ...k.keys);
+        this.trustedLoaded = true;
+        try {
+          sessionStorage.setItem('hivetex.trusted', JSON.stringify(k.keys));
+        } catch {
+          /* private mode: the cache is only an optimisation */
+        }
+      } finally {
+        this.loadingTrusted = null;
+      }
+    })();
+    return this.loadingTrusted;
+  }
+
+  /** The registration gave this device its id: everything that identified it by the temporary one follows. */
+  private adoptDevice(id: string) {
+    if (id === this.deviceId) return;
+    this.deviceId = id;
+    this.selfRef.dev = id;
+    this.election?.setDevice(id);
+  }
+
+  private ticketUsable() {
+    const exp = decodeClaims(this.ticket)?.exp;
+    return !!exp && exp * 1000 > Date.now() + 30_000;
+  }
+
   private async refreshTicketLoop() {
-    if (this.disposed) return;
+    // A local project never talks to a server; a closed or paused session makes no requests.
+    if (this.disposed || this.paused || this.isLocal) return;
     if (this.ticketTimer) clearTimeout(this.ticketTimer);
+    this.ticketTimer = null;
+    const seq = ++this.ticketSeq;
+    /** False once the session closed or paused, or a newer request took over: the answer is then dropped. */
+    const current = () => !this.disposed && !this.paused && seq === this.ticketSeq;
     let next = 15_000;
+    let stage: 'identity' | 'ticket' = 'identity';
     try {
+      // Each missing part is recovered on its own; a failure of one never replaces or discards the others.
+      if (!this.registered) await this.registerDevice();
+      if (!this.trustedLoaded) {
+        // Keys cached from earlier in this tab still verify tickets; without any, nothing can be verified yet.
+        await this.loadTrusted().catch((e) => {
+          if (this.trusted.length === 0) throw e;
+        });
+      }
+      if (!current()) return;
+      stage = 'ticket';
       const r = await api<{ ticket: string; expiresAt: number; githubRepo?: string | null }>('POST', `/projects/${this.project.id}/ticket`, { deviceId: this.deviceId });
+      if (!current()) return;
       if (r.githubRepo !== undefined) this.project.githubRepo = r.githubRepo;
       const first = !this.ticket;
       this.ticket = r.ticket;
@@ -732,17 +820,20 @@ export class ProjectSession {
       }
       this.offline = false;
       if (first || !this.manager) this.startManager();
-      if (!first) this.mesh.refreshOwnTicket(r.ticket);
+      if (!first) void this.mesh.refreshOwnTicket(r.ticket);
       next = Math.max(30_000, r.expiresAt - Date.now() - 3 * 60_000);
     } catch (e) {
+      if (!current()) return;
       const status = (e as { status?: number }).status;
-      if (status === 403 || status === 404) {
+      // Only a refusal of the ticket request itself (for a registered device) means the access was withdrawn: a
+      // failure while registering or loading keys is just the control plane being out of reach.
+      if (stage === 'ticket' && (status === 403 || status === 404)) {
         this.role = 'viewer';
         this.revoked = true;
         next = 60_000;
       } else this.offline = true;
     }
-    if (!this.disposed) this.ticketTimer = setTimeout(() => void this.refreshTicketLoop(), next);
+    if (current()) this.ticketTimer = setTimeout(() => void this.refreshTicketLoop(), next);
   }
 
   revoked = $state(false);
@@ -759,15 +850,22 @@ export class ProjectSession {
     this.paused = p;
     this.tracker?.touch();
     if (p) {
+      // No server request and no timer while paused: a ticket request in flight is dropped.
+      this.ticketSeq++;
+      if (this.ticketTimer) clearTimeout(this.ticketTimer);
+      this.ticketTimer = null;
       this.manager?.stop();
       this.manager = null;
       this.connecting = [];
       for (const peer of this.mesh.peers) peer.conn.close();
-    } else this.startManager();
+    } else {
+      if (this.ticketUsable()) this.startManager();
+      void this.refreshTicketLoop();
+    }
   }
 
   private startManager() {
-    if (this.manager || this.paused || !this.deviceId || this.deviceId.startsWith('offline-')) return;
+    if (this.manager || this.paused || this.disposed || !this.registered || !this.ticket) return;
     // Some system webviews (notably WebKitGTK on Linux) lack WebRTC: the desktop app then uses the Rust stack.
     const useRust = isDesktop && (typeof RTCPeerConnection === 'undefined' || localStorage.getItem('hivetex.rtc') === 'rust');
     let rtcFactory: RtcFactory = (ice) => new RTCPeerConnection({ iceServers: ice as RTCIceServer[] }) as unknown as ReturnType<RtcFactory>;
@@ -787,7 +885,8 @@ export class ProjectSession {
       signalUrl: `${wsBase()}/api/signal`,
       wsFactory: (url) => new WebSocket(url) as unknown as WebSocketLike,
       rtcFactory,
-      getIceServers: async () => (await api<{ iceServers: unknown[] }>('POST', '/turn', { projectId: this.project.id })).iceServers,
+      // The answer carries the relay credentials' expiry: the manager refreshes them before they run out.
+      getIceServers: () => api<{ iceServers: unknown[]; expiresAt?: number }>('POST', '/turn', { projectId: this.project.id }),
     });
     this.manager.onState(() => {
       this.connecting = this.manager?.candidates() ?? [];
@@ -1119,7 +1218,11 @@ export class ProjectSession {
       window.removeEventListener('pagehide', this.flushHandler);
       document.removeEventListener('visibilitychange', this.flushHandler);
     }
+    this.ticketSeq++;
     if (this.ticketTimer) clearTimeout(this.ticketTimer);
+    this.ticketTimer = null;
+    if (this.onlineHandler) window.removeEventListener('online', this.onlineHandler);
+    if (this.staleTimer) clearTimeout(this.staleTimer);
     await this.unbindFolder(false);
     this.manager?.stop();
     this.tracker?.stop();

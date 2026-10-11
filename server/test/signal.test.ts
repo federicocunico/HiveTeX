@@ -2,7 +2,7 @@ import { type StoredDeviceKeys, generateDeviceKeys, open, seal, sign, toB64u } f
 import { signalAuthMessage } from '@hivetex/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cloudflareTurn } from '../src/signal/turn.js';
-import { MemorySignalBackend, createSignalSession } from '../src/signal/hub.js';
+import { MemorySignalBackend, createSignalSession, parseLease } from '../src/signal/hub.js';
 import { Client, type TestEnv, makeEnv, register } from './helpers.js';
 
 let env: TestEnv;
@@ -250,5 +250,113 @@ describe('signaling session ids (reconnect race)', () => {
     expect(await backend.getPresence('p')).toEqual({ d: 's2|tok' });
     expect(await backend.removePresence('p', 'd', 's2')).toBe(true);
     expect(await backend.getPresence('p')).toEqual({});
+  });
+});
+
+/** A backend whose clock the test advances, so presence leases really expire (the default backend ignores TTLs). */
+function leasedBackend() {
+  const clock = { ms: 1_000_000 };
+  return { clock, backend: new MemorySignalBackend({ now: () => clock.ms }) };
+}
+
+describe('per-device presence leases (F08)', () => {
+  it('an idle device without heartbeat expires from discovery after the lease', async () => {
+    const { a, b } = await setup();
+    const { clock, backend } = leasedBackend();
+    const sa = connect(backend);
+    await sa.auth(a);
+    await sa.until((m) => m.t === 'ready');
+    clock.ms += 91_000;
+    const sb = connect(backend);
+    await sb.auth(b);
+    const ready = await sb.until((m) => m.t === 'ready');
+    expect(ready.tickets).toEqual([]);
+  });
+
+  for (const [idle, late] of [['a', 'b'], ['b', 'a']] as const) {
+    it(`a heartbeating idle device stays discoverable for a late joiner (idle ${idle}, late ${late})`, async () => {
+      const t = await setup();
+      const { clock, backend } = leasedBackend();
+      const sIdle = connect(backend);
+      await sIdle.auth(t[idle]);
+      await sIdle.until((m) => m.t === 'ready');
+      for (let i = 0; i < 6; i++) {
+        clock.ms += 30_000; // 180 s idle in total, beyond the 90 s lease
+        await sIdle.say({ t: 'ping' });
+      }
+      const sLate = connect(backend);
+      await sLate.auth(t[late]);
+      const ready = await sLate.until((m) => m.t === 'ready');
+      expect(ready.tickets).toEqual([t[idle].ticket]);
+      // additive: the session id of every listed device, keyed by device
+      expect(Object.keys(ready.sessions as object)).toEqual([t[idle].dev]);
+      expect(typeof (ready.sessions as Record<string, string>)[t[idle].dev]).toBe('string');
+    });
+  }
+
+  it('a heartbeat after the lease expired restores the entry of the same session', async () => {
+    const { a, b } = await setup();
+    const { clock, backend } = leasedBackend();
+    const sa = connect(backend);
+    await sa.auth(a);
+    await sa.until((m) => m.t === 'ready');
+    clock.ms += 200_000; // e.g. a throttled background tab
+    expect(await backend.getPresence(PID.value)).toEqual({});
+    await sa.say({ t: 'ping' });
+    const sb = connect(backend);
+    await sb.auth(b);
+    expect((await sb.until((m) => m.t === 'ready')).tickets).toEqual([a.ticket]);
+  });
+
+  it("an old session's heartbeat cannot reclaim or renew the entry of the device's newer session", async () => {
+    const { a, b } = await setup();
+    const { clock, backend } = leasedBackend();
+    const old = connect(backend);
+    await old.auth(a);
+    await old.until((m) => m.t === 'ready');
+    const fresh = connect(backend);
+    await fresh.auth(a);
+    await fresh.until((m) => m.t === 'ready');
+    const entry = (await backend.getPresence(PID.value))[a.dev];
+    clock.ms += 60_000;
+    await old.say({ t: 'ping' });
+    expect((await backend.getPresence(PID.value))[a.dev]).toBe(entry); // still the new session's entry
+    // the old session closing late neither removes the new entry nor announces a leave
+    await old.handlers.onClose();
+    expect((await backend.getPresence(PID.value))[a.dev]).toBe(entry);
+    const sb = connect(backend);
+    await sb.auth(b);
+    expect((await sb.until((m) => m.t === 'ready')).tickets).toEqual([a.ticket]);
+  });
+
+  it('an old session closing after its lease was taken over by a newer one removes nothing, and renew is compare-and-set', async () => {
+    const { clock, backend } = leasedBackend();
+    await backend.setPresence('p', 'd', 's2|tok', 90);
+    expect(await backend.renewPresence('p', 'd', 's1', 90)).toBe(false);
+    clock.ms += 80_000;
+    expect(await backend.renewPresence('p', 'd', 's2', 90)).toBe(true);
+    clock.ms += 80_000;
+    expect(await backend.getPresence('p')).toEqual({ d: 's2|tok' }); // renewed: still alive
+    clock.ms += 20_000;
+    expect(await backend.renewPresence('p', 'd', 's2', 90)).toBe(false); // expired: not resurrected by renew
+    expect(await backend.removePresence('p', 'd', 's2')).toBe(false);
+    expect(await backend.getPresence('p')).toEqual({});
+  });
+
+  it('expires each device lease on its own, not the whole project at once', async () => {
+    const { clock, backend } = leasedBackend();
+    await backend.setPresence('p', 'x', 's1|t1', 90);
+    clock.ms += 60_000;
+    await backend.setPresence('p', 'y', 's2|t2', 90);
+    clock.ms += 40_000; // x is 100 s old, y 40 s
+    expect(await backend.getPresence('p')).toEqual({ y: 's2|t2' });
+  });
+});
+
+describe('redis lease encoding', () => {
+  it('reads leased and legacy presence values', () => {
+    expect(parseLease('1700000000000;sid|a.b.c')).toEqual({ exp: 1700000000000, value: 'sid|a.b.c' });
+    expect(parseLease('sid|a.b.c')).toEqual({ exp: null, value: 'sid|a.b.c' }); // written before leases existed
+    expect(parseLease('a.b.c')).toEqual({ exp: null, value: 'a.b.c' });
   });
 });

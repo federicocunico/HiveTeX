@@ -99,6 +99,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** The server's `Retry-After` (rate limits), in milliseconds. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
   }
@@ -133,6 +135,9 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   } catch {
     /* empty body */
   }
-  if (!res.ok) throw new ApiError(res.status, json.error?.code ?? 'error', json.error?.message ?? res.statusText);
+  if (!res.ok) {
+    const retry = Number(res.headers.get('Retry-After'));
+    throw new ApiError(res.status, json.error?.code ?? 'error', json.error?.message ?? res.statusText, Number.isFinite(retry) && retry > 0 ? retry * 1000 : undefined);
+  }
   return json as T;
 }
