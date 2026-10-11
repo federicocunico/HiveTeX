@@ -104,7 +104,15 @@ export class ApiError extends Error {
   }
 }
 
+/** Desktop local mode (no account): no request may reach any server (local-mode spec). */
+let localMode = false;
+export function setLocalMode(on: boolean) {
+  localMode = on;
+}
+
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  // Behaves like "no network": every caller already falls back to working on this device.
+  if (localMode) throw new ApiError(0, 'local_mode', 'Not signed in: this computer works in local mode.');
   const headers: Record<string, string> = { 'X-Requested-With': 'hivetex' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (bearer) headers.Authorization = `Bearer ${bearer}`;

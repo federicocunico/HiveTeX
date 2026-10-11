@@ -9,6 +9,7 @@
   import PdfView from '../components/PdfView.svelte';
   import ProjectSettings from '../components/ProjectSettings.svelte';
   import ShareDialog from '../components/ShareDialog.svelte';
+  import ConflictDialog from '../components/workspace/ConflictDialog.svelte';
   import BackupPanel from '../components/workspace/BackupPanel.svelte';
   import HistoryPanel from '../components/workspace/HistoryPanel.svelte';
   import OutlinePanel from '../components/workspace/OutlinePanel.svelte';
@@ -30,6 +31,7 @@
   import { registerCommands, registerSource, setGotoLine } from '../lib/commands.svelte.js';
   import { openPalette, openShortcuts } from '../lib/palette.svelte.js';
   import { takeFreshFolderProject } from '../lib/folders.js';
+  import { forgetLocalProject, getLocalProject, removeLocalProjectData, takePendingLink } from '../lib/local-projects.js';
   import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
   import { type LooseItem, isArchiveName, readLoose } from '../lib/import/sources.js';
   import { exportZip } from '../lib/import/zip.js';
@@ -107,6 +109,8 @@
   let texts = $state.raw(new Map<string, string>());
   let showSettings = $state(false);
   let showShare = $state(false);
+  /** Resolve dialog for offline-merge conflicts (id of the conflict to show first). */
+  let showConflicts = $state<{ initial: string | null } | null>(null);
   let showTour = $state(false);
   let jump = $state<{ line: number; n: number } | null>(null);
   let highlight = $state<PdfPosition | null>(null);
@@ -194,6 +198,8 @@
       scheduleIndex();
       const pending = takePendingImport();
       if (pending && s.canWrite) importRequest = pending;
+      const link = takePendingLink(s.project.id);
+      if (link && s.canWrite) void linkLocal(s, link.localId);
       const tpl = takePendingTemplate();
       if (tpl && s.canWrite && s.files.length === 0) await applyTemplate(s.model, tpl.files, tpl.main);
       // Created from a folder: its files were imported when the folder was bound; pick main and engine from them.
@@ -405,6 +411,27 @@
     pairing = false;
     pairMessage = r === 'paired' ? '' : PAIR_MESSAGES[r];
     if (r === 'paired') session.requestCompile();
+  }
+
+  /** Link: merges a local project into this one once this device has the project's files (local-mode spec). */
+  async function linkLocal(s: ProjectSession, localId: string) {
+    const name = getLocalProject(localId)?.name ?? 'the local project';
+    toast(`Getting the project's files before merging "${name}"…`, 'info', 8000);
+    const end = Date.now() + 60_000;
+    while (Date.now() < end) {
+      const stage = s.syncStatus?.stage;
+      if (stage === 'synced' || (stage === 'alone' && Date.now() > end - 50_000)) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    try {
+      const r = await s.mergeLocalProject(localId);
+      forgetLocalProject(localId);
+      await removeLocalProjectData(localId);
+      toast(`Merged "${name}" into this project: ${r.taken.length} file${r.taken.length === 1 ? '' : 's'} added${r.conflicts ? `, ${r.conflicts} conflict${r.conflicts === 1 ? '' : 's'} to resolve` : ''}.`, r.conflicts ? 'error' : 'ok', 10_000);
+      if (r.conflicts) showConflicts = { initial: null };
+    } catch (e) {
+      toast(`Could not merge "${name}": ${e instanceof Error ? e.message : String(e)}. It is still on this computer.`, 'error');
+    }
   }
 
   /** Makes a folder of the user's choice this project's location on this device. */
@@ -805,7 +832,11 @@
             <button type="button" aria-pressed={narrowView === 'pdf'} onclick={() => (narrowView = 'pdf')}>PDF</button>
           </div>
         {/if}
-        <button type="button" class="hbtn" onclick={() => (showShare = true)} data-testid="share-btn" data-tip="Invite co-authors"><Icon icon={Share} /><span class="lbl">Share</span></button>
+        {#if s.isLocal}
+          <span class="pill" data-testid="local-project-pill" data-tip="This project exists only on this computer. Sign in to share it.">On this computer</span>
+        {:else}
+          <button type="button" class="hbtn" onclick={() => (showShare = true)} data-testid="share-btn" data-tip="Invite co-authors"><Icon icon={Share} /><span class="lbl">Share</span></button>
+        {/if}
         <div class="split-btn">
           <button type="button" class="primary" onclick={compileNow} data-testid="compile-btn" disabled={s.compileStatus === 'compiling'}>
             <Icon icon={Play} />{s.compileStatus === 'compiling' ? 'Compiling…' : 'Recompile'}
@@ -906,7 +937,7 @@
                 {/snippet}
               </PeoplePanel>
             {:else if layout.panel === 'sync'}
-              <SyncPanel session={s} onOpenFile={(path) => { const f = s.files.find((x) => x.path === path); if (f) openFile(f); }} />
+              <SyncPanel session={s} onConflicts={() => (showConflicts = { initial: null })} onOpenFile={(path) => { const f = s.files.find((x) => x.path === path); if (f) openFile(f); }} />
             {:else if layout.panel === 'backup'}
               <BackupPanel session={s} />
             {/if}
@@ -934,6 +965,13 @@
               {#if !showPdf && !narrow}<button type="button" class="small" onclick={togglePdf} data-testid="show-pdf"><Icon icon={PanelRight} size={14} />Show PDF</button>{/if}
               <IconButton icon={layout.focus ? Minimize : Maximize} size={28} label={layout.focus ? 'Leave focus mode' : 'Focus mode'} tip={layout.focus ? 'Leave focus mode (Ctrl+Shift+F)' : 'Focus mode (Ctrl+Shift+F)'} data-testid="focus-btn" onclick={toggleFocus} />
             </div>
+            {#if active && s.conflicts.some((c) => c.kind === 'text' && c.fileId === active.id)}
+              {@const c = s.conflicts.find((x) => x.kind === 'text' && x.fileId === active.id)}
+              <div class="conflict-bar" role="status" data-testid="conflict-bar">
+                <span>This file conflicts with your offline version. Co-authors see their version until you decide.</span>
+                <button type="button" class="small" onclick={() => (showConflicts = { initial: c?.id ?? null })} data-testid="resolve-btn">Resolve</button>
+              </div>
+            {/if}
             {#if showToolbar && !layout.focus}<FormatToolbar onAction={format} />{/if}
             <div class="ed-body">
               {#if active?.kind === 'text'}
@@ -1012,6 +1050,7 @@
         {keymapMode}
         onPeople={() => openPanel('people')}
         onSync={() => openPanel('sync')}
+        onConflicts={() => (showConflicts = { initial: null })}
         onUseDesktop={!isDesktop && s.engineKind !== 'native' && s.compileMode !== 'peers' ? compileWithDesktop : undefined}
         {pairing}
         {pairMessage}
@@ -1049,6 +1088,9 @@
     <Tour onEnd={() => (showTour = false)} />
   {/if}
 
+  {#if showConflicts && session}
+    <ConflictDialog session={session} initial={showConflicts.initial} onClose={() => (showConflicts = null)} />
+  {/if}
   {#if showShare}
     <ShareDialog session={s} onClose={() => (showShare = false)} />
   {/if}
@@ -1300,6 +1342,17 @@
     flex: calc(1 - var(--split)) 1 0;
     min-width: 0;
     min-height: 0;
+  }
+  .conflict-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--bad-soft, #fdecec);
+    color: var(--ink);
+    border-bottom: 1px solid var(--bad);
+    font-size: var(--text-sm);
   }
   .ed-head {
     flex: none;

@@ -64,6 +64,20 @@ retries the connection to co-authors who are online, asks every co-author again 
 missing; it tells you what it did. A notification appears when everything has arrived, or when nothing has progressed
 for a minute while files are still missing.
 
+### Offline work and conflicts
+
+Edits made while no co-author is connected are merged like git when one connects: changes in different places merge
+on their own (a message lists the files), and changes to the same lines become **conflicts**. A red *N conflicts to
+resolve* in the status bar, or the bar above the file, opens **Resolve conflicts**: keep mine, keep theirs, keep both,
+or edit, then **Apply and share**. While conflicts are pending, *Unshared changes* in the status bar shows that this
+device holds work the others have not seen yet. See [Working offline](offline.md).
+
+### Without an account (desktop)
+
+**Continue without an account** on the sign-in screen opens *local mode*: projects stay on this computer (*On this
+computer*), nothing is sent anywhere, and the header shows *Local* and **Sign in to share**. After signing in, each
+local project offers **Share…** and **Merge into a project…** ([details](offline.md#without-an-account-desktop)).
+
 ## Command palette
 
 **Ctrl+K** (Cmd+K on a Mac) opens the command palette anywhere after signing in. Type a few letters of what you want:

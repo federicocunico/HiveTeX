@@ -74,8 +74,15 @@ export class BackupAgent {
     });
     o.model.onFilesChanged(() => this.noteChange(null));
     // Binding / policy / progress live in the shared project meta; keep UIs in step with local and remote changes.
-    o.model.meta.observe(() => {
+    const onMeta = () => {
       for (const cb of this.statusCbs) cb();
+    };
+    o.model.meta.observe(onMeta);
+    // The root document can be replaced (offline merge): watch the new one.
+    o.model.onDocReplaced((docId) => {
+      if (docId !== 'root') return;
+      o.model.meta.observe(onMeta);
+      onMeta();
     });
   }
 

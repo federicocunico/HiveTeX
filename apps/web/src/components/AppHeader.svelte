@@ -43,7 +43,10 @@
   <Menu label="Help" items={helpItems} triggerClass="iconlike" tip="Help">
     {#snippet trigger()}<Icon icon={Help} size={18} />{/snippet}
   </Menu>
-  {#if user}
+  {#if auth.local}
+    <span class="pill" data-testid="local-mode" data-tip="No account: projects stay on this computer and nothing is sent anywhere">Local</span>
+    <a class="signin" href="#/login" data-testid="local-sign-in">Sign in to share</a>
+  {:else if user}
     <span class="who" title={user.username}>{user.username}</span>
     <Menu label="Account menu" items={accountItems} triggerClass="avatar-trigger" tip={user.username} testid="account-menu">
       {#snippet trigger()}<Avatar name={user.username} size={30} />{/snippet}
@@ -52,6 +55,10 @@
 </header>
 
 <style>
+  .signin {
+    font-weight: 600;
+    white-space: nowrap;
+  }
   .apphead {
     position: sticky;
     top: 0;

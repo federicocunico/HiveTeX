@@ -10,11 +10,15 @@
   import { type PickedFolder, foldersSupported, markFreshFolderProject, pickProjectFolder, readFolderMarker, rememberFolder, slugFromFolder } from '../lib/folders.js';
   import { type Location, allLocations } from '../lib/locations.js';
   import { DEFAULT_TEMPLATE, TEMPLATES, templateFiles } from '../lib/templates.js';
+  import { type LocalProject, createLocalProject, listLocalProjects } from '../lib/local-projects.js';
+  import LocalProjectActions from '../components/LocalProjectActions.svelte';
   import { ChevronRight, CloudUpload, FolderOpen, Link, Lock, Plus, Search } from '../ui/icons.js';
   import Dialog from '../ui/Dialog.svelte';
   import Icon from '../ui/Icon.svelte';
 
   let projects = $state<ProjectInfo[]>([]);
+  /** Projects that exist only on this computer (local mode). */
+  let localProjects = $state<LocalProject[]>(listLocalProjects());
   let loading = $state(true);
   let error = $state('');
 
@@ -126,13 +130,17 @@
     error = '';
     creating = true;
     try {
-      const r = await api<{ project: ProjectInfo }>('POST', '/projects', {
-        slug: fromSlug.trim(),
-        ...(fromUnprotected ? { passwordProtected: false } : { password: fromPassword }),
-      });
-      await rememberFolder(r.project.id, fromFolder);
-      markFreshFolderProject(r.project.id);
-      go(`/p/${r.project.id}`);
+      const id = auth.local
+        ? createLocalProject(fromSlug.trim() || fromFolder.label).id
+        : (
+            await api<{ project: ProjectInfo }>('POST', '/projects', {
+              slug: fromSlug.trim(),
+              ...(fromUnprotected ? { passwordProtected: false } : { password: fromPassword }),
+            })
+          ).project.id;
+      await rememberFolder(id, fromFolder);
+      markFreshFolderProject(id);
+      go(`/p/${id}`);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Could not create project';
     } finally {
@@ -194,17 +202,22 @@
       // Read the template before creating, so a failure leaves no half-made project.
       const chosen = importFiles.length ? null : TEMPLATES.find((t) => t.id === template && t.id !== 'blank');
       const files = chosen ? await templateFiles(chosen.id) : null;
-      const r = await api<{ project: ProjectInfo }>('POST', '/projects', {
-        ...(slug.trim() ? { slug: slug.trim() } : {}),
-        ...(unprotected ? { passwordProtected: false } : { password }),
-      });
+      // Local mode: the project exists only on this computer (no request is made).
+      const id = auth.local
+        ? createLocalProject(slug.trim() || (chosen ? `${chosen.name} paper` : 'Untitled paper')).id
+        : (
+            await api<{ project: ProjectInfo }>('POST', '/projects', {
+              ...(slug.trim() ? { slug: slug.trim() } : {}),
+              ...(unprotected ? { passwordProtected: false } : { password }),
+            })
+          ).project.id;
       if (createFolder) {
-        await rememberFolder(r.project.id, createFolder);
-        markFreshFolderProject(r.project.id);
+        await rememberFolder(id, createFolder);
+        markFreshFolderProject(id);
       }
       pendingImport = importRequest();
       pendingTemplate = chosen && files ? { files, main: chosen.main } : null;
-      go(`/p/${r.project.id}`);
+      go(`/p/${id}`);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Could not create project';
     } finally {
@@ -274,7 +287,7 @@
       {#if folders}
         <button type="button" onclick={openFolder} data-testid="open-folder" data-tip="Open a folder on this device (for example a git clone) as a project"><Icon icon={FolderOpen} />Open folder…</button>
       {/if}
-      <button type="button" onclick={openJoin} data-testid="join-btn"><Icon icon={Link} />Join with ID</button>
+      {#if !auth.local}<button type="button" onclick={openJoin} data-testid="join-btn"><Icon icon={Link} />Join with ID</button>{/if}
       <button type="button" class="primary" onclick={openNew} data-testid="new-project-btn"><Icon icon={Plus} />New project</button>
     </div>
   </div>
@@ -288,8 +301,34 @@
     <div class="notice">You are offline. Projects stored on this device still open and can be edited.</div>
   {/if}
 
-  {#if loading}
+  {#if localProjects.length}
+    <section class="local" aria-labelledby="local-title" data-testid="local-projects">
+      <h2 id="local-title">On this computer</h2>
+      <p class="muted">Only on this computer: nothing is shared or sent anywhere.{auth.local ? ' Sign in to share one with co-authors.' : ''}</p>
+      <div class="list">
+        {#each localProjects as lp (lp.id)}
+          <div class="item local-item" data-testid="local-project">
+            <a class="main" href={`#/p/${lp.id}`}><strong class="slug">{lp.name}</strong></a>
+            {#if locations[lp.id]?.kind === 'folder'}
+              <span class="pill" data-testid="folder-badge"><Icon icon={FolderOpen} size={13} />{(locations[lp.id] as Location & { label: string }).label}</span>
+            {/if}
+            {#if !auth.local}<LocalProjectActions project={lp} onDone={() => (localProjects = listLocalProjects())} />{/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if loading && !auth.local}
     <p class="muted">Loading…</p>
+  {:else if auth.local}
+    {#if !localProjects.length}
+      <div class="empty">
+        <h2>Start your first paper</h2>
+        <p>Pick a template that already compiles. Your projects stay on this computer until you sign in and share them.</p>
+        <div class="actions"><button type="button" class="primary" onclick={openNew}><Icon icon={Plus} />New project</button></div>
+      </div>
+    {/if}
   {:else if projects.length === 0}
     <div class="empty">
       <div class="art" aria-hidden="true"><span><i class="t"></i><i></i><i></i><i class="h"></i><i></i><i></i></span></div>
@@ -351,6 +390,13 @@
     {#if importFiles.length === 0}
       <TemplateGallery bind:value={template} />
     {/if}
+    {#if auth.local}
+      <div class="field">
+        <label for="np-slug">Name</label>
+        <input id="np-slug" type="text" bind:value={slug} placeholder="my-paper-2026" />
+        <p class="hint">Kept on this computer. When you share it later, you choose its project ID and password.</p>
+      </div>
+    {:else}
     <div class="two">
       <div class="field">
         <label for="np-slug">Project ID</label>
@@ -364,6 +410,7 @@
         <label class="check"><input type="checkbox" bind:checked={unprotected} /> No password (anyone with the ID can join)</label>
       </div>
     </div>
+    {/if}
     {#if folders}
       <fieldset class="where">
         <legend>Where to keep the files on this device</legend>
@@ -418,6 +465,13 @@
   <Dialog title={`New project from “${fromFolder.label}”`} onClose={() => (fromFolder = null)} onsubmit={createFromFolder} testid="from-folder">
     {#if error}<div class="error" role="alert">{error}</div>{/if}
     <p class="muted intro">The project gets this folder's files and tree, and stays in sync with it: edits made here or by any tool in the folder reach every collaborator.</p>
+    {#if auth.local}
+      <div class="field">
+        <label for="ff-slug">Name</label>
+        <input id="ff-slug" type="text" bind:value={fromSlug} data-testid="from-folder-slug" />
+        <p class="hint">Kept on this computer until you sign in and share it.</p>
+      </div>
+    {:else}
     <div class="field">
       <label for="ff-slug">Project ID</label>
       <input id="ff-slug" type="text" bind:value={fromSlug} required pattern="[a-z0-9-]{'{'}6,48{'}'}" data-testid="from-folder-slug" aria-describedby="ff-slug-hint" />
@@ -429,6 +483,7 @@
       <p class="hint" id="ff-pw-hint">Collaborators need it to join.</p>
       <label class="check"><input type="checkbox" bind:checked={fromUnprotected} /> No password (anyone with the ID can join)</label>
     </div>
+    {/if}
     {#snippet footer()}
       <button type="button" onclick={() => (fromFolder = null)}>Cancel</button>
       <button class="primary" type="submit" disabled={creating} data-testid="from-folder-create">Create project</button>

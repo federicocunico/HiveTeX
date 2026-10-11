@@ -11,3 +11,5 @@ export * from './mirror.js';
 export * from './tauri-rtc.js';
 export * from './changelog.js';
 export * from './sync-status.js';
+export * from './merge.js';
+export * from './fork.js';

@@ -42,7 +42,7 @@
       }
       go('/login');
     }
-    if (auth.user && (route.path === '/login' || route.path === '/register')) {
+    if (auth.user && !auth.local && (route.path === '/login' || route.path === '/register')) {
       let pending: string | null = null;
       try {
         pending = sessionStorage.getItem(RESUME);

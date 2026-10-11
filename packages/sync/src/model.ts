@@ -73,8 +73,11 @@ export function applyTextDiff(ytext: Y.Text, next: string, origin: unknown = LOC
  * delete+create), which makes concurrent rename+edit converge without duplicates.
  */
 export class ProjectModel {
-  readonly root = new Y.Doc();
+  private rootDoc = new Y.Doc();
   private docs = new Map<string, Y.Doc>();
+  private replacedListeners = new Set<(docId: string) => void>();
+  private beforeChangeListeners = new Set<(docId: string, doc: Y.Doc, origin: unknown) => void>();
+  private unobserveFiles: () => void = () => {};
   private persisters = new Map<string, DocPersister>();
   private loading = new Map<string, Promise<Y.Doc>>();
   private listeners = new Set<DocUpdateListener>();
@@ -84,10 +87,76 @@ export class ProjectModel {
     readonly store: Persistence,
     private persistOpts: PersistOptions = {},
   ) {
-    this.docs.set(ROOT_DOC_ID, this.root);
-    this.root.on('update', (u: Uint8Array, origin: unknown) => this.emit(ROOT_DOC_ID, u, origin));
-    this.files.observeDeep(() => {
+    this.attachRoot();
+  }
+
+  /** The root document (file table + settings). It can be replaced (offline merge, see fork.ts): read it each time. */
+  get root(): Y.Doc {
+    return this.rootDoc;
+  }
+
+  private attachRoot() {
+    this.docs.set(ROOT_DOC_ID, this.rootDoc);
+    this.rootDoc.on('update', (u: Uint8Array, origin: unknown) => this.emit(ROOT_DOC_ID, u, origin));
+    this.watchBefore(ROOT_DOC_ID, this.rootDoc);
+    const files = this.files;
+    const onFiles = () => {
       for (const l of this.fileListeners) l();
+    };
+    files.observeDeep(onFiles);
+    this.unobserveFiles = () => files.unobserveDeep(onFiles);
+  }
+
+  private watchBefore(docId: string, doc: Y.Doc) {
+    doc.on('beforeTransaction', (tr: Y.Transaction) => {
+      if (tr.origin instanceof DocPersister) return;
+      for (const l of this.beforeChangeListeners) l(docId, doc, tr.origin);
+    });
+  }
+
+  /** Called before every transaction on any document that does not come from local storage (so the state before a change can be kept). */
+  onBeforeChange(l: (docId: string, doc: Y.Doc, origin: unknown) => void) {
+    this.beforeChangeListeners.add(l);
+    return () => this.beforeChangeListeners.delete(l);
+  }
+
+  /** Called after a document was replaced by `replaceDoc`: holders of the old document (editors, observers) re-attach. */
+  onDocReplaced(l: (docId: string) => void) {
+    this.replacedListeners.add(l);
+    return () => this.replacedListeners.delete(l);
+  }
+
+  /**
+   * Replaces a document by a new one built from `state`, also in local storage. Used by the offline merge to share
+   * the last shared state instead of offline edits (fork.ts). The old document is left alive for whoever still holds it.
+   */
+  replaceDoc(docId: string, state: Uint8Array): Promise<void> {
+    // Synchronous swap first (no edit can land in between), storage afterwards.
+    this.persisters.get(docId)?.discard();
+    this.persisters.delete(docId);
+    const doc = new Y.Doc({ gc: true });
+    Y.applyUpdate(doc, state);
+    if (docId === ROOT_DOC_ID) {
+      this.unobserveFiles();
+      this.rootDoc = doc;
+      this.attachRoot();
+    } else {
+      this.docs.set(docId, doc);
+      doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
+      this.watchBefore(docId, doc);
+    }
+    // Updates made before the stored state is replaced are kept here, then handed to the new persister.
+    const early: Uint8Array[] = [];
+    const buffer = (u: Uint8Array) => early.push(u);
+    doc.on('update', buffer);
+    for (const l of this.fileListeners) l();
+    for (const l of this.replacedListeners) l(docId);
+    return this.store.compact(docId, state).then(() => {
+      doc.off('update', buffer);
+      const persister = new DocPersister(this.store, docId, doc, this.persistOpts);
+      this.persisters.set(docId, persister);
+      persister.enqueue(early);
+      return persister.flush();
     });
   }
 
@@ -146,6 +215,7 @@ export class ProjectModel {
       const persister = new DocPersister(this.store, docId, doc, this.persistOpts);
       await persister.hydrate();
       doc.on('update', (u: Uint8Array, origin: unknown) => this.emit(docId, u, origin));
+      this.watchBefore(docId, doc);
       this.docs.set(docId, doc);
       this.persisters.set(docId, persister);
       this.loading.delete(docId);
@@ -211,6 +281,19 @@ export class ProjectModel {
 
   byId(id: string): FileEntry | undefined {
     return this.list().find((f) => f.id === id);
+  }
+
+  /** Puts back a file entry under its id (offline merge: a file added or kept on this device). */
+  putEntry(id: string, entry: { path: string; kind: FileKind; hash?: string | null; size?: number }, origin: unknown = LOCAL_ORIGIN) {
+    assertSafe(entry.path);
+    this.root.transact(() => {
+      const m = new Y.Map<unknown>();
+      m.set('path', entry.path);
+      m.set('kind', entry.kind);
+      if (entry.hash) m.set('hash', entry.hash);
+      if (entry.size !== undefined) m.set('size', entry.size);
+      this.files.set(id, m);
+    }, origin);
   }
 
   createText(path: string, content = '', origin: unknown = LOCAL_ORIGIN): string {

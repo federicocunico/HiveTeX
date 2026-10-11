@@ -30,11 +30,19 @@ import {
   tauriRtcFactory,
   sha256Hex,
   SyncTracker,
+  OfflineFork,
+  type MergeConflict,
+  type MergeReport,
+  type HunkDecision,
+  type FileChoice,
+  forkMeshOptions,
+  listenForkStatus,
   type SyncSnapshot,
 } from '@hivetex/sync';
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, isDesktop, wsBase } from './api.js';
 import { copyText } from './clipboard.js';
+import { isLocalProjectId } from './local-projects.js';
 import { type FolderAction, type FolderDeps, runFolderAction } from './project-folder.js';
 import { HelperEngine, type PairResult, helperToken, pairWithDesktop, probeHelper } from './helper-engine.js';
 import { applyImport, planFor } from './import/apply.js';
@@ -124,6 +132,15 @@ export class ProjectSession {
   private tracker!: SyncTracker;
   /** How far the join / sync is (stage, per-file state, percent, last sync). Null before the first computation. */
   syncStatus = $state<SyncSnapshot | null>(null);
+
+  /** Work done without a peer linked, merged git-style at the next link (offline-mode-git-merge). */
+  private fork!: OfflineFork;
+  /** This device holds changes not shared yet (they are merged at the next link). */
+  unsharedWork = $state(false);
+  /** Conflicts between this device's offline work and others' changes, waiting for the member's decision. */
+  conflicts = $state<MergeConflict[]>([]);
+  /** The last merge of offline work (for the Sync panel). */
+  lastMerge = $state<MergeReport | null>(null);
   /** Co-authors that are online (seen by the signaling relay or announced by a peer) but not connected yet. */
   connecting = $state<Candidate[]>([]);
   syncingNow = $state(false);
@@ -175,16 +192,37 @@ export class ProjectSession {
     this.keys = reg.keys;
     this.deviceId = reg.deviceId;
 
+    // Before the mesh exists, so a local edit made before any link is already recorded as unshared work.
+    this.fork = new OfflineFork({
+      model: this.model,
+      canEdit: () => this.canWrite,
+      enabled: () => !this.isLocal,
+      onReport: (r) => this.onMergeReport(r),
+      onChange: () => {
+        this.unsharedWork = this.fork.active;
+        this.conflicts = [...this.fork.conflicts];
+      },
+      ...forkMeshOptions(
+        () => this.mesh,
+        () => this.deviceId,
+      ),
+    });
+    await this.fork.start();
+    this.unsharedWork = this.fork.active;
+    this.conflicts = [...this.fork.conflicts];
+
     this.mesh = new Mesh({
       projectId: this.project.id,
       model: this.model,
       keys: this.keys,
       trusted: this.trusted,
       getTicket: () => this.ticket,
+      beforeSync: (peer) => this.fork.beforeSync(peer),
       // test hook only: shortens the revocation grace period in end-to-end tests
       ...(Number(localStorage.getItem('hivetex.epochGraceMs')) ? { epochGraceMs: Number(localStorage.getItem('hivetex.epochGraceMs')) } : {}),
     });
     this.blobs = new BlobManager(this.mesh, this.store);
+    listenForkStatus(this.mesh, this.fork);
     this.mesh.onPeerJoin(() => this.refreshPeers());
     // A peer revealed a newer membership epoch (someone was removed or demoted): get a fresh ticket right away.
     this.mesh.onEpochAdvance((e) => {
@@ -234,7 +272,9 @@ export class ProjectSession {
       this.scheduleStaleCheck();
       this.scheduleLocalCompile();
     });
-    void this.refreshTicketLoop();
+    // A local project (no account, local-mode spec) never meets anyone: no ticket, no connections.
+    if (this.isLocal) this.offline = true;
+    else void this.refreshTicketLoop();
     // Persist pending edits when the tab is hidden or closed (writes are normally batched every 250 ms).
     this.flushHandler = () => void this.model.flush();
     window.addEventListener('pagehide', this.flushHandler);
@@ -781,6 +821,63 @@ export class ProjectSession {
     this.files = this.model.list();
   }
 
+  private onMergeReport(r: MergeReport) {
+    this.lastMerge = r;
+    this.unsharedWork = this.fork.active;
+    this.conflicts = [...this.fork.conflicts];
+    if (r.discarded) {
+      toast('You can no longer edit this project: the changes you made offline were not shared.', 'error', 10_000);
+      return;
+    }
+    const parts: string[] = [];
+    if (r.merged.length) parts.push(`merged with others' changes: ${r.merged.join(', ')}`);
+    if (r.conflicts) parts.push(`${r.conflicts} conflict${r.conflicts === 1 ? '' : 's'} to resolve`);
+    if (parts.length) toast(`Merged your offline changes. ${parts.join('; ')}.`, r.conflicts ? 'error' : 'info', 12_000);
+  }
+
+  /**
+   * Link: merges a project that existed only on this computer into this one (local-mode spec). Files only there are
+   * added; files at the same path with different content become conflicts to resolve. The local copy is left as is.
+   */
+  async mergeLocalProject(localId: string): Promise<MergeReport> {
+    const src = await IndexedDbPersistence.open(`hivetex-project-${localId}`);
+    try {
+      const m = new ProjectModel(src);
+      await m.init();
+      const entries: Array<{ path: string; kind: 'text' | 'binary' | 'dir'; text?: string; hash?: string; size?: number }> = [];
+      for (const f of m.list()) {
+        if (f.kind === 'text') entries.push({ path: f.path, kind: 'text', text: (await m.openText(f.id)).toString() });
+        else if (f.kind === 'binary' && f.hash) {
+          const bytes = await src.getBlob(f.hash);
+          if (bytes) await this.store.putBlob(f.hash, bytes);
+          entries.push({ path: f.path, kind: 'binary', hash: f.hash, ...(f.size !== undefined ? { size: f.size } : {}) });
+        } else if (f.kind === 'dir') entries.push({ path: f.path, kind: 'dir' });
+      }
+      const r = await this.fork.mergeIn(entries);
+      this.conflicts = [...this.fork.conflicts];
+      return r;
+    } finally {
+      src.close();
+    }
+  }
+
+  /** Decides a text conflict (every hunk). 'conflict-again': others changed the same lines meanwhile. */
+  async resolveTextConflict(id: string, decisions: Array<HunkDecision | undefined>) {
+    const r = await this.fork.resolveText(id, decisions);
+    this.conflicts = [...this.fork.conflicts];
+    return r;
+  }
+
+  async resolveFileConflict(id: string, choice: FileChoice) {
+    await this.fork.resolveFile(id, choice);
+    this.conflicts = [...this.fork.conflicts];
+  }
+
+  /** A project that exists only on this computer (local mode). */
+  get isLocal() {
+    return isLocalProjectId(this.project.id);
+  }
+
   get canWrite() {
     return this.role === 'owner' || this.role === 'editor';
   }
@@ -1014,6 +1111,7 @@ export class ProjectSession {
     clearTimeout(this.localTimer);
     this.unlistenPackages?.();
     this.monitor?.stop();
+    this.fork?.stop();
     this.election?.stop();
     this.mesh?.destroy();
     await this.model?.destroy();

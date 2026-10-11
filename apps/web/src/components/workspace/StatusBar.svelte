@@ -12,6 +12,7 @@
     keymapMode = '',
     onPeople,
     onSync,
+    onConflicts,
     onUseDesktop,
     pairing = false,
     pairMessage = '',
@@ -23,6 +24,8 @@
     onPeople?: () => void;
     /** Opens the Sync panel. */
     onSync?: () => void;
+    /** Opens the conflict resolution dialog. */
+    onConflicts?: () => void;
     /** Web: compile with the HiveTeX desktop app on this computer (absent when that does not apply). */
     onUseDesktop?: (() => void) | undefined;
     pairing?: boolean;
@@ -50,6 +53,13 @@
       <Icon icon={RefreshCw} size={13} /><span role="status">{syncLabel(status)}</span>
     </button>
     {#if busy && status?.stalled}<button type="button" class="item linkish" onclick={() => void s.syncNow()} disabled={s.syncingNow} data-testid="sync-now-inline">Sync now</button>{/if}
+  {/if}
+  {#if s.conflicts.length}
+    <button type="button" class="pill bad" onclick={onConflicts} data-testid="conflicts-pill" data-tip="Your offline changes and co-authors' changes touch the same lines: decide what to keep">
+      {s.conflicts.length} conflict{s.conflicts.length === 1 ? '' : 's'} to resolve
+    </button>
+  {:else if s.unsharedWork}
+    <span class="item" data-testid="unshared-work" data-tip="Changes made while nobody else was connected: they are merged when a co-author connects">Unshared changes</span>
   {/if}
   <button type="button" class="item linkish" onclick={() => s.setPaused(!s.paused)} data-testid="pause-sync" data-tip={s.paused ? 'Reconnect to co-authors' : 'Disconnect and keep editing on this device'}>{s.paused ? 'Resume sync' : 'Work offline'}</button>
 

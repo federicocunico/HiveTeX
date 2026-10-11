@@ -4,9 +4,10 @@
   import { bracketMatching, indentOnInput } from '@codemirror/language';
   import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from '@codemirror/lint';
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-  import { Compartment, EditorState, Prec } from '@codemirror/state';
+  import { Compartment, EditorState, Prec, Transaction } from '@codemirror/state';
   import { EditorView, drawSelection, keymap, lineNumbers } from '@codemirror/view';
   import { activeLineWhenNoSelection } from '../lib/active-line.js';
+  import { crlfAware } from '../lib/crlf.js';
   import type { Diagnostic } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
   import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
@@ -149,6 +150,8 @@
   // Role changes (e.g. the owner demotes us to viewer) must flip the editor to read-only without remounting.
   const access = new Compartment();
   const fontSize = new Compartment();
+  /** The binding to the shared document: swapped in place when the offline merge replaces the document. */
+  const collab = new Compartment();
   const accessExt = (ro: boolean) => [
     EditorState.readOnly.of(ro),
     EditorView.editable.of(!ro),
@@ -170,6 +173,8 @@
         extensions: [
           // first, so Vim/Emacs bindings take precedence over the default keymap
           keymapMode.of([]),
+          // Windows line endings: the editor text is exactly the shared text (see crlf.ts).
+          crlfAware(),
           lineNumbers(),
           drawSelection(),
           activeLineWhenNoSelection(),
@@ -198,7 +203,7 @@
               },
             },
           ]),
-          yCollab(ytext, session.mesh.awareness, { undoManager: undo }),
+          collab.of(yCollab(ytext, session.mesh.awareness, { undoManager: undo })),
           access.of(accessExt(readOnly)),
           reportCursor,
           appKeys,
@@ -237,6 +242,30 @@
   $effect(() => {
     const id = fileId;
     untrack(() => void mount(id));
+  });
+
+  // The offline merge can replace a file's document (see @hivetex/sync fork.ts). Rebind in place, synchronously:
+  // a keystroke typed at that moment goes either into the old document (already captured) or into the new one.
+  $effect(() => {
+    const id = fileId;
+    const off = session.model.onDocReplaced((docId) => {
+      if (docId !== `f:${id}`) return;
+      const doc = session.model.getLoadedDoc(docId);
+      if (!view || !doc) return void mount(id);
+      const next = doc.getText('t');
+      const head = view.state.selection.main.head;
+      const cur = view.state.doc.lineAt(head);
+      const line = cur.number;
+      const col = head - cur.from;
+      view.dispatch({ effects: collab.reconfigure([]) });
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next.toString() }, annotations: Transaction.addToHistory.of(false) });
+      undo?.destroy();
+      undo = new Y.UndoManager(next);
+      ytext = next;
+      const l = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      view.dispatch({ effects: collab.reconfigure(yCollab(next, session.mesh.awareness, { undoManager: undo })), selection: { anchor: Math.min(l.from + col, l.to) } });
+    });
+    return () => void off();
   });
 
   $effect(() => {

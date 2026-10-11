@@ -7,7 +7,7 @@
   import PanelHead from './PanelHead.svelte';
 
   /** How far the sync is, per file, who is editing what, and a way to force a sync. */
-  let { session, onOpenFile }: { session: ProjectSession; onOpenFile?: (path: string) => void } = $props();
+  let { session, onOpenFile, onConflicts }: { session: ProjectSession; onOpenFile?: (path: string) => void; onConflicts?: () => void } = $props();
 
   const status = $derived(session.syncStatus);
   const editors = $derived(editorsByFile(session.presence));
@@ -38,6 +38,18 @@
     {/if}
     <p class="meta" data-testid="last-sync">Last synced: {sinceText(status?.lastSyncAt ?? null)}</p>
     <p class="meta">{status?.peers ?? 0} connected{status?.connecting ? `, ${status.connecting} connecting` : ''}</p>
+    {#if session.unsharedWork}<p class="meta" data-testid="sync-unshared">Changes made while nobody else was connected: merged when a co-author connects.</p>{/if}
+    {#if session.lastMerge && (session.lastMerge.merged.length || session.lastMerge.taken.length)}
+      <p class="meta" data-testid="sync-merged">
+        Last offline merge: {session.lastMerge.taken.length} file{session.lastMerge.taken.length === 1 ? '' : 's'} taken as is{session.lastMerge.merged.length ? `, merged with others' changes: ${session.lastMerge.merged.join(', ')}` : ''}.
+      </p>
+    {/if}
+    {#if session.conflicts.length}
+      <p class="meta bad" data-testid="sync-conflicts">
+        {session.conflicts.length} conflict{session.conflicts.length === 1 ? '' : 's'} with your offline changes.
+        <button type="button" class="small" onclick={onConflicts}>Resolve</button>
+      </p>
+    {/if}
     <button type="button" class="primary" onclick={() => void session.syncNow()} disabled={session.syncingNow} data-testid="sync-now">
       <Icon icon={RefreshCw} />{session.syncingNow ? 'Syncing…' : 'Sync now'}
     </button>

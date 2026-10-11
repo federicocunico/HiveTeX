@@ -2,7 +2,7 @@
   import '@fontsource-variable/stix-two-text';
   import ServerChoice from '../components/ServerChoice.svelte';
   import { ApiError, api, isDesktop } from '../lib/api.js';
-  import { login, register } from '../lib/auth.svelte.js';
+  import { auth, enterLocalMode, login, register } from '../lib/auth.svelte.js';
   import { go, route } from '../lib/router.svelte.js';
   import { Check, Lock } from '../ui/icons.js';
   import Icon from '../ui/Icon.svelte';
@@ -240,11 +240,34 @@
           <a href="#/login">Back to sign in</a>
         {/if}
       </p>
+      {#if isDesktop && (mode === 'login' || mode === 'register')}
+        <div class="local">
+          {#if auth.local}
+            <button type="button" class="link" onclick={() => go('/')} data-testid="back-to-local">Back to my local projects</button>
+          {:else}
+            <button type="button" class="ghost" onclick={() => { enterLocalMode(); go('/'); }} data-testid="continue-local">Continue without an account</button>
+            <p class="muted small">Projects stay on this computer and nothing is sent anywhere. Sign in later to share them.</p>
+          {/if}
+        </div>
+      {/if}
     </form>
   </div>
 </div>
 
 <style>
+  .local {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+    text-align: center;
+  }
+  .local .small {
+    margin: 0;
+    font-size: var(--text-xs);
+  }
   .auth {
     min-height: 100%;
     display: grid;

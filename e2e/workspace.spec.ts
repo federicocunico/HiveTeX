@@ -237,3 +237,23 @@ test('a selection is highlighted on every line it covers, including the line wit
   }
   await o.ctx.close();
 });
+
+test('a file with Windows line endings (CRLF) stays editable and in sync with the shared text', async ({ browser }) => {
+  const o = await owner(browser);
+  const p = o.page;
+  await p.evaluate(async () => {
+    const s = (window as unknown as { __p2p: { session: { model: { createTextNow(path: string, text: string): Promise<string> } } } }).__p2p.session;
+    await s.model.createTextNow('crlf.tex', 'first line\r\nsecond line\r\nthird line\r\n');
+  });
+  await p.getByRole('treeitem', { name: 'crlf.tex' }).click();
+  await p.locator('.cm-line', { hasText: 'second line' }).click();
+  await p.keyboard.press('End');
+  await p.keyboard.type(' edited');
+  const text = () =>
+    p.evaluate(async () => {
+      const s = (window as unknown as { __p2p: { session: { model: { find(p: string): { id: string }; openText(id: string): Promise<{ toString(): string }> } } } }).__p2p.session;
+      return (await s.model.openText(s.model.find('crlf.tex').id)).toString();
+    });
+  await expect.poll(text).toBe('first line\r\nsecond line edited\r\nthird line\r\n');
+  await o.ctx.close();
+});

@@ -16,6 +16,8 @@ const uniq = (p) => `${p}${Date.now().toString(36)}${n++}`.toLowerCase().slice(0
 
 /** @type {Session} */
 let b;
+/** The account registered in before() (signed in again by the local-mode test). */
+let deskUser = "";
 
 const pickNext = (name) => writeFileSync(join(pickBase, '.next-pick'), name);
 function writeDisk(dir, path, text) {
@@ -127,6 +129,7 @@ before(async () => {
   // the server is shown (and changeable) before signing in
   assert.equal(await (await byTestId('server-current')).getText(), 'http://localhost:3000');
   const username = uniq('desk');
+  deskUser = username;
   await (await b.$('#reg-user')).setValue(username);
   await (await b.$('#reg-email')).setValue(`${username}@example.com`);
   await (await b.$('#reg-pw')).setValue(PW);
@@ -362,4 +365,101 @@ test('right-click Files > Open folder puts a project kept in the app in Document
   const dir = join(pickBase, 'HiveTeX', slug);
   await until(async () => (await b.execute(() => document.body.innerText)).includes(`Copied ${dir}`), 'path copied');
   assert.equal(readDisk(join('HiveTeX', `${slug}-2`), 'main.tex'), null, 'no second folder');
+});
+
+test('local mode: no account, nothing sent anywhere; later sign in, share one local project and merge another into it', { timeout: 600_000 }, async () => {
+  // Toasts can sit over buttons at click time: click through the DOM once the element is shown.
+  const click = async (sel) => {
+    await b.$(sel);
+    await b.execute((q) => {
+      const el = q.startsWith('/') ? document.evaluate(q, document, null, 9, null).singleNodeValue : document.querySelector(q);
+      el.click();
+    }, sel);
+  };
+  const setMain = (text) =>
+    b.execute(async (t) => {
+      const s = window.__p2p.session;
+      const f = s.model.find('main.tex') ?? s.model.list().find((x) => x.kind === 'text');
+      const y = await s.model.openText(f.id);
+      y.doc.transact(() => {
+        y.delete(0, y.length);
+        y.insert(0, t);
+      });
+      await s.model.flush();
+      return f.path;
+    }, text);
+  const mainText = () => b.execute(async () => { const s = window.__p2p.session; const f = s.model.find('main.tex'); return f ? (await s.model.openText(f.id)).toString() : null; });
+  const newLocal = async (name) => {
+    await home();
+    await click('[data-testid="new-project-btn"]');
+    await click('[data-testid="template-article"]');
+    await (await b.$('#np-slug')).setValue(name);
+    await click("//button[normalize-space()='Create project']");
+    await byTestId('workspace');
+    await until(() => b.execute(() => !!window.__p2p?.session?.model.find('main.tex')), 'template written');
+  };
+
+  // sign out, then continue without an account
+  await home();
+  await click('button[aria-label="Account menu"]');
+  await click("//button[@role='menuitem'][normalize-space()='Sign out']");
+  await byTestId('continue-local');
+  await b.execute(() => document.querySelector('[data-testid="continue-local"]').click());
+  await byTestId('local-mode');
+  // from now on, record every request and socket the app opens
+  await b.execute(() => {
+    window.__net = [];
+    const f = window.fetch;
+    window.fetch = (u, o) => (window.__net.push(String(u?.url ?? u)), f(u, o));
+    const W = window.WebSocket;
+    window.WebSocket = function (u, p) {
+      window.__net.push(`ws ${u}`);
+      return new W(u, p);
+    };
+  });
+  await newLocal('Local A');
+  assert.match(await fullText('local-project-pill'), /On this computer/);
+  await setMain(String.raw`\documentclass{article}` + '\n' + String.raw`\begin{document}` + '\nVersion A.\n' + String.raw`\end{document}` + '\n');
+  await show('PDF');
+  await until(async () => (await fullText('compiled-by')).length > 0, 'compiled locally', 300_000);
+  await newLocal('Local B');
+  await setMain(String.raw`\documentclass{article}` + '\n' + String.raw`\begin{document}` + '\nVersion B.\n' + String.raw`\end{document}` + '\n');
+  const net = await b.execute(() => window.__net.filter((u) => u.includes(':3000') || u.includes('/api/') || u.startsWith('ws ')));
+  assert.deepEqual(net, [], `local mode contacted: ${net.join(', ')}`);
+
+  // sign in: both local projects are listed with Share / Merge
+  await home();
+  await click('[data-testid="local-sign-in"]');
+  await (await b.$('#login-id')).setValue(deskUser);
+  await (await b.$('#login-pw')).setValue(PW);
+  await click("//button[normalize-space()='Sign in']");
+  await b.$(PROJECTS_H1);
+  await until(async () => (await b.findAll('[data-testid="local-project"]')).length === 2, 'two local projects listed');
+
+  // share A: a shared project with its files
+  const slug = uniq('shared-');
+  const action = (name, testid) => b.$(`//div[@data-testid='local-project'][.//strong[normalize-space()='${name}']]//button[@data-testid='${testid}']`);
+  await click(`//div[@data-testid='local-project'][.//strong[normalize-space()='${'Local A'}']]//button[@data-testid='${'publish-local'}']`);
+  await (await byTestId('local-slug')).setValue(slug);
+  await (await byTestId('local-password')).setValue(PROJECT_PW);
+  await click('[data-testid="local-action-submit"]');
+  await byTestId('workspace');
+  await until(async () => (await fullText('project-slug')) === slug, 'shared project opened');
+  await until(async () => (await mainText())?.includes('Version A.'), 'files of A in the shared project');
+
+  // merge B into it: main.tex differs, so it is a conflict; keep mine (B)
+  await home();
+  await until(async () => (await b.findAll('[data-testid="local-project"]')).length === 1, 'A no longer local');
+  await click(`//div[@data-testid='local-project'][.//strong[normalize-space()='${'Local B'}']]//button[@data-testid='${'link-local'}']`);
+  await (await byTestId('local-slug')).setValue(slug);
+  await (await byTestId('local-password')).setValue(PROJECT_PW);
+  await click('[data-testid="local-action-submit"]');
+  await byTestId('workspace');
+  await until(() => byTestId('conflict-dialog'), 'conflict to resolve', 120_000);
+  await click('[data-testid="keep-mine"]');
+  await click('[data-testid="apply-resolution"]');
+  await byTestId('no-conflicts');
+  await until(async () => (await mainText())?.includes('Version B.'), 'B kept after the merge');
+  await home();
+  assert.equal((await b.findAll('[data-testid="local-project"]')).length, 0, 'no local project left');
 });

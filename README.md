@@ -46,6 +46,9 @@ First launch:
   Keyring or KWallet), which standard desktops have.
 - **Any OS:** the sign-in screen shows the server (`hivetex.vercel.app` by default). Use *Change* to connect to
   another one.
+- **No account needed:** *Continue without an account* on the sign-in screen lets you write on this computer only,
+  with nothing sent anywhere. Sign in later to share a project, or to merge it into one you join
+  ([details](docs/offline.md)).
 
 Installed apps check GitHub when they start. If a newer release exists, a badge says "Version X is available" with a
 **Download** button that opens the release page (dismiss it and it stays away until a newer version appears). Running the
@@ -87,7 +90,12 @@ details.
    Everything the tool changes there (edits, new files, deletes) shows up in HiveTeX at once and reaches your
    co-authors.
 
+6. **Offline:** keep writing without a connection (or with *Work offline*). When co-authors connect again, your work
+   is merged like git: changes in different places merge by themselves, and changes to the same lines are shown side
+   by side for you to decide. See [Working offline](docs/offline.md).
+
 More: [the interface and shortcuts](docs/interface.md) · [importing](docs/import.md) ·
+[working offline](docs/offline.md) ·
 [projects in folders](docs/folders.md) · [local AI tools](docs/local-ai-tools.md) ·
 [GitHub backup](docs/github-backup.md) · [permissions](docs/permissions.md).
 

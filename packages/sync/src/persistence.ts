@@ -308,4 +308,19 @@ export class DocPersister {
     this.doc.off('update', this.handler);
     await this.flush();
   }
+
+  /** Queues updates made before this persister existed (see ProjectModel.replaceDoc). */
+  enqueue(updates: Uint8Array[]) {
+    if (!updates.length) return;
+    this.pending.push(...updates);
+    if (!this.timer) this.timer = setTimeout(() => void this.flush(), this.opts.flushMs ?? 250);
+  }
+
+  /** Stops persisting this document and drops unsaved updates (its state is being replaced). */
+  discard() {
+    this.doc.off('update', this.handler);
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending = [];
+  }
 }

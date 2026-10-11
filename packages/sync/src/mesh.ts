@@ -25,6 +25,11 @@ export interface MeshOptions {
   policyIntervalMs?: number;
   /** A peer that sent nothing (not even pings) for this long is considered gone. Default 20 s. */
   deadAfterMs?: number;
+  /**
+   * Runs when a peer links, before any document is exchanged with it (the offline merge swaps in the last shared
+   * state here, so offline edits are never sent as such: see fork.ts).
+   */
+  beforeSync?: (peer: PeerInfo) => Promise<void>;
 }
 
 export interface PeerInfo {
@@ -65,6 +70,8 @@ export class Mesh {
   private maxEpochSince = 0;
   private epochCbs = new Set<(epoch: number) => void>();
   private policyTimer: ReturnType<typeof setInterval>;
+  /** Document frames wait for this (see MeshOptions.beforeSync). */
+  private syncGate: Promise<void> = Promise.resolve();
   private unsub: () => void;
   readonly rejected: string[] = [];
 
@@ -118,6 +125,7 @@ export class Mesh {
   /** Fires when a peer's state for a document was applied (the document is now exchanged with that peer). */
   onDocSynced(cb: (docId: string, from: PeerInfo) => void) {
     this.docSyncedCbs.add(cb);
+    return () => this.docSyncedCbs.delete(cb);
   }
   onApp(topic: string, h: AppHandler) {
     const s = this.appHandlers.get(topic) ?? new Set();
@@ -171,6 +179,10 @@ export class Mesh {
     this.conns.set(conn, info);
     this.interest.set(conn, new Set());
     this.requested.set(conn, new Set());
+    if (this.o.beforeSync) {
+      const run = this.o.beforeSync;
+      this.syncGate = this.syncGate.then(() => run(info)).catch(() => {});
+    }
     conn.onFrame((c, type, payload) => void this.onFrame(c, type, payload));
     conn.onTicketRefreshed((c, nc) => this.onTicketRefreshed(c, nc));
     conn.onClose(() => this.dropConn(conn));
@@ -265,6 +277,7 @@ export class Mesh {
   }
 
   private async startSync(conn: PeerConnection) {
+    await this.syncGate;
     const ids = await this.o.model.knownDocIds();
     // Root first, so the file table is current before file docs are reconciled.
     ids.sort((a, b) => (a === ROOT_DOC_ID ? -1 : b === ROOT_DOC_ID ? 1 : 0));
@@ -315,6 +328,7 @@ export class Mesh {
     const info = this.conns.get(conn);
     if (!info) return;
     try {
+      if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE) await this.syncGate;
       switch (type) {
         case MsgType.STEP1: {
           const { docId, data } = unpackDoc(payload);
