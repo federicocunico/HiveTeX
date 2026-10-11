@@ -72,7 +72,7 @@
   - a new docs/offline.md (fork, merge rules table, line granularity, recovery);
   - README (use without an account, offline merge).
   - Verify: links resolve.
-- [ ] 4.2 Full verification:
+- [x] 4.2 Full verification:
   - `make check`, `cargo test --lib`, `make desktop-e2e` (wide and narrow);
   - `openspec validate offline-mode-git-merge`;
   - push, with CI and Desktop green.

@@ -42,7 +42,7 @@ The system MUST store only a memory-hard salted hash of each password and MUST n
 - **THEN** no plaintext or reversibly-encrypted password is present for any account
 
 ### Requirement: Sign-in and sessions
-The system SHALL authenticate users by username (or email) and password and issue a session. Web sessions SHALL use secure, HttpOnly, SameSite cookies; desktop sessions SHALL use a token kept in the OS credential store. Sessions SHALL expire after 30 days of inactivity and SHALL be revocable.
+The system SHALL authenticate users by username (or email) and password and issue a session. Web sessions SHALL use secure, HttpOnly, SameSite cookies; desktop sessions SHALL use a token kept in the OS credential store. Sessions SHALL expire after 30 days of inactivity and SHALL be revocable. The desktop app SHALL NOT require a session to be used: without one it runs in local mode (see local-mode), and signing in later SHALL keep the local projects.
 
 #### Scenario: Correct credentials
 - **WHEN** a user submits valid credentials
@@ -55,6 +55,10 @@ The system SHALL authenticate users by username (or email) and password and issu
 #### Scenario: Sign out everywhere
 - **WHEN** a user chooses "sign out of all devices"
 - **THEN** every existing session of that user is invalidated
+
+#### Scenario: Desktop without a session
+- **WHEN** the desktop app starts with no session and the person chooses Continue without an account
+- **THEN** the app opens in local mode, and a Sign in action stays available in the header
 
 ### Requirement: Brute-force protection
 The system SHALL rate-limit sign-in, registration and recovery requests per IP address and per account, and SHALL temporarily lock an account's password sign-in after repeated failures.
