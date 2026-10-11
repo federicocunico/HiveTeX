@@ -1,7 +1,7 @@
 # local-mode Specification
 
 ## Purpose
-TBD - created by archiving change offline-mode-git-merge. Update Purpose after archive.
+Lets a person use the desktop app with no account and no network: projects live only on their computer and nothing is sent anywhere, until they sign in and share a local project or merge it into a project they join.
 
 ## Requirements
 
