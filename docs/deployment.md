@@ -90,6 +90,12 @@ dashboards during the first weeks.
 - **Dry run.** *Actions → Desktop → Run workflow* builds the same installers as workflow artifacts, without a release
   and without needing the key.
 - **Local builds.** `make desktop-build` builds installers on the current machine (needs Rust).
+- **Update notice.** On start, the desktop app asks GitHub for the repository's latest published release (never a
+  draft or pre-release; the repository comes from `VITE_SOURCE_URL`, default HiveTeX) and shows a *Version X is
+  available* badge with a *Download* button to the release page when it is newer. It stays silent offline.
+- **Installers replace the old version.** The Windows setup removes an earlier setup-installed or MSI-installed HiveTeX
+  (`apps/desktop/src-tauri/windows/hooks.nsh`; a per-machine MSI asks for administrator rights once) and keeps user data.
+  The manual *Desktop* run checks this with `scripts/verify-upgrade.ps1`.
 - **Choosing a server.** Desktop builds use their default server until the user picks another on the sign-in screen or
   in *Account* (for an on-premise deployment, say). *Use the default server* switches back.
 - **Optional paid signing.** Set the `APPLE_*` secrets (Developer ID + notarization) to replace ad-hoc signing on

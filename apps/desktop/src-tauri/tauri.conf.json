@@ -34,6 +34,11 @@
       "icons/icon.png"
     ],
     "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh"
+      }
+    },
     "macOS": {
       "signingIdentity": "-"
     }

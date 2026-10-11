@@ -266,6 +266,10 @@ jobs:
         with:
           projectPath: apps/desktop
           args: ${{ env.TAURI_ARGS }}
+      - name: Check that a new Windows installer replaces the old version (manual run)
+        if: env.IS_TAG != 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-upgrade.ps1 -Bundle apps/desktop/src-tauri/target/release/bundle -Repo "${{ github.repository }}"
       - name: Upload installers (manual run)
         if: env.IS_TAG != 'true'
         uses: actions/upload-artifact@v6

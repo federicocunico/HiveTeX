@@ -47,7 +47,10 @@ First launch:
 - **Any OS:** the sign-in screen shows the server (`hivetex.vercel.app` by default). Use *Change* to connect to
   another one.
 
-Installed apps update themselves from *Account → Check for updates*.
+Installed apps check GitHub when they start. If a newer release exists, a badge says "Version X is available" with a
+**Download** button that opens the release page (dismiss it and it stays away until a newer version appears). Running the
+new Windows installer removes the old version first (setup or MSI), keeping your projects and settings. *Account →
+Check for updates* still installs an update in place.
 
 **Compiling on the desktop:**
 - It uses your TeX installation (TeX Live, MiKTeX, MacTeX) if you have one.
