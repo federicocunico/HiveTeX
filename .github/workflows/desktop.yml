@@ -312,8 +312,9 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "$env:SystemRoot\System32"
-          & apps/desktop/src-tauri/target/release/hivetex-desktop.exe --self-check
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # A GUI-subsystem exe: `&` does not wait for it nor set $LASTEXITCODE, Start-Process -Wait does.
+          $p = Start-Process -FilePath apps/desktop/src-tauri/target/release/hivetex-desktop.exe -ArgumentList '--self-check' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { Write-Error "self-check exited with $($p.ExitCode)"; exit 1 }
       - name: Packaged startup check (macOS app bundle)
         if: runner.os == 'macOS'
         run: |

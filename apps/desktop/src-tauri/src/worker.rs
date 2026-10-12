@@ -49,7 +49,15 @@ impl WorkerSpec {
         let bundle = read(script_dir.join("manifest.json"))?;
         let node_hash = hash(&self.node)?;
         let pinned = runtime["assets"].as_array().is_some_and(|a| a.iter().any(|x| x["executableSha256"] == node_hash.as_str()));
-        if !pinned {
+        // Inside an AppImage, linuxdeploy rewrites every bundled ELF executable (its library search path), so the
+        // runtime cannot keep the download's checksum. The image itself is read-only and signed for updates: check
+        // that the bundled runtime is the pinned version instead. The worker bundle keeps its exact checksum below.
+        let rewritten_by_appimage = !pinned && cfg!(target_os = "linux") && (std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some()) && {
+            let version = runtime["version"].as_str().unwrap_or_default();
+            crate::proc::background_command(&self.node).env_clear().arg("--version").output()
+                .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == format!("v{version}"))
+        };
+        if !pinned && !rewritten_by_appimage {
             return Err("the bundled Node runtime does not match its pinned checksum".into());
         }
         if bundle["node"] != runtime["version"] {
