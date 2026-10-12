@@ -190,7 +190,8 @@ describe('document replacement is serialized with writes (F02)', () => {
     await expect(m.replaceDoc(docId, base, [{ op: 'meta', key: 'k', value: 1 }])).rejects.toThrow('transact failed');
     // nothing of the transition was applied: the offline text is still what is stored, and no metadata
     expect(store.meta.get('k')).toBeUndefined();
-    expect(await reopen(store, id)).toBe('base OFFLINE');
+    // Read the store passively: a second model on the same store would be a second writer (one writer per store).
+    expect(await stored(store, docId)).toBe('base OFFLINE');
     expect(m.saveState.failing).toBe(true);
     type(m.getLoadedDoc(docId)?.getText('t') as Y.Text, '!');
     await waitFor(() => !m.saveState.failing && store.meta.get('k') === 1);
