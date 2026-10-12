@@ -260,6 +260,8 @@ jobs:
       - name: Check that a new Windows installer replaces the old version (manual run)
         if: env.IS_TAG != 'true'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/verify-upgrade.ps1 -Bundle apps/desktop/src-tauri/target/release/bundle -Repo "${{ github.repository }}"
       - name: Upload installers (manual run)
         if: env.IS_TAG != 'true'

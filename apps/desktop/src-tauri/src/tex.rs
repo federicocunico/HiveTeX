@@ -843,6 +843,14 @@ mod tests {
         d
     }
 
+    /// Real TeX builds run one at a time: concurrent first-use builds under MiKTeX (on-the-fly package installs)
+    /// failed on CI runners with an empty log.
+    fn tex() -> Option<std::sync::MutexGuard<'static, ()>> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        detect()?;
+        Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
     const DOC: &str = "\\documentclass{article}\\begin{document}Hello \\LaTeX{} hivetex\\end{document}\n";
 
     #[test]
@@ -1022,9 +1030,9 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn compiles_a_sample_document() {
-        if detect().is_none() {
+        let Some(_tex) = tex() else {
             return;
-        }
+        };
         let root = tmp("sample");
         let r = compile(&root, req("p1", vec![file("main.tex", DOC)], 120_000));
         assert!(r.ok, "log: {}", r.log);
@@ -1035,9 +1043,9 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn asks_for_missing_content_and_skips_unchanged_files() {
-        if detect().is_none() {
+        let Some(_tex) = tex() else {
             return;
-        }
+        };
         let root = tmp("need");
         let f = file("main.tex", DOC);
         let first = compile(&root, req("p2", vec![FileIn { path: f.path.clone(), hash: f.hash.clone(), content_b64: None }], 120_000));
@@ -1063,9 +1071,9 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn shell_escape_payload_does_not_execute() {
-        if detect().is_none() {
+        let Some(_tex) = tex() else {
             return;
-        }
+        };
         let root = tmp("write18");
         let payload = if cfg!(windows) { "cmd /c echo pwned > pwned.txt" } else { "echo pwned > pwned.txt" };
         let doc = format!(
@@ -1093,9 +1101,9 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn files_outside_the_project_are_not_read() {
-        if detect().is_none() {
+        let Some(_tex) = tex() else {
             return;
-        }
+        };
         let root = tmp("outside");
         // If TeX ever reads this file and shares the result, the log contains LEAKED.
         let secret = root.join("secret.tex");
@@ -1134,9 +1142,9 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn infinite_loop_is_aborted_at_the_time_limit() {
-        if detect().is_none() {
+        let Some(_tex) = tex() else {
             return;
-        }
+        };
         let root = tmp("loop");
         let doc = "\\documentclass{article}\\begin{document}\\def\\x{\\x}\\x\\end{document}\n";
         let t = Instant::now();
@@ -1149,9 +1157,9 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn reports_errors_in_the_log() {
-        if detect().is_none() {
+        let Some(_tex) = tex() else {
             return;
-        }
+        };
         let root = tmp("err");
         let doc = "\\documentclass{article}\\begin{document}\\undefinedcommand\\end{document}\n";
         let r = compile(&root, req("p6", vec![file("main.tex", doc)], 60_000));

@@ -42,7 +42,10 @@ try {
   Remove-All
 
   # A: previous published setup -> new setup
-  $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ Accept = 'application/vnd.github+json' }
+  # Authenticated when GH_TOKEN is set (CI): anonymous API calls from shared runners hit the rate limit.
+  $headers = @{ Accept = 'application/vnd.github+json' }
+  if ($env:GH_TOKEN) { $headers.Authorization = "Bearer $env:GH_TOKEN" }
+  $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers
   $asset = $rel.assets | Where-Object { $_.name -like '*-setup.exe' } | Select-Object -First 1
   if ($asset) {
     $old = Join-Path $work $asset.name
