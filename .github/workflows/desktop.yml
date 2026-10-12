@@ -68,6 +68,14 @@ jobs:
           miktex --admin packages update
           initexmf --admin --update-fndb
           initexmf --update-fndb
+          # Warm-up build: the packages a test document needs are installed now, not in the middle of a test.
+          $warm = Join-Path $env:RUNNER_TEMP 'tex-warmup'
+          New-Item -ItemType Directory -Force $warm | Out-Null
+          Set-Content -Path "$warm\main.tex" -Value '\documentclass{article}\begin{document}Hello \LaTeX{}\end{document}'
+          Push-Location $warm
+          latexmk -pdf -interaction=nonstopmode -latexoption=--enable-installer main.tex
+          if (-not (Test-Path main.pdf)) { Get-Content main.log -ErrorAction SilentlyContinue; exit 1 }
+          Pop-Location
           echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Frontend dist and bundled sync worker (required by tauri::generate_context)
         run: |

@@ -824,6 +824,15 @@ pub fn verify_reads(build: &Path, out_dir: &Path, stem: &str) -> Result<(), usiz
     if bad == 0 { Ok(()) } else { Err(bad) }
 }
 
+/// Tests with a real TeX build hold this, so they run one at a time: concurrent first-use builds under MiKTeX (on-the-fly
+/// package installs) failed on CI runners with an empty log. None when this machine has no TeX.
+#[cfg(test)]
+pub(crate) fn test_tex() -> Option<std::sync::MutexGuard<'static, ()>> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    detect()?;
+    Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -841,14 +850,6 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
-    }
-
-    /// Real TeX builds run one at a time: concurrent first-use builds under MiKTeX (on-the-fly package installs)
-    /// failed on CI runners with an empty log.
-    fn tex() -> Option<std::sync::MutexGuard<'static, ()>> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        detect()?;
-        Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     const DOC: &str = "\\documentclass{article}\\begin{document}Hello \\LaTeX{} hivetex\\end{document}\n";
@@ -1030,7 +1031,7 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn compiles_a_sample_document() {
-        let Some(_tex) = tex() else {
+        let Some(_tex) = test_tex() else {
             return;
         };
         let root = tmp("sample");
@@ -1043,7 +1044,7 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn asks_for_missing_content_and_skips_unchanged_files() {
-        let Some(_tex) = tex() else {
+        let Some(_tex) = test_tex() else {
             return;
         };
         let root = tmp("need");
@@ -1071,7 +1072,7 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn shell_escape_payload_does_not_execute() {
-        let Some(_tex) = tex() else {
+        let Some(_tex) = test_tex() else {
             return;
         };
         let root = tmp("write18");
@@ -1085,7 +1086,8 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn project_latexmkrc_is_never_executed() {
-        if detect().map(|i| i.has_latexmk) != Some(true) {
+        let Some(_tex) = test_tex() else { return };
+        if !detect().is_some_and(|i| i.has_latexmk) {
             return;
         }
         let root = tmp("rc");
@@ -1101,7 +1103,7 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn files_outside_the_project_are_not_read() {
-        let Some(_tex) = tex() else {
+        let Some(_tex) = test_tex() else {
             return;
         };
         let root = tmp("outside");
@@ -1142,7 +1144,7 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn infinite_loop_is_aborted_at_the_time_limit() {
-        let Some(_tex) = tex() else {
+        let Some(_tex) = test_tex() else {
             return;
         };
         let root = tmp("loop");
@@ -1157,7 +1159,7 @@ Speed: \qty{3}{\metre\per\second}
 
     #[test]
     fn reports_errors_in_the_log() {
-        let Some(_tex) = tex() else {
+        let Some(_tex) = test_tex() else {
             return;
         };
         let root = tmp("err");
