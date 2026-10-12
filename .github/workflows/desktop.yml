@@ -63,6 +63,12 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm --filter @hivetex/web build
+      - name: Bundled sync worker and pinned Node runtime (tauri resources; checksums verified)
+        run: node apps/desktop/prepare-worker.mjs
+      - name: Patched webrtc-ice (mapped endpoints on the UDP mux; vendor/PATCHES.md)
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop/src-tauri/vendor/webrtc-ice
+        run: cargo test --lib
       - name: Detect TeX
         shell: bash
         run: |
@@ -92,6 +98,35 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test e2e/auth-and-collab.spec.ts e2e/offline-and-compile.spec.ts
         env: { CI: "true" }
+
+  # Router matrix (13.4): Linux namespaces with a UPnP router (miniupnpd), a symmetric NAT, TURN and packet capture;
+  # the peers are the app's native stack (rtc_cli). Mapped direct, no-hairpin LAN, unsupported UPnP and relay only.
+  router-matrix:
+    runs-on: ubuntu-24.04
+    needs: rust-tests
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: apps/desktop/src-tauri }
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: System libraries and network lab tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libssl-dev libdbus-1-dev pkg-config \
+            iproute2 iptables nftables miniupnpd-nftables coturn tcpdump iputils-ping
+          # The packaged services must not run on the runner itself.
+          sudo systemctl stop miniupnpd coturn 2>/dev/null || true
+      - name: Router matrix
+        run: |
+          mkdir -p apps/web/dist && echo '<!doctype html>' > apps/web/dist/index.html
+          cd apps/desktop/src-tauri
+          TAURI_CONFIG='{"bundle":{"resources":[]}}' cargo build --example rtc_cli
+          sudo NETLAB_OUT="$RUNNER_TEMP/netlab-result.json" "$(which node)" ../e2e/netlab/matrix.mjs "$PWD/target/debug/examples/rtc_cli"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with: { name: router-matrix, path: "${{ runner.temp }}/netlab-result.json", if-no-files-found: ignore }
 
   # The real desktop app driven over WebDriver (tauri-driver): folders picked through the `test-picker` debug build,
   # create-from-folder, link/open marker folders, import, external edits. See apps/desktop/e2e.
@@ -266,6 +301,26 @@ jobs:
         with:
           projectPath: apps/desktop
           args: ${{ env.TAURI_ARGS }}
+      # The built app starts its own bundled worker with no Node on PATH (a clean machine), then exits.
+      - name: Packaged startup check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:SystemRoot\System32"
+          & apps/desktop/src-tauri/target/release/hivetex-desktop.exe --self-check
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Packaged startup check (macOS app bundle)
+        if: runner.os == 'macOS'
+        run: |
+          app=$(ls -d apps/desktop/src-tauri/target/*/release/bundle/macos/*.app | head -1)
+          env -i HOME="$HOME" PATH=/usr/bin:/bin "$app/Contents/MacOS/hivetex-desktop" --self-check
+      - name: Packaged startup check (Linux AppImage)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb
+          img=$(ls apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage | head -1)
+          chmod +x "$img"
+          env -i HOME="$HOME" PATH=/usr/bin:/bin APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a "$img" --self-check
       - name: Check that a new Windows installer replaces the old version (manual run)
         if: env.IS_TAG != 'true' && runner.os == 'Windows'
         shell: pwsh

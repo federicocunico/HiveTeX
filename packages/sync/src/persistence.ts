@@ -73,12 +73,14 @@ export interface Persistence {
   listSnapshots(): Promise<HistorySnapshot[]>;
   getMeta(key: string): Promise<unknown>;
   setMeta(key: string, value: unknown): Promise<void>;
+  /** Every metadata key (complete export and migration, 5.3). */
+  listMetaKeys?(): Promise<string[]>;
   putChangeSet(c: ChangeSet): Promise<void>;
   /** Newest first. */
   listChangeSets(): Promise<ChangeSet[]>;
   /** Removes change sets outside the retention window; returns how many were removed. */
   pruneChangeSets(now?: number): Promise<number>;
-  close(): void;
+  close(): void | Promise<void>;
 }
 
 export class MemoryPersistence implements Persistence {
@@ -121,13 +123,17 @@ export class MemoryPersistence implements Persistence {
     this.snaps.push(s);
   }
   async listSnapshots() {
-    return [...this.snaps];
+    // Oldest first, like the IndexedDB and native stores.
+    return [...this.snaps].sort((a, b) => a.at - b.at);
   }
   async getMeta(key: string) {
     return this.meta.get(key);
   }
   async setMeta(key: string, value: unknown) {
     this.meta.set(key, value);
+  }
+  async listMetaKeys() {
+    return [...this.meta.keys()];
   }
   changes = new Map<string, ChangeSet>();
   async putChangeSet(c: ChangeSet) {
@@ -265,6 +271,10 @@ export class IndexedDbPersistence implements Persistence {
     const tx = this.db.transaction('meta', 'readwrite');
     tx.objectStore('meta').put(value, key);
     await done(tx);
+  }
+  async listMetaKeys() {
+    const tx = this.db.transaction('meta', 'readonly');
+    return ((await req(tx.objectStore('meta').getAllKeys())) as IDBValidKey[]).map(String);
   }
   async putChangeSet(c: ChangeSet) {
     const tx = this.db.transaction('changes', 'readwrite');

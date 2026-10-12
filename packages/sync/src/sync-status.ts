@@ -1,3 +1,4 @@
+import { TransferDeferred } from './transfer-budget.js';
 import { ROOT_DOC_ID, fileDocId } from '@hivetex/protocol';
 import type { BlobManager } from './blobs.js';
 import type { Mesh } from './mesh.js';
@@ -23,6 +24,8 @@ export interface FileSync {
   /** received: content here · receiving: a peer is online and the file is being fetched · waiting: no peer to ask. */
   state: 'received' | 'receiving' | 'waiting';
   size?: number;
+  /** A binary whose download is deferred by the device's limits (storage budget, disk reserve). */
+  deferred?: import('./transfer-budget.js').DeferReason;
 }
 
 export interface SyncSnapshot {
@@ -92,6 +95,8 @@ export interface SyncTrackerOptions {
   /** First retry delay after a failed attempt with unchanged sources; doubles up to `retryMaxMs` (default 2 s / 60 s). */
   retryBaseMs?: number;
   retryMaxMs?: number;
+  /** Device-wide background transfer budgets (desktop seeds share one scheduler, D8). */
+  transfers?: { scheduler: import('./transfer-budget.js').TransferScheduler; project: string; foreground: () => boolean };
 }
 
 /** One document or blob this device still needs, with its own retry and stall clocks. */
@@ -169,6 +174,8 @@ export class SyncTracker {
   private offs: Array<() => void> = [];
   private docPool = new Pool(32);
   private blobPool = new Pool(2);
+  /** Binaries deferred by the transfer budget, with the reason shown to the member. */
+  private deferred = new Map<string, import('./transfer-budget.js').DeferReason>();
   private abort = new AbortController();
 
   constructor(private o: SyncTrackerOptions) {
@@ -298,7 +305,8 @@ export class SyncTracker {
       const have = kind === 'binary' ? !f.hash || held.has(f.hash) : model.availability(docId) === 'complete';
       const reconciled = have && (kind === 'binary' || (peers > 0 && mesh.reconciled(docId)));
       const state = have ? 'received' : peers > 0 ? 'receiving' : 'waiting';
-      return { id: f.id, path: f.path, kind, have, reconciled, state, ...(f.size !== undefined ? { size: f.size } : {}) };
+      const deferred = !have && f.hash ? this.deferred.get(f.hash) : undefined;
+      return { id: f.id, path: f.path, kind, have, reconciled, state, ...(f.size !== undefined ? { size: f.size } : {}), ...(deferred ? { deferred } : {}) };
     });
     const received = files.filter((f) => f.have).length;
     const reconciledCount = files.filter((f) => f.reconciled).length;
@@ -418,7 +426,8 @@ export class SyncTracker {
     }
   }
 
-  private async attempt(it: Item, sig: string, timeoutMs = this.o.fetchTimeoutMs ?? 15_000): Promise<{ ok: boolean; failed: boolean; pending: boolean }> {
+  private async attempt(it: Item, sig: string, timeoutMs = this.o.fetchTimeoutMs ??
+    (it.kind === 'blob' && this.o.mesh.peers.some((p) => p.conn.transportKind === 'relay') ? 120_000 : 15_000)): Promise<{ ok: boolean; failed: boolean; pending: boolean }> {
     it.running = true;
     it.sig = sig;
     let ok = false;
@@ -432,10 +441,21 @@ export class SyncTracker {
         pending = !ok && !failed;
       } else {
         try {
-          await this.blobPool.run(() => this.o.blobs.fetch(it.ref, timeoutMs));
+          const t = this.o.transfers;
+          const size = this.o.model.list().find((f) => f.kind === 'binary' && f.hash === it.ref)?.size ?? 0;
+          const release = t ? await t.scheduler.acquire(t.project, size, t.foreground()) : null;
+          try {
+            await this.blobPool.run(() => this.o.blobs.fetch(it.ref, timeoutMs));
+          } finally {
+            release?.();
+          }
+          this.deferred.delete(it.ref);
           ok = true;
-        } catch {
-          failed = true;
+        } catch (e) {
+          if (e instanceof TransferDeferred) {
+            this.deferred.set(it.ref, e.reason);
+            pending = true;
+          } else failed = true;
         }
       }
     } finally {

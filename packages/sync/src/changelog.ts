@@ -1,7 +1,7 @@
 import { ROOT_DOC_ID } from '@hivetex/protocol';
 import DiffMatchPatch from 'diff-match-patch';
 import { PeerConnection } from './connection.js';
-import { MIRROR_ORIGIN } from './mirror.js';
+import { MIRROR_ORIGIN } from './origins.js';
 import { type FileEntry, type ProjectModel, applyTextDiff } from './model.js';
 import { type ChangeSet, type ChangeSetFile, DocPersister, type Persistence } from './persistence.js';
 
@@ -122,7 +122,7 @@ export class ChangeLog {
 
   private classify(origin: unknown): Source | null {
     if (origin instanceof DocPersister) return null;
-    if (origin === MIRROR_ORIGIN) return { kind: 'folder', name: 'Folder on this device' };
+    if (origin === MIRROR_ORIGIN || (origin as {kind?:unknown} | null)?.kind === 'folder') return { kind: 'folder', name: 'Folder on this device' };
     if (origin === UNDO_ORIGIN) return { kind: 'undo', name: 'Undo' };
     if (origin instanceof PeerConnection) return { kind: 'peer', name: origin.claims?.uname ?? 'Co-author' };
     return { kind: 'editor', name: 'This device' };
@@ -242,10 +242,11 @@ export class ChangeLog {
    * Reverses a change set as a normal collaborative edit. Later, non-overlapping edits are preserved; files whose
    * change cannot be reversed cleanly (later edits overlap) are reported in `partial`.
    */
-  async undo(set: ChangeSet): Promise<ChangeSet | null> {
+  async undo(set: ChangeSet, canApply: () => boolean = () => true): Promise<ChangeSet | null> {
     const { model } = this.o;
     const partial: string[] = [];
     for (const f of [...set.files].reverse()) {
+      if (!canApply()) throw new Error('denied');
       const cur = model.byId(f.fileId);
       if (f.op === 'edit' && f.patch) {
         if (!cur || cur.kind !== 'text') {
@@ -253,6 +254,7 @@ export class ChangeLog {
           continue;
         }
         const ytext = await model.openText(f.fileId);
+        if (!canApply()) throw new Error('denied');
         const [result, applied] = dmp.patch_apply(invertPatches(f.patch), ytext.toString());
         if (applied.some((ok) => !ok)) partial.push(f.path);
         applyTextDiff(ytext, result, UNDO_ORIGIN);
@@ -262,7 +264,7 @@ export class ChangeLog {
         if (model.find(f.path)) {
           partial.push(f.path);
         } else if (f.before !== undefined) {
-          await model.createTextNow(f.path, f.before, UNDO_ORIGIN);
+          await model.createTextNow(f.path, f.before, UNDO_ORIGIN, canApply);
         } else if (f.hashBefore) {
           model.createBinary(f.path, f.hashBefore, f.sizeBefore ?? 0, UNDO_ORIGIN);
         }

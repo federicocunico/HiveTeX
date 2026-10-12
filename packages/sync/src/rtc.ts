@@ -15,6 +15,33 @@ export interface RtcPeerLike {
   onicecandidate: ((ev: { candidate: unknown | null }) => void) | null;
   ondatachannel: ((ev: { channel: DataChannelLike & { label: string } }) => void) | null;
   onconnectionstatechange: (() => void) | null;
+  /** Standard RTCPeerConnection statistics, when the implementation has them (used to tell TURN from direct). */
+  getStats?(): Promise<{ forEach(cb: (s: Record<string, unknown>) => void): void }>;
+}
+
+/**
+ * Whether the selected ICE candidate pair runs through a TURN server ('turn'), directly ('direct'), or cannot be told.
+ * Reads only candidate types, never addresses.
+ */
+export async function selectedPath(pc: RtcPeerLike): Promise<'direct' | 'turn' | 'unknown'> {
+  if (!pc.getStats) return 'unknown';
+  try {
+    const report = await pc.getStats();
+    const byId = new Map<string, Record<string, unknown>>();
+    let selectedId: unknown;
+    report.forEach((s) => {
+      byId.set(String(s.id), s);
+      if (s.type === 'transport' && s.selectedCandidatePairId) selectedId = s.selectedCandidatePairId;
+    });
+    let pair = selectedId ? byId.get(String(selectedId)) : undefined;
+    if (!pair) for (const s of byId.values()) if (s.type === 'candidate-pair' && (s.selected === true || (s.nominated === true && s.state === 'succeeded'))) pair = s;
+    if (!pair) return 'unknown';
+    const types = [byId.get(String(pair.localCandidateId))?.candidateType, byId.get(String(pair.remoteCandidateId))?.candidateType];
+    if (types.includes('relay')) return 'turn';
+    return types.every((t) => typeof t === 'string') ? 'direct' : 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
 
 export type RtcFactory = (iceServers: unknown[]) => RtcPeerLike;
@@ -77,7 +104,9 @@ export class RtcLink {
     const local = fingerprintOf(this.pc.localDescription?.sdp);
     const remote = fingerprintOf(this.pc.remoteDescription?.sdp);
     this.done = true;
-    this.o.onTransport(new DataChannelTransport(s, b, local, remote, () => this.pc.close()));
+    const t = new DataChannelTransport(s, b, local, remote, () => this.pc.close());
+    void selectedPath(this.pc).then((p) => { t.path = p; });
+    this.o.onTransport(t);
   }
 
   async start() {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ProjectSession } from '../../lib/session.svelte.js';
   import { presenceColor } from '../../lib/presence.js';
-  import { editorsByFile, mergeNotice, sinceText, syncLabel } from '../../lib/sync-view.js';
+  import { doorbellText, editorsByFile, mergeNotice, sinceText, syncLabel } from '../../lib/sync-view.js';
   import { RefreshCw } from '../../ui/icons.js';
   import Icon from '../../ui/Icon.svelte';
   import PanelHead from './PanelHead.svelte';
@@ -40,6 +40,7 @@
     {/if}
     <p class="meta" data-testid="last-sync">Last synced: {sinceText(status?.lastSyncAt ?? null)}</p>
     <p class="meta">{status?.peers ?? 0} connected{status?.connecting ? `, ${status.connecting} connecting` : ''}</p>
+    {#if doorbellText(session.doorbellState)}<p class="meta" data-testid="sync-doorbell" data-state={session.doorbellState}>{doorbellText(session.doorbellState)}</p>{/if}
     {#if session.unsharedWork}<p class="meta" data-testid="sync-unshared">Changes made while nobody else was connected: merged when a co-author connects.</p>{/if}
     {#if session.unsharedWork && mergeNotice(session.mergeError)}<p class="meta" role="status" data-testid="sync-merge-pending">{mergeNotice(session.mergeError)}</p>{/if}
     {#if session.lastMerge && (session.lastMerge.merged.length || session.lastMerge.taken.length)}

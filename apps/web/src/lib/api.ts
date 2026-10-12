@@ -87,10 +87,11 @@ export async function initBearer() {
   bearer = await secure.get('session-token').catch(() => null);
 }
 
-export function setBearer(token: string | null) {
+export async function setBearer(token: string | null) {
   bearer = token;
   if (isDesktop) {
-    void import('./secure.js').then(({ secure }) => (token ? secure.set('session-token', token) : secure.delete('session-token'))).catch(() => {});
+    const { secure } = await import('./secure.js');
+    await (token ? secure.set('session-token', token) : secure.delete('session-token'));
   }
 }
 

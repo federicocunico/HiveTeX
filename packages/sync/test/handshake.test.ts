@@ -1,6 +1,6 @@
 import { MsgType } from '@hivetex/protocol';
 import { describe, expect, it } from 'vitest';
-import { PeerConnection } from '../src/connection.js';
+import { PeerConnection, peerAuthenticationTranscript } from '../src/connection.js';
 import { jsonBytes } from '../src/frames.js';
 import { loopbackPair } from '../src/transport.js';
 import { TestAuthority, identity, tick } from './helpers.js';
@@ -148,5 +148,54 @@ describe('outbound frame ordering (F12)', () => {
     ]);
     await tick(100);
     expect(seen.slice(0, 3)).toEqual([0, 1, 2]);
+  });
+});
+
+
+describe('transport authentication binding', () => {
+  it('preserves the exact legacy DTLS signed bytes in both directions', () => {
+    const binding = { kind: 'dtls' as const, localFingerprint: 'AA:AA', remoteFingerprint: 'BB:BB' };
+    const decode = (b: Uint8Array) => new TextDecoder().decode(b);
+    expect(decode(peerAuthenticationTranscript(binding, 'proj1', 'a', 'b'))).toBe('hivetex/v1\0proj1\0AA:AA\0BB:BB\0a\0b');
+    expect(decode(peerAuthenticationTranscript(binding, 'proj1', 'b', 'a', true))).toBe('hivetex/v1\0proj1\0BB:BB\0AA:AA\0b\0a');
+  });
+
+  it('authenticates an explicit DTLS adapter with a legacy adapter', async () => {
+    const auth = await TestAuthority.create();
+    const t = loopbackPair();
+    Object.defineProperty(t[0], 'authenticationBinding', { value: {
+      kind: 'dtls', localFingerprint: t[0].localFingerprint, remoteFingerprint: t[0].remoteFingerprint,
+    } });
+    const { ca, cb } = await connect(auth, await identity('a', 'owner'), await identity('b', 'editor'), { transport: t });
+    await Promise.all([ca.ready, cb.ready]);
+    ca.close();
+    cb.close();
+  });
+
+  it.each(['matching', 'changed transcript', 'reflected role', 'dtls downgrade'])(
+    'handles relay binding: %s', async (mode) => {
+      const auth = await TestAuthority.create();
+      const t = loopbackPair();
+      Object.defineProperty(t[0], 'authenticationBinding', { value: { kind: 'relay', transcriptHash: 'A'.repeat(43), localRole: 'initiator' } });
+      if (mode !== 'dtls downgrade') Object.defineProperty(t[1], 'authenticationBinding', { value: {
+        kind: 'relay', transcriptHash: (mode === 'changed transcript' ? 'B' : 'A').repeat(43),
+        localRole: mode === 'reflected role' ? 'initiator' : 'responder',
+      } });
+      const { ca, cb } = await connect(auth, await identity('a', 'owner'), await identity('b', 'editor'), { transport: t });
+      if (mode === 'matching') await Promise.all([ca.ready, cb.ready]);
+      else {
+        await expect(ca.ready).rejects.toThrow();
+        await expect(cb.ready).rejects.toThrow();
+      }
+      ca.close();
+      cb.close();
+    },
+  );
+
+  it('rejects an invalid explicit binding instead of falling back to DTLS', async () => {
+    const auth = await TestAuthority.create();
+    const t = loopbackPair();
+    Object.defineProperty(t[0], 'authenticationBinding', { value: { kind: 'relay', transcriptHash: '', localRole: 'initiator' } });
+    await expect(connect(auth, await identity('a', 'owner'), await identity('b', 'editor'), { transport: t })).rejects.toThrow('invalid transport authentication binding');
   });
 });

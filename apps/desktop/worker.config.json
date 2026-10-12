@@ -1,0 +1,6 @@
+{
+  "$comment": "The headless sync worker (D1): bundled by worker-build.mjs and run with this pinned Node runtime, shipped with the app (task 12.1). The worker must not depend on any other installed Node.",
+  "node": "22.22.0",
+  "entry": "../../packages/sync/src/worker/main.ts",
+  "out": "src-tauri/resources/worker/hivetex-worker.mjs"
+}

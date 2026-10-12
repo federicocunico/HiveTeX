@@ -7,6 +7,7 @@ export type FolderAction = { kind: 'open' } | { kind: 'terminal' } | { kind: 'co
 
 export interface FolderDeps {
   projectId: string;
+  bindingId?(): string;
   slug: string;
   /** Absolute path of the bound folder, or null when the project is kept in the app. */
   boundPath(): string | null;
@@ -31,7 +32,7 @@ export async function ensureFolder(d: FolderDeps): Promise<{ path: string; creat
 /** Runs a folder action; returns the folder's path and whether it was just created. */
 export async function runFolderAction(d: FolderDeps, action: FolderAction): Promise<{ path: string; created: boolean }> {
   const folder = await ensureFolder(d);
-  const id = d.projectId;
+  const id = d.bindingId?.() ?? d.projectId;
   if (action.kind === 'open') await d.invoke('mirror_open', { id });
   else if (action.kind === 'terminal') await d.invoke('mirror_open_terminal', { id });
   else if (action.kind === 'copy') await d.copy(folder.path);

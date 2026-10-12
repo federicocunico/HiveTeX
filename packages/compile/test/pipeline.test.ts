@@ -83,6 +83,33 @@ async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: n
 
 const pdfText = (d: Dev) => (d.client.lastGood ? new TextDecoder().decode(d.client.lastGood.pdf) : '');
 
+describe('foreground detach with a retained mesh', () => {
+  it('aborts an in-flight build, publishes no late result, and schedules nothing on later seed edits', async () => {
+    net = await Net.create();
+    const d = await device('foreground', 'owner', 3);
+    const id = await d.node.model.createTextNow('main.tex', 'first');
+    let release!: () => void;
+    let signal: AbortSignal | undefined;
+    let calls = 0;
+    d.engine.compile = async (_input, opts?: { signal?: AbortSignal }) => {
+      calls++;
+      signal = opts?.signal;
+      await new Promise<void>(resolve => { release = resolve; });
+      return { ok: true, pdf: new Uint8Array([1]), synctex: new Uint8Array([2]), log: 'late' };
+    };
+    await waitFor(() => calls === 1);
+    d.leader.stop(); d.client.stop(); d.election.stop();
+    expect(signal?.aborted).toBe(true);
+    release();
+    (await d.node.model.openText(id)).insert(0, 'seed edit ');
+    await sleep(100);
+    expect(calls).toBe(1);
+    expect(d.leader.lastResult).toBeNull();
+    expect(d.client.lastGood).toBeNull();
+    expect(await d.leader.run()).toBeNull();
+  });
+});
+
 describe('compile pipeline (8.3)', () => {
   it('compiles after typing pauses on the leader only, and every member receives the PDF', async () => {
     net = await Net.create();

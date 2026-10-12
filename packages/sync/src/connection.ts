@@ -15,7 +15,7 @@ import {
   VIEWER_ALLOWED,
 } from '@hivetex/protocol';
 import { decodeFrame, encodeFrame, jsonBytes, parseJson, utf8 } from './frames.js';
-import { MAX_MESSAGE_BYTES, MAX_QUEUED_BYTES, type ChannelName, type PeerTransport } from './transport.js';
+import { MAX_MESSAGE_BYTES, MAX_QUEUED_BYTES, type ChannelName, type PeerAuthenticationBinding, type PeerTransport } from './transport.js';
 
 export class AuthError extends Error {}
 
@@ -39,14 +39,68 @@ const channelFor = (type: number): ChannelName =>
     ? 'bulk'
     : 'sync';
 
-function transcript(pid: string, signerLocalFp: string, signerRemoteFp: string, signerNonce: string, verifierNonce: string) {
-  // The signature covers BOTH DTLS fingerprints: an in-the-middle that relays SDP presents
-  // different fingerprints to each side and so cannot produce a matching signature.
-  return utf8([HANDSHAKE_DOMAIN, pid, signerLocalFp, signerRemoteFp, signerNonce, verifierNonce].join('\0'));
+/** Snapshot once: a transport cannot change the proof context during asynchronous authentication. */
+function transportBinding(t: PeerTransport): PeerAuthenticationBinding {
+  const binding = t.authenticationBinding ?? {
+    kind: "dtls",
+    localFingerprint: t.localFingerprint,
+    remoteFingerprint: t.remoteFingerprint,
+  };
+  if (
+    binding.kind === "dtls" &&
+    typeof binding.localFingerprint === "string" &&
+    binding.localFingerprint.length > 0 &&
+    typeof binding.remoteFingerprint === "string" &&
+    binding.remoteFingerprint.length > 0
+  ) {
+    return {
+      kind: "dtls",
+      localFingerprint: binding.localFingerprint,
+      remoteFingerprint: binding.remoteFingerprint,
+    };
+  }
+  if (
+    binding.kind === "relay" &&
+    /^[A-Za-z0-9_-]{43}$/.test(binding.transcriptHash) &&
+    (binding.localRole === "initiator" || binding.localRole === "responder")
+  )
+    return { ...binding };
+  throw new AuthError("invalid transport authentication binding");
+}
+
+export function peerAuthenticationTranscript(
+  binding: PeerAuthenticationBinding,
+  pid: string,
+  signerNonce: string,
+  verifierNonce: string,
+  remote = false,
+): Uint8Array {
+  if (binding.kind === "dtls") {
+    const local = remote ? binding.remoteFingerprint : binding.localFingerprint;
+    const other = remote ? binding.localFingerprint : binding.remoteFingerprint;
+    // This byte sequence is the v1 wire contract: old WebRTC peers must verify it unchanged.
+    return utf8([HANDSHAKE_DOMAIN, pid, local, other, signerNonce, verifierNonce].join("\0"));
+  }
+  const role = remote
+    ? binding.localRole === "initiator"
+      ? "responder"
+      : "initiator"
+    : binding.localRole;
+  return utf8(
+    JSON.stringify([
+      "hivetex/relay/peer-proof/v1",
+      pid,
+      binding.transcriptHash,
+      role,
+      signerNonce,
+      verifierNonce,
+    ]),
+  );
 }
 
 /** One authenticated connection to a peer device. Enforces the role filter on inbound frames. */
 export class PeerConnection {
+  private readonly binding: PeerAuthenticationBinding;
   claims: TicketClaims | null = null;
   /** The raw JWS of the peer's latest verified ticket (shared with others for introductions). */
   ticketRaw = '';
@@ -75,6 +129,7 @@ export class PeerConnection {
   lastTicketAt: number;
 
   constructor(private o: ConnectionOptions) {
+    this.binding = transportBinding(o.transport);
     this.lastTicketAt = (o.now ?? (() => new Date()))().getTime();
     this.ready = new Promise((res, rej) => {
       this.resolveReady = res;
@@ -93,6 +148,13 @@ export class PeerConnection {
   }
   get peerDeviceId() {
     return this.claims?.dev ?? '';
+  }
+  /** Which path carries this connection: a WebRTC data channel (DTLS) or the application relay. */
+  get transportKind(): PeerAuthenticationBinding['kind'] {
+    return this.binding.kind;
+  }
+  get transport(): PeerTransport {
+    return this.o.transport;
   }
 
   onFrame(h: FrameHandler) {
@@ -156,6 +218,7 @@ export class PeerConnection {
         try {
           if (this.closed) return;
           const { type, payload } = await decodeFrame(data);
+          if (this.closed) return;
           await this.dispatch(type, payload);
         } finally {
           this.inboundBytes -= data.length;
@@ -172,6 +235,9 @@ export class PeerConnection {
       if (type === MsgType.HELLO) return this.onHello(payload);
       if (type === MsgType.AUTH) return this.onAuth(payload);
       throw new AuthError('unexpected frame before authentication');
+    }
+    if (this.binding.kind === 'relay' && this.claims && this.claims.exp * 1000 <= (this.o.now?.() ?? new Date()).getTime()) {
+      throw new AuthError('relay peer ticket expired');
     }
     if (type === MsgType.TICKET) return this.onTicketRefresh(payload);
     if (this.role === 'viewer' && !VIEWER_ALLOWED.has(type)) {
@@ -191,7 +257,7 @@ export class PeerConnection {
     this.peerNonce = nonce;
     const sig = await sign(
       this.o.keys,
-      transcript(this.o.projectId, this.o.transport.localFingerprint, this.o.transport.remoteFingerprint, this.myNonce, nonce),
+      peerAuthenticationTranscript(this.binding, this.o.projectId, this.myNonce, nonce),
     );
     await this.sendRaw(MsgType.AUTH, jsonBytes({ sig: toB64u(sig) }), true);
     await this.tryFinish();
@@ -204,16 +270,10 @@ export class PeerConnection {
 
   private async tryFinish() {
     if (this.authenticated || !this.peerHelloClaims || !this.peerAuthSig || !this.peerNonce) return;
-    // From the peer's perspective: its local fp is what we see as remote, and vice versa.
-    const msg = transcript(
-      this.o.projectId,
-      this.o.transport.remoteFingerprint,
-      this.o.transport.localFingerprint,
-      this.peerNonce,
-      this.myNonce,
-    );
+    const msg = peerAuthenticationTranscript(this.binding, this.o.projectId, this.peerNonce, this.myNonce, true);
     const ok = await verify(this.peerHelloClaims.devE, msg, fromB64u(this.peerAuthSig));
     if (!ok) throw new AuthError('peer failed key-possession proof');
+    if (this.closed) throw new AuthError('connection closed during authentication');
     this.claims = this.peerHelloClaims;
     this.ticketRaw = this.helloTicketRaw;
     this.authenticated = true;
@@ -225,11 +285,12 @@ export class PeerConnection {
     const { ticket } = parseJson<{ ticket: string }>(payload);
     const c = await verifyTicket(ticket, this.o.trusted, this.o.now ? { now: this.o.now() } : {});
     const cur = this.claims;
-    if (!cur || c.pid !== cur.pid || c.uid !== cur.uid || c.dev !== cur.dev || c.devE !== cur.devE) {
+    if (!cur || c.pid !== cur.pid || c.uid !== cur.uid || c.dev !== cur.dev || c.devE !== cur.devE || c.devX !== cur.devX) {
       throw new AuthError('ticket refresh for a different identity');
     }
     // Never go back in time: an older (still unexpired) ticket could restore a role the owner has since lowered.
     if (c.ep < cur.ep || c.iat < cur.iat) throw new AuthError('ticket refresh older than the current ticket');
+    if (this.closed) return;
     this.claims = c;
     this.ticketRaw = ticket;
     this.lastTicketAt = (this.o.now ?? (() => new Date()))().getTime();

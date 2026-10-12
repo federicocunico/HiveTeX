@@ -1,4 +1,6 @@
 import { ApiError, api, isDesktop, setBearer, setLocalMode } from './api.js';
+import { activateRuntimes, stopRuntimes } from './runtimes.js';
+import { activateDesktopSeeds } from './seeds.js';
 
 export interface User {
   id: string;
@@ -25,13 +27,16 @@ function storeLocal(on: boolean) {
 }
 
 /** Desktop: continue without an account. Remembered, so the app opens in local mode next time. */
-export function enterLocalMode() {
+export async function enterLocalMode() {
+  await stopRuntimes();
   storeLocal(true);
   setLocalMode(true);
   auth.user = LOCAL_USER;
   auth.local = true;
   auth.offline = false;
   auth.ready = true;
+  activateRuntimes(LOCAL_USER.id);
+  await activateDesktopSeeds(LOCAL_USER.id);
 }
 
 /** Leaves local mode (before signing in or registering): requests to the server are allowed again. */
@@ -81,18 +86,25 @@ export async function loadMe() {
       auth.offline = false;
     }
   } finally {
+    if (auth.user) {
+      activateRuntimes(auth.user.id);
+      await activateDesktopSeeds(auth.user.id).catch(() => { /* editor exposes native availability errors */ });
+    }
     auth.ready = true;
   }
 }
 
 async function finish(r: { user: User; token?: string }) {
+  await stopRuntimes();
   storeLocal(false);
   setLocalMode(false);
   auth.local = false;
-  if (r.token) setBearer(r.token);
+  if (r.token) await setBearer(r.token);
   auth.user = r.user;
   auth.offline = false;
   cacheUser(r.user);
+  activateRuntimes(r.user.id);
+  await activateDesktopSeeds(r.user.id).catch(() => { /* native errors remain visible in the dashboard */ });
   return r.user;
 }
 
@@ -118,19 +130,25 @@ export async function register(username: string, email: string, password: string
 }
 
 export async function logout() {
+  await stopRuntimes();
+  auth.user = null;
+  cacheUser(null);
   try {
     await api('POST', '/auth/logout');
   } catch {
     /* ignore */
   }
-  setBearer(null);
+  await setBearer(null);
   auth.user = null;
   cacheUser(null);
 }
 
 export async function logoutAll() {
+  await stopRuntimes();
+  auth.user = null;
+  cacheUser(null);
   await api('POST', '/auth/logout-all');
-  setBearer(null);
+  await setBearer(null);
   auth.user = null;
   cacheUser(null);
 }

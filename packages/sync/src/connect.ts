@@ -1,7 +1,8 @@
-import { type StoredDeviceKeys, fromB64u, open, seal, sign, toB64u, verifyTicket } from '@hivetex/crypto';
-import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@hivetex/protocol';
+import { type RelayHello, RelayHandshake, type RelaySession, type StoredDeviceKeys, fromB64u, open, seal, sign, toB64u, verifyTicket } from '@hivetex/crypto';
+import { APPLICATION_RELAY_CAPABILITY, RELAY_SESSION_PREFIX, type TicketClaims, type TrustedKey, signalAuthMessage } from '@hivetex/protocol';
 import { fromUtf8, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
+import { decodeRelayWire, encodeRelayHandshake, RelayTransport, type RelayTransportOptions } from './relay-transport.js';
 import { type LinkSignal, RtcLink, type RtcFactory } from './rtc.js';
 
 export interface WebSocketLike {
@@ -46,7 +47,61 @@ export interface ManagerOptions {
    * Default 30 s.
    */
   heartbeatMs?: number;
+  /**
+   * Offer the application relay to the signaling server. It is used only when the server and the peer negotiated it,
+   * and only while no direct (or TURN) link works. Default true.
+   */
+  applicationRelay?: boolean;
+  /** No usable direct link this long after learning a relay-capable peer: start relay setup (D12: within 10 s). Default 8 s. */
+  relayAfterMs?: number;
+  /** While a peer is only reachable through the relay, direct link attempts repeat at most this often. Default 60 s. */
+  directRetryMs?: number;
+  /** Relay transport tuning (tests). */
+  relayTransport?: Omit<RelayTransportOptions, 'session' | 'post'>;
+  /**
+   * Doorbell mode (D14): no gatekeeper socket. The signaling socket opens only to introduce this device, after ringing the
+   * project (`ring`, which publishes a server-signed ring token) or when answering a ring (`answerRing()`), and closes
+   * once the devices seen on the server are connected or the introduction window ends. While the push channel is
+   * unavailable (`setDoorbellAvailable(false)`) the manager keeps the gatekeeper behaviour so it stays reachable.
+   */
+  doorbell?: { ring: () => Promise<boolean> };
+  /** Desktop seeds must not replace a broken push subscription with an idle gatekeeper socket. */
+  zeroIdle?: boolean;
+  /** Called before a socket opens in doorbell mode, so a device that slept without renewing gets a fresh ticket. */
+  ensureTicket?: () => Promise<void>;
+  /** How long an introduction keeps the socket at most (default 30 s) and at least (default 8 s). */
+  introductionWindowMs?: number;
+  introductionMinMs?: number;
+  /** Random delay before answering a ring, so a burst of answers is spread (default up to 1.5 s). */
+  answerJitterMs?: number;
 }
+
+/** The path carrying a connected peer, as reported to the UI. */
+export type PeerRoute = 'direct' | 'turn' | 'relay';
+export interface RouteState {
+  route: PeerRoute;
+  /** Relay only: the server refused forwarding (budget, accounting, rate); queued traffic waits with this reason. */
+  limited: string | null;
+}
+
+interface RelayAttempt {
+  gen: number;
+  /** The initiator's handshake generation: every handshake message carries it. */
+  id: string;
+  role: 'initiator' | 'responder';
+  /** The signaling session of the peer this attempt is bound to. */
+  peerSid: string;
+  handshake: RelayHandshake | null;
+  transport: RelayTransport | null;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+interface RelayStep {
+  g?: unknown;
+  hello?: RelayHello;
+  proof?: unknown;
+  confirm?: unknown;
+}
+const RELAY_LIMIT_CODES = new Set(['relay_limited', 'relay_accounting_unavailable', 'relay_rate_limited', 'relay_backpressure', 'relay_unavailable']);
 
 export interface IceConfig {
   iceServers: unknown[];
@@ -143,7 +198,22 @@ export class ConnectionManager {
   /** (Re)starts the heartbeat of the current socket; set by openSocket. */
   private beat: (() => void) | null = null;
   private selfDev: string;
-  readonly stats = { socketOpens: 0, signalsViaServer: 0, signalsViaMesh: 0 };
+  /** This device's relay-capable signaling session, when the server negotiated the application relay. */
+  private selfRelaySid: string | null = null;
+  /** The socket carried relay work even if a peer's leave arrived just before its own duration cutoff. */
+  private socketHadRelay = false;
+  /** The one relay attempt or established relay generation per device. */
+  private relays = new Map<string, RelayAttempt>();
+  private relayFailures = new Map<string, number>();
+  private relayChains = new Map<string, Promise<void>>();
+  /** A relay check is scheduled for these devices. */
+  private relayPending = new Set<string>();
+  /** Doorbell mode: the push channel works, so the gatekeeper socket is not needed. */
+  private doorbellUp = false;
+  /** An introduction is in progress until this time (epoch ms); it may end earlier once every device seen is linked. */
+  private introUntil = 0;
+  private introMinUntil = 0;
+  readonly stats = { socketOpens: 0, signalsViaServer: 0, signalsViaMesh: 0, relaySetups: 0, relayFailures: 0, rings: 0, answers: 0 };
 
   constructor(private o: ManagerOptions) {
     this.selfDev = JSON.parse(fromUtf8(fromB64u(o.getTicket().split('.')[1] ?? ''))).dev as string;
@@ -215,9 +285,78 @@ export class ConnectionManager {
     this.cancel(this.retryTimer);
     this.retryTimer = null;
     this.backoff = 1000;
+    if (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle)) void this.introduce(true);
     this.evaluate();
     for (const k of this.known.values()) if (!this.gone.has(k.claims.dev)) this.maybeConnect(k);
     this.emitState();
+  }
+
+  /** The push channel state changed: with it down, fall back to keeping a gatekeeper socket (reachable while open). */
+  setDoorbellAvailable(up: boolean) {
+    if (!this.o.doorbell || this.doorbellUp === up) return;
+    this.doorbellUp = up;
+    // Coming up while alone: introduce ourselves once, so devices rung meanwhile can find us.
+    if (up && !this.stopped && this.o.mesh.peers.length === 0) void this.introduce(true);
+    this.evaluate();
+    this.emitState();
+  }
+
+  /** True while the device relies on the doorbell (no gatekeeper socket). */
+  get doorbellMode() {
+    return this.doorbellActive();
+  }
+
+  /**
+   * A verified ring for this project arrived. Devices not linked to anyone answer, and within an existing mesh only its
+   * representative (lowest device id): the others are introduced to the newcomer through peer exchange.
+   */
+  answerRing() {
+    if (this.stopped || !this.doorbellActive()) return;
+    const peers = this.o.mesh.peers;
+    if (peers.length > 0 && !peers.every((p) => p.deviceId > this.selfDev)) return;
+    this.stats.answers++;
+    const jitter = (this.o.random ?? Math.random)() * (this.o.answerJitterMs ?? 1500);
+    this.later(jitter, () => void this.introduce(false));
+  }
+
+  private doorbellActive() {
+    return Boolean(this.o.doorbell) && this.doorbellUp;
+  }
+  // Introduction windows are wall-clock timers (the injected clock is for ticket validity).
+  private introducing() {
+    return Date.now() < this.introUntil;
+  }
+
+  /** Opens the socket for one introduction window, ringing the project first when we are the one looking for peers. */
+  private async introduce(ring: boolean) {
+    if (this.stopped) return;
+    const gen = this.gen;
+    if (this.o.ensureTicket) {
+      try {
+        await this.o.ensureTicket();
+      } catch {
+        return; // no current authorization: nothing to introduce
+      }
+      if (this.stopped || gen !== this.gen) return;
+    }
+    const now = Date.now();
+    const windowMs = this.o.introductionWindowMs ?? 30_000;
+    this.introUntil = Math.max(this.introUntil, now + windowMs);
+    this.introMinUntil = Math.max(this.introMinUntil, now + Math.min(windowMs, this.o.introductionMinMs ?? 8000));
+    this.later(this.introMinUntil - now + 1, () => this.evaluate());
+    this.later(this.introUntil - now + 1, () => this.evaluate());
+    this.evaluate();
+    if (ring && this.o.doorbell) {
+      this.stats.rings++;
+      void this.o.doorbell.ring().catch(() => false);
+    }
+  }
+
+  /** Every device seen on the server is linked and nothing is still being set up. */
+  private introductionDone() {
+    if (Date.now() < this.introMinUntil) return false;
+    if (this.links.size || this.opening.size || this.authenticating.size) return false;
+    return this.o.mesh.peers.length > 0 && [...this.onRelay].every((d) => this.connected(d));
   }
 
   private stage(dev: string): DeviceStages {
@@ -248,6 +387,8 @@ export class ConnectionManager {
       mesh.onApp('pex', (from, body) => void this.onPex(from, body as { tickets: string[] })),
       mesh.onApp('rtc', (from, body) => void this.onRtcViaMesh(from, body as RtcEnvelope)),
     );
+    // Doorbell mode, alone: ring the project and introduce ourselves; afterwards we wait for rings without a socket.
+    if (this.doorbellActive() && mesh.peers.length === 0) void this.introduce(true);
     this.evaluate();
   }
 
@@ -262,6 +403,8 @@ export class ConnectionManager {
     const ws = this.ws;
     this.ws = null;
     this.onRelay.clear();
+    this.closeRelays();
+    this.relayPending.clear();
     ws?.close();
     for (const l of this.links.values()) l.close();
     this.links.clear();
@@ -344,6 +487,14 @@ export class ConnectionManager {
   }
 
   private wantSocket() {
+    // Relay frames travel over the signaling socket: it stays open while any relay attempt or generation exists.
+    if (this.relays.size > 0) return true;
+    // Doorbell mode: only while introducing, and no longer once every device seen there is linked.
+    if (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle)) return this.introducing() && !this.introductionDone();
+    // A device seen on the server that we are not linked to may be reachable only through the application relay, which
+    // needs our socket too: keep it while one is waiting (otherwise a relay-only peer stays cut off from every device
+    // that is not the gatekeeper). It closes again once that device is linked or leaves.
+    if (this.o.applicationRelay !== false && [...this.onRelay].some((dev) => !this.connected(dev) && !this.gone.has(dev))) return true;
     return this.o.mesh.peers.length === 0 || this.amGatekeeper();
   }
 
@@ -368,6 +519,7 @@ export class ConnectionManager {
   private openSocket() {
     const ws = this.o.wsFactory(this.o.signalUrl);
     this.ws = ws;
+    this.socketHadRelay = false;
     this.stats.socketOpens++;
     // Events of a socket that is no longer the current one (stopped, rotated, replaced) are ignored, and the timers
     // belong to the socket that started them.
@@ -400,7 +552,16 @@ export class ConnectionManager {
       if (this.ws !== ws) return;
       this.ws = null;
       this.onRelay.clear();
-      if (this.stopped || !this.wantSocket()) return;
+      // Relay sessions are bound to this socket's session id: they end with it (fresh keys after reconnecting).
+      this.selfRelaySid = null;
+      const hadRelays = this.relays.size > 0 || this.socketHadRelay;
+      this.closeRelays();
+      // Relay peers lost their sessions with this socket: both sides introduce themselves again (no ring needed).
+      if (hadRelays && this.doorbellActive()) {
+        void this.introduce(false);
+        return;
+      }
+      if (this.stopped || (!this.wantSocket() && !hadRelays)) return;
       this.cancel(this.retryTimer);
       this.retryTimer = this.later(this.backoff, () => {
         this.retryTimer = null;
@@ -413,7 +574,7 @@ export class ConnectionManager {
   }
 
   private async onServerMessage(raw: string, ws?: WebSocketLike) {
-    let m: { t: string; nonce?: string; tickets?: string[]; sessions?: Record<string, unknown>; ticket?: string; dev?: string; sid?: string; from?: string; fromTicket?: string; env?: string };
+    let m: { t: string; nonce?: string; tickets?: string[]; sessions?: Record<string, unknown>; ticket?: string; dev?: string; sid?: string; from?: string; fromSid?: string; fromTicket?: string; env?: string; capabilities?: unknown; code?: string; retryAfterMs?: number };
     try {
       m = JSON.parse(raw);
     } catch {
@@ -425,12 +586,23 @@ export class ConnectionManager {
       const ticket = this.o.getTicket();
       const sig = await sign(this.o.keys, utf8(signalAuthMessage(this.o.projectId, this.selfDev, m.nonce)));
       if (this.stopped || gen !== this.gen || (ws && this.ws !== ws)) return;
-      (ws ?? this.ws)?.send(JSON.stringify({ t: 'auth', ticket, sig: toB64u(sig) }));
+      const capabilities = this.o.applicationRelay === false ? {} : { capabilities: [APPLICATION_RELAY_CAPABILITY] };
+      (ws ?? this.ws)?.send(JSON.stringify({ t: 'auth', ticket, sig: toB64u(sig), ...capabilities }));
+      return;
+    }
+    if (m.t === 'app-relay') return void this.onRelayMessage(m);
+    if (m.t === 'relay-error') {
+      if (typeof m.code === 'string' && RELAY_LIMIT_CODES.has(m.code)) {
+        for (const a of this.relays.values()) a.transport?.noteLimited(m.code, Number(m.retryAfterMs) || 30_000);
+        this.emitState();
+      }
       return;
     }
     if (m.t === 'ready') {
       this.onRelay.clear();
       this.sessions.clear();
+      const caps = Array.isArray(m.capabilities) && m.capabilities.includes(APPLICATION_RELAY_CAPABILITY);
+      this.selfRelaySid = this.o.applicationRelay !== false && caps && typeof m.sid === 'string' && m.sid.startsWith(RELAY_SESSION_PREFIX) ? m.sid : null;
       this.beat?.();
       // `sessions` is additive (older relays omit it): it lets us tell a later leave of an older session from a departure.
       for (const [dev, sid] of Object.entries(m.sessions ?? {})) if (typeof sid === 'string') this.sessions.set(dev, sid);
@@ -442,7 +614,13 @@ export class ConnectionManager {
       const k = await this.learn(m.ticket, true);
       if (k) {
         this.onRelay.add(k.claims.dev);
-        if (m.sid) this.sessions.set(k.claims.dev, m.sid);
+        if (m.sid) {
+          // A new signaling session of the peer: a relay generation bound to its old session is dead.
+          const a = this.relays.get(k.claims.dev);
+          if (a && a.peerSid !== m.sid) this.dropRelay(k.claims.dev, a);
+          this.sessions.set(k.claims.dev, m.sid);
+          this.scheduleRelay(k.claims.dev);
+        }
       }
     } else if (m.t === 'leave' && m.dev) {
       // The leave of an older session of a device that already reconnected (quick reload): not a departure.
@@ -450,6 +628,8 @@ export class ConnectionManager {
       if (latest && m.sid && m.sid !== latest) return;
       this.sessions.delete(m.dev);
       this.onRelay.delete(m.dev);
+      const relay = this.relays.get(m.dev);
+      if (relay) this.dropRelay(m.dev, relay);
       if (!this.connected(m.dev)) {
         this.links.get(m.dev)?.close();
         this.links.delete(m.dev);
@@ -490,6 +670,7 @@ export class ConnectionManager {
       st.relaySeenAt ??= Date.now();
     }
     this.maybeConnect(k);
+    this.scheduleRelay(claims.dev);
     this.emitState();
     return k;
   }
@@ -497,10 +678,29 @@ export class ConnectionManager {
   private connected(dev: string) {
     return this.o.mesh.peers.some((p) => p.deviceId === dev);
   }
+  /** Connected over a WebRTC data channel (host, STUN or TURN), not the application relay. */
+  private connectedDirect(dev: string) {
+    return this.o.mesh.peers.some((p) => p.deviceId === dev && p.conn.transportKind !== 'relay');
+  }
 
-  /** An attempt towards `dev` already exists: connected, being set up, linking, or authenticating. */
+  /**
+   * An attempt towards `dev` already exists: directly connected, being set up, linking, or authenticating. A peer reached
+   * only through the application relay still gets direct attempts, so the link moves back to a direct path when it can.
+   */
   private busy(dev: string) {
-    return this.connected(dev) || this.links.has(dev) || this.opening.has(dev) || this.authenticating.has(dev);
+    return this.connectedDirect(dev) || this.links.has(dev) || this.opening.has(dev) || this.authenticating.has(dev);
+  }
+
+  /** The route of every connected peer, for the UI. */
+  routes(): Record<string, RouteState> {
+    const out: Record<string, RouteState> = {};
+    for (const p of this.o.mesh.peers) {
+      const t = p.conn.transport;
+      out[p.deviceId] = t instanceof RelayTransport
+        ? { route: 'relay', limited: t.limited ? (t.stats.limitedReason ?? 'relay_limited') : null }
+        : { route: (t as { path?: string }).path === 'turn' ? 'turn' : 'direct', limited: null };
+    }
+    return out;
   }
 
   /** The device with the lower id initiates, so exactly one side offers. */
@@ -581,7 +781,10 @@ export class ConnectionManager {
     this.attempts.set(dev, n);
     this.stage(dev).attempts = n;
     this.emitState();
-    const cap = this.o.maxBackoffMs ?? 30_000;
+    // Reached through the relay already: direct attempts continue, but rarely (each one costs signaling).
+    const viaRelay = this.connected(dev);
+    const cap = viaRelay ? Math.max(this.o.maxBackoffMs ?? 30_000, this.o.directRetryMs ?? 60_000) : this.o.maxBackoffMs ?? 30_000;
+    if (!viaRelay) this.scheduleRelay(dev, 0);
     const base = Math.min(cap, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** Math.min(n, 20) : 1000 * 2 ** Math.min(n - 1, 20));
     this.later(base, () => {
       const k = this.known.get(dev);
@@ -646,17 +849,216 @@ export class ConnectionManager {
     }
   }
 
+  // ---- application relay (D11/D12) ----
+
+  private relayCapable(dev: string) {
+    return Boolean(this.selfRelaySid && this.socketOpen && this.onRelay.has(dev) && this.sessions.get(dev)?.startsWith(RELAY_SESSION_PREFIX));
+  }
+
+  /** Checks after `ms` whether `dev` still lacks a usable link and, if so, starts relay setup (initiator: lower id). */
+  private scheduleRelay(dev: string, ms = this.o.relayAfterMs ?? 8000) {
+    if (this.stopped || this.o.applicationRelay === false || this.selfDev > dev || this.relayPending.has(dev)) return;
+    const failures = this.relayFailures.get(dev) ?? 0;
+    const wait = failures ? Math.max(ms, Math.min(60_000, 2000 * 2 ** Math.min(failures - 1, 10))) : ms;
+    this.relayPending.add(dev);
+    this.later(wait, () => {
+      this.relayPending.delete(dev);
+      if (this.connected(dev) || this.relays.has(dev) || !this.relayCapable(dev)) return;
+      // TURN costs the control plane nothing per byte, a relay session holds sockets: with TURN credentials configured,
+      // wait until that WebRTC attempt failed or timed out (retryLater schedules the relay again then).
+      if (this.turnConfigured() && (this.attempts.get(dev) ?? 0) === 0) return;
+      void this.startRelay(dev);
+    });
+  }
+
+  private turnConfigured() {
+    return (this.ice?.servers ?? []).some((x) => (x as { credential?: unknown }).credential !== undefined);
+  }
+
+  private relayFailed(dev: string) {
+    this.stats.relayFailures++;
+    this.relayFailures.set(dev, (this.relayFailures.get(dev) ?? 0) + 1);
+    if (!this.connected(dev)) this.scheduleRelay(dev, 0);
+  }
+
+  private postRelay(dev: string, sid: string, env: string) {
+    const ws = this.ws;
+    if (this.stopped || !ws || ws.readyState !== WS_OPEN || env.length > 60 * 1024) return false;
+    ws.send(JSON.stringify({ t: 'app-relay', to: dev, sid, env }));
+    return true;
+  }
+
+  private dropRelay(dev: string, a: RelayAttempt) {
+    if (this.relays.get(dev) === a) this.relays.delete(dev);
+    this.cancel(a.timer);
+    a.handshake?.close();
+    a.handshake = null;
+    a.transport?.close();
+    this.evaluate();
+  }
+
+  private closeRelays() {
+    for (const [dev, a] of [...this.relays]) this.dropRelay(dev, a);
+  }
+
+  private relayTimeout(dev: string, a: RelayAttempt) {
+    this.cancel(a.timer);
+    a.timer = this.later(12_000, () => {
+      if (this.relays.get(dev) !== a || a.transport) return;
+      this.dropRelay(dev, a);
+      this.relayFailed(dev);
+    });
+  }
+
+  private async startRelay(dev: string) {
+    const peerSid = this.sessions.get(dev);
+    if (!peerSid) return;
+    const a: RelayAttempt = { gen: this.gen, id: '', role: 'initiator', peerSid, handshake: null, transport: null, timer: null };
+    this.relays.set(dev, a); // reserved before any await
+    try {
+      const hs = await RelayHandshake.create({
+        projectId: this.o.projectId, peerDeviceId: dev, ticket: this.o.getTicket(), keys: this.o.keys, trusted: this.o.trusted, role: 'initiator',
+        ...(this.o.now ? { now: () => this.nowMs() } : {}),
+      });
+      if (this.relays.get(dev) !== a || a.gen !== this.gen) return void hs.close();
+      a.handshake = hs;
+      a.id = hs.hello.generation;
+      this.stats.relaySetups++;
+      this.relayTimeout(dev, a);
+      if (!this.postRelay(dev, peerSid, encodeRelayHandshake({ g: a.id, hello: hs.hello }))) throw new Error('signaling socket closed');
+    } catch {
+      if (this.relays.get(dev) !== a) return;
+      this.dropRelay(dev, a);
+      this.relayFailed(dev);
+    }
+  }
+
+  private onRelayMessage(m: { from?: string; fromSid?: string; env?: string }) {
+    const from = m.from;
+    const fromSid = m.fromSid;
+    if (typeof from !== 'string' || typeof fromSid !== 'string' || typeof m.env !== 'string' || this.stopped) return;
+    const w = decodeRelayWire(m.env);
+    if (!w) return;
+    if (w.kind === 'frame') {
+      // Frames of an unknown or older session are dropped; the sender retransmits within its budget.
+      const a = this.relays.get(from);
+      if (a?.transport && a.peerSid === fromSid && w.envelope.session === a.transport.sessionId) void a.transport.receive(w.envelope);
+      return;
+    }
+    const prev = this.relayChains.get(from) ?? Promise.resolve();
+    const next = prev.then(() => this.onRelayHandshake(from, fromSid, w.body as RelayStep)).catch(() => {});
+    this.relayChains.set(from, next);
+    void next.finally(() => {
+      if (this.relayChains.get(from) === next) this.relayChains.delete(from);
+    });
+  }
+
+  private async onRelayHandshake(from: string, fromSid: string, b: RelayStep) {
+    if (!b || typeof b.g !== 'string' || !this.selfRelaySid || this.stopped) return;
+    const gen = this.gen;
+    let a = this.relays.get(from);
+    try {
+      if (b.hello && b.proof === undefined && from < this.selfDev) {
+        // The peer (lower id) starts a generation: answer it, replacing any older attempt of that device.
+        if (a && a.id === b.g) return;
+        if (this.connectedDirect(from)) return; // never downgrade a working direct link
+        if (a) this.dropRelay(from, a);
+        const own: RelayAttempt = { gen, id: b.g, role: 'responder', peerSid: fromSid, handshake: null, transport: null, timer: null };
+        a = own;
+        this.relays.set(from, own);
+        this.relayTimeout(from, own);
+        const hs = await RelayHandshake.create({
+          projectId: this.o.projectId, peerDeviceId: from, ticket: this.o.getTicket(), keys: this.o.keys, trusted: this.o.trusted, role: 'responder',
+          ...(this.o.now ? { now: () => this.nowMs() } : {}),
+        });
+        if (this.relays.get(from) !== own || gen !== this.gen) return void hs.close();
+        own.handshake = hs;
+        const proof = await hs.acceptHello(b.hello);
+        if (this.relays.get(from) !== own || gen !== this.gen) return;
+        this.postRelay(from, fromSid, encodeRelayHandshake({ g: own.id, hello: hs.hello, proof }));
+        return;
+      }
+      if (!a || a.id !== b.g || !a.handshake || a.gen !== gen || a.peerSid !== fromSid) return;
+      const cur = a;
+      const hs = cur.handshake as RelayHandshake;
+      if (cur.role === 'initiator' && b.hello && typeof b.proof === 'string') {
+        const proof = await hs.acceptHello(b.hello);
+        const confirm = await hs.acceptProof(b.proof);
+        if (this.relays.get(from) !== cur) return;
+        this.postRelay(from, fromSid, encodeRelayHandshake({ g: cur.id, proof, confirm }));
+      } else if (cur.role === 'responder' && typeof b.proof === 'string' && typeof b.confirm === 'string') {
+        const confirm = await hs.acceptProof(b.proof);
+        const session = await hs.acceptConfirmation(b.confirm);
+        if (this.relays.get(from) !== cur) return void session.close();
+        this.postRelay(from, fromSid, encodeRelayHandshake({ g: cur.id, confirm }));
+        this.relayEstablished(from, cur, session);
+      } else if (cur.role === 'initiator' && typeof b.confirm === 'string' && b.proof === undefined) {
+        const session = await hs.acceptConfirmation(b.confirm);
+        this.relayEstablished(from, cur, session);
+      }
+    } catch {
+      if (a && this.relays.get(from) === a) {
+        this.dropRelay(from, a);
+        this.relayFailed(from);
+      }
+    }
+  }
+
+  private relayEstablished(dev: string, a: RelayAttempt, session: RelaySession) {
+    if (this.relays.get(dev) !== a || a.gen !== this.gen || this.stopped || this.connectedDirect(dev)) {
+      session.close();
+      if (this.relays.get(dev) === a) this.dropRelay(dev, a);
+      return;
+    }
+    this.cancel(a.timer);
+    a.timer = null;
+    a.handshake = null;
+    this.socketHadRelay = true;
+    const t = new RelayTransport({ ...this.o.relayTransport, session, post: (env) => this.postRelay(dev, a.peerSid, env) });
+    a.transport = t;
+    t.onClosed(() => {
+      if (this.relays.get(dev) !== a) return;
+      this.relays.delete(dev);
+      this.evaluate();
+      this.emitState();
+      if (!this.connected(dev) && this.onRelay.has(dev)) this.relayFailed(dev);
+      else if (!this.connected(dev) && this.doorbellActive()) void this.introduce(false);
+    });
+    this.authenticating.add(dev);
+    const gen = this.gen;
+    this.o.mesh
+      .addTransport(t)
+      .then(() => {
+        this.relayFailures.delete(dev);
+        this.emitState();
+      })
+      .catch(() => t.close())
+      .finally(() => {
+        if (gen === this.gen) this.authenticating.delete(dev);
+      });
+  }
+
   // ---- peer exchange ----
 
   private onPeerJoin(p: PeerInfo) {
-    this.attempts.delete(p.deviceId);
+    const viaRelay = p.conn.transportKind === 'relay';
+    if (!viaRelay) this.attempts.delete(p.deviceId);
     this.lastErrors.delete(p.deviceId);
     this.gone.delete(p.deviceId);
     this.stage(p.deviceId).linkUpAt = Date.now();
     this.emitState();
     this.reannounced.delete(p.deviceId);
-    this.links.get(p.deviceId)?.close();
-    this.links.delete(p.deviceId);
+    if (viaRelay) {
+      // Keep trying a direct path: when it authenticates, the mesh replaces the relay connection (handover).
+      const k = this.known.get(p.deviceId);
+      if (k && !this.links.has(p.deviceId)) this.later(this.o.directRetryMs ?? 60_000, () => this.maybeConnect(k));
+    } else {
+      this.links.get(p.deviceId)?.close();
+      this.links.delete(p.deviceId);
+      // A direct link took over: the relay generation of this device ends (the mesh already closed its connection).
+      const relay = this.relays.get(p.deviceId);
+      if (relay) this.dropRelay(p.deviceId, relay);
+    }
     this.known.set(p.deviceId, { claims: p.claims, raw: p.ticket });
     const others = this.o.mesh.peers.filter((x) => x.deviceId !== p.deviceId);
     if (others.length) void this.o.mesh.sendApp(p.deviceId, 'pex', { tickets: others.map((x) => x.ticket) });

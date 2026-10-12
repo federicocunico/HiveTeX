@@ -1,6 +1,6 @@
 [package]
 name = "hivetex-desktop"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 default-run = "hivetex-desktop"
 license = "AGPL-3.0-or-later"
@@ -13,13 +13,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 notify = "8"
 sysinfo = "0.33"
 webrtc = "0.13"
+async-trait = "0.1"
+# UPnP description/SOAP parsing (src/igd.rs); already in the tree via Tauri, pinned.
+quick-xml = "=0.38.4"
 bytes = "1"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 starship-battery = "0.10"
@@ -36,6 +39,13 @@ lzma-rs = "0.3"
 sevenz-rust2 = { version = "=0.23.0", default-features = false, features = ["util"] }
 tiny_http = "0.12"
 getrandom = "0.3"
+# Native project store (src/store.rs): bundled SQLite, pinned.
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
+netdev = { version = "=0.38.2", default-features = false, features = ["gateway"] }
+
+# Pinned webrtc-ice 0.13.0 with the mapped-endpoint mux extension (vendor/PATCHES.md).
+[patch.crates-io]
+webrtc-ice = { path = "vendor/webrtc-ice" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -51,6 +61,9 @@ keyring = { version = "3", features = ["apple-native"] }
 keyring = { version = "3", features = ["sync-secret-service"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Second launch focuses the running app; user-selected launch at login (11.1, 11.2). Pinned.
+tauri-plugin-single-instance = "=2.4.4"
+tauri-plugin-autostart = "=2.5.1"
 tauri-plugin-updater = "2"
 
 [features]
@@ -59,5 +72,7 @@ tauri-plugin-updater = "2"
 test-picker = []
 
 [dev-dependencies]
+# Paused clock for the UPnP lease/renewal tests (src/portmap.rs).
+tokio = { version = "1", features = ["test-util"] }
 # builds 7z fixtures for the self-extractor tests
 sevenz-rust2 = { version = "=0.23.0", default-features = false, features = ["util", "compress"] }

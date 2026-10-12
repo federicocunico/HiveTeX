@@ -11,6 +11,9 @@ export class Gate implements PeerTransport {
   held: Array<{ channel: ChannelName; data: Uint8Array }> = [];
   sent = 0;
   constructor(private inner: PeerTransport) {}
+  get authenticationBinding() {
+    return this.inner.authenticationBinding;
+  }
   get localFingerprint() {
     return this.inner.localFingerprint;
   }

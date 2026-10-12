@@ -347,7 +347,7 @@ fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: O
 }
 
 #[cfg(windows)]
-mod winjob {
+pub(crate) mod winjob {
     use std::os::windows::io::AsRawHandle;
     use std::process::Child;
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};

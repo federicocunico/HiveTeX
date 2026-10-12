@@ -1,14 +1,25 @@
 pub mod managed;
 pub mod helper;
+pub mod igd;
+pub mod lifecycle;
+pub mod portmap;
 pub mod mirror;
 pub mod probe;
 pub mod proc;
 pub mod rtc;
 pub mod secrets;
+pub mod catalog;
+pub mod network;
+pub mod store;
+pub mod store_cmd;
 pub mod tex;
 pub mod terminal;
 pub mod texcache;
 pub mod tinytex;
+pub mod transport;
+pub mod worker;
+pub mod worker_bridge;
+pub mod worker_service;
 
 use mirror::{Listed, MirrorState, PickedFolders};
 use tauri::{Emitter, Manager, State};
@@ -388,6 +399,8 @@ struct HelperState {
     settings_path: std::path::PathBuf,
     settings: std::sync::Mutex<HelperSettings>,
     pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<bool>>>>,
+    /// Requests still waiting for an answer: a window opened for one fetches them (the event may predate it).
+    requests: std::sync::Arc<std::sync::Mutex<Vec<helper::PairRequest>>>,
 }
 
 impl HelperState {
@@ -407,17 +420,18 @@ impl HelperState {
         let pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::mpsc::Sender<bool>>>> = Default::default();
         let root = dir.to_path_buf();
         let compile: helper::CompileFn = std::sync::Arc::new(move |req| tex::compile_with(&root, req, None));
-        let (handle, waiting) = (app.clone(), pending.clone());
+        let requests: std::sync::Arc<std::sync::Mutex<Vec<helper::PairRequest>>> = Default::default();
+        let (handle, waiting, open) = (app.clone(), pending.clone(), requests.clone());
         let confirm: helper::ConfirmFn = std::sync::Arc::new(move |req: helper::PairRequest| {
             let (tx, rx) = std::sync::mpsc::channel();
             waiting.lock().unwrap().insert(req.id.clone(), tx);
-            if let Some(w) = handle.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
+            open.lock().unwrap().push(req.clone());
+            // Browser-requested pairing always gets a visible window, even when it was closed to the tray.
+            lifecycle::show_main(&handle);
             let _ = handle.emit("helper://pair-request", req.clone());
             let answer = rx.recv_timeout(std::time::Duration::from_secs(60)).unwrap_or(false);
             waiting.lock().unwrap().remove(&req.id);
+            open.lock().unwrap().retain(|r| r.id != req.id);
             answer
         });
         let status: helper::StatusFn = std::sync::Arc::new(tex::detect);
@@ -431,7 +445,7 @@ impl HelperState {
                 None
             }
         };
-        HelperState { helper, settings_path, settings: std::sync::Mutex::new(settings), pending }
+        HelperState { helper, settings_path, settings: std::sync::Mutex::new(settings), pending, requests }
     }
 }
 
@@ -489,6 +503,41 @@ fn helper_configure(state: State<'_, HelperState>, enabled: bool, origins: Vec<S
     Ok(helper_info_of(&state))
 }
 
+/// Desktop UI tests only (`test-picker` builds): close the main window the way the title-bar button does.
+#[tauri::command]
+fn test_close_main(app: tauri::AppHandle) -> Result<(), String> {
+    if !cfg!(feature = "test-picker") { return Err("not available".into()); }
+    let app2 = app.clone();
+    // After this command has answered, so the page is not torn down mid-reply.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if let Some(w) = app2.get_webview_window("main") { let _ = w.close(); }
+    });
+    Ok(())
+}
+
+/// Desktop soak tests only (`test-picker` builds): what the network monitor does after a route change or a resume
+/// from sleep (new transport generation, `native.resume` to the worker, UPnP remapped).
+#[tauri::command]
+fn test_network_change(app: tauri::AppHandle, resumed: bool) -> Result<(), String> {
+    if !cfg!(feature = "test-picker") { return Err("not available".into()); }
+    let rtc = app.state::<rtc::RtcState>();
+    let generation = rtc.transport.generation() + 1;
+    rtc.transport.advance(generation);
+    app.state::<worker_service::WorkerService>().notify("native.resume", serde_json::json!({ "generation": generation, "resumed": resumed, "online": true }));
+    let upnp = app.state::<portmap::UpnpState>();
+    if let (Some(mapper), true) = (upnp.existing(), upnp.wanted.load(std::sync::atomic::Ordering::SeqCst)) {
+        tauri::async_runtime::spawn(async move { mapper.enable() });
+    }
+    Ok(())
+}
+
+/// Pairing requests still waiting for the user (a just-opened window shows them).
+#[tauri::command]
+fn helper_pending(state: State<'_, HelperState>) -> Vec<helper::PairRequest> {
+    state.requests.lock().unwrap().clone()
+}
+
 /// The user's answer to a `helper://pair-request`.
 #[tauri::command]
 fn helper_answer(state: State<'_, HelperState>, id: String, allow: bool) {
@@ -514,8 +563,14 @@ pub fn run() {
     // TLS for the package-server downloads (ring, already used by the WebRTC stack).
     let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default();
+    // A second launch focuses the running instance (one worker, one network identity per project).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| lifecycle::show_main(app)));
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // Launch at login, registered only when the user selects it (lifecycle::startup_set); no page permission.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![lifecycle::BACKGROUND_ARG])));
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -529,12 +584,72 @@ pub fn run() {
             app.manage(texcache::TexCache::new(dir.join("texcache")));
             app.manage(PickedFolders::load(dir.join("picked-folders.json")));
             app.manage(HelperState::start(app.handle(), &dir));
+            // The fixed worker restores its scoped dormant catalog without requiring an editor.
+            let started = worker_service::WorkerService::start(app.handle());
+            if let Err(e) = &started {
+                eprintln!("sync worker unavailable ({e}); open the app to inspect synchronization status");
+            }
+            // `--self-check` (release packaging, 12.1/12.2): the installed app verifies and starts its bundled worker
+            // (no system Node), waits for its handshake, and exits 0, or 1 with the reason. No window, no tray.
+            if std::env::args().any(|a| a == "--self-check") {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let ok = started.is_ok() && (0..600).any(|_| {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        handle.state::<worker_service::WorkerService>().is_ready()
+                    });
+                    println!("{}", if ok { "self-check: sync worker ready" } else { "self-check: sync worker did not start" });
+                    handle.state::<worker_service::WorkerService>().stop();
+                    handle.state::<lifecycle::Lifecycle>().quitting.store(true, std::sync::atomic::Ordering::SeqCst);
+                    handle.exit(if ok { 0 } else { 1 });
+                });
+                return Ok(());
+            }
+            lifecycle::setup_tray(app.handle());
+            // Desktop UI tests only: close the window shortly after start, as the title-bar button does (lifecycle.mjs).
+            if cfg!(feature = "test-picker") {
+                // ... or run the post-update restart path once (the restarted app does not repeat it).
+                if let Some(ms) = std::env::var("HIVETEX_TEST_RESTART_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
+                    std::env::remove_var("HIVETEX_TEST_RESTART_MS");
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                        let _ = lifecycle::app_restart(handle).await;
+                    });
+                }
+                if let Some(ms) = std::env::var("HIVETEX_TEST_CLOSE_MAIN_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(ms));
+                        if let Some(w) = handle.get_webview_window("main") { let _ = w.close(); }
+                    });
+                }
+            }
+            let args: Vec<String> = std::env::args().collect();
+            if !lifecycle::background_launch(&args, lifecycle::load_settings(app.handle())) {
+                lifecycle::show_main(app.handle());
+            }
             Ok(())
         })
         .manage(MirrorState::default())
         .manage(probe::ProbeState::default())
         .manage(rtc::RtcState::default())
+        .manage(portmap::UpnpState::default())
+        .manage(lifecycle::Lifecycle::default())
+        .on_window_event(|window, event| lifecycle::window_event(window, event))
+        .manage(store::StoreState::default())
+        .manage(worker_service::WorkerService::default())
         .invoke_handler(tauri::generate_handler![
+            worker_service::worker_request,
+            worker_service::worker_diagnostics,
+            lifecycle::app_quit,
+            helper_pending,
+            test_close_main,
+            test_network_change,
+            portmap::upnp_status,
+            lifecycle::app_restart,
+            lifecycle::startup_get,
+            lifecycle::startup_set,
             tex_detect,
             tex_compile,
             texcache_set_upstream,
@@ -571,10 +686,53 @@ pub fn run() {
             helper_info,
             helper_configure,
             helper_answer,
-            helper_revoke
+            helper_revoke,
+            store_cmd::store_open,
+            store_cmd::store_close,
+            store_cmd::store_delete,
+            store_cmd::store_exists,
+            store_cmd::store_transact,
+            store_cmd::store_load,
+            store_cmd::store_list_docs,
+            store_cmd::store_put_blob,
+            store_cmd::store_stage_chunk,
+            store_cmd::store_stage_commit,
+            store_cmd::store_stage_abort,
+            store_cmd::store_blob_size,
+            store_cmd::store_read_blob,
+            store_cmd::store_list_blobs,
+            store_cmd::store_put_snapshot,
+            store_cmd::store_list_snapshots,
+            store_cmd::store_get_meta,
+            store_cmd::store_list_meta,
+            store_cmd::store_put_change,
+            store_cmd::store_list_changes,
+            store_cmd::store_prune_changes,
+            store_cmd::store_ingress_put,
+            store_cmd::store_ingress_ack,
+            store_cmd::store_ingress_pending,
+            store_cmd::store_ingress_page,
+            store_cmd::store_ingress_deny,
+            store_cmd::store_ingress_get,
+            store_cmd::migration_manifest_read,
+            store_cmd::migration_manifest_write
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running HiveTeX");
+        .build(tauri::generate_context!())
+        .expect("error while running HiveTeX")
+        .run(|app, event| {
+            // Closing the last window keeps background synchronization running; only Quit exits.
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                if lifecycle::keep_running(app, *code) {
+                    api.prevent_exit();
+                }
+            }
+            if let tauri::RunEvent::Exit = event {
+                // Orderly quit: remove an owned router mapping (bounded by the three-second cleanup deadline).
+                if let Some(mapper) = app.state::<portmap::UpnpState>().existing() {
+                    tauri::async_runtime::block_on(mapper.disable());
+                }
+            }
+        });
 }
 
 /// Desktop UI tests: the "picked" folder is `$HIVETEX_TEST_PICK_DIR`, or the sub-folder named in its `.next-pick`

@@ -677,6 +677,7 @@ export class OfflineFork {
     this.requireEdit();
     const resolved = applyDecisions(c.regions, decisions);
     const ytext = await this.o.model.openText(c.fileId);
+    this.requireEdit();
     const now = ytext.toString();
     const again = mergeText(c.theirsAtMerge, resolved, now);
     if (again.kind === 'conflict') {
@@ -700,7 +701,11 @@ export class OfflineFork {
     const restoreMine = async (id: string, path?: string) => {
       if (!c.mine) return;
       model.putEntry(id, { ...c.mine, path: path ?? c.mine.path }, MERGE_ORIGIN);
-      if (c.mine.kind === 'text' && c.mine.text) applyTextDiff(await model.openText(id), c.mine.text, MERGE_ORIGIN);
+      if (c.mine.kind === 'text' && c.mine.text) {
+        const text = await model.openText(id);
+        this.requireEdit();
+        applyTextDiff(text, c.mine.text, MERGE_ORIGIN);
+      }
     };
     if (k.type === 'delete-modify') {
       if (k.deletedBy === 'mine' && choice === 'delete') model.delete(k.id, MERGE_ORIGIN);
@@ -711,7 +716,11 @@ export class OfflineFork {
       if (choice === 'mine') model.setBinary(k.id, k.mine, c.mine?.size ?? 0, MERGE_ORIGIN);
     } else if (k.type === 'add-add') {
       if (choice === 'both') await restoreMine(k.mineId, withSuffix(k.path, ' (mine)'));
-      else if (choice === 'mine' && c.mine?.text !== undefined) applyTextDiff(await model.openText(k.theirsId), c.mine.text, MERGE_ORIGIN);
+      else if (choice === 'mine' && c.mine?.text !== undefined) {
+        const text = await model.openText(k.theirsId);
+        this.requireEdit();
+        applyTextDiff(text, c.mine.text, MERGE_ORIGIN);
+      }
     }
     await this.drop(conflictId);
   }

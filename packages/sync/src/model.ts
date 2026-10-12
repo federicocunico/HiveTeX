@@ -535,10 +535,12 @@ export class ProjectModel {
   }
 
   /** Creates a text file and waits until its content has been written. */
-  async createTextNow(path: string, content = '', origin: unknown = LOCAL_ORIGIN): Promise<string> {
+  async createTextNow(path: string, content = '', origin: unknown = LOCAL_ORIGIN, canApply: () => boolean = () => true): Promise<string> {
+    if (!canApply()) throw new Error('denied');
     const id = this.createText(path, '', origin);
     if (content) {
       const d = await this.getDoc(fileDocId(id));
+      if (!canApply()) throw new Error('denied');
       d.transact(() => d.getText('t').insert(0, content), origin);
     }
     return id;
@@ -658,19 +660,26 @@ export class ProjectModel {
    * text files are overwritten as minimal edits (keeping their identity for open editors). Paths are validated
    * before anything changes.
    */
-  async applyBatch(ops: BatchOp[]): Promise<{ created: Map<string, string> }> {
+  async applyBatch(ops: BatchOp[], canApply: () => boolean = () => true): Promise<{ created: Map<string, string> }> {
     for (const o of ops) if (o.op === 'text' || o.op === 'binary') assertSafe(o.path);
     const created = new Map<string, string>();
     const newTexts: Array<{ id: string; path: string; text: string }> = [];
     for (const o of ops) {
       if (o.op === 'text' && !o.id) {
         const id = newId();
-        this.markComplete(fileDocId(id));
         newTexts.push({ id, path: o.path, text: o.text });
         created.set(o.path, id);
       }
     }
-    for (const t of newTexts) if (t.text) (await this.getDoc(fileDocId(t.id))).getText('t').insert(0, t.text);
+    const textDocs = new Map<string, Y.Text>();
+    for (const t of newTexts) if (t.text) textDocs.set(t.id, (await this.getDoc(fileDocId(t.id))).getText('t'));
+    for (const o of ops) if (o.op === 'text' && o.id) textDocs.set(o.id, await this.openText(o.id));
+    // All awaited loading precedes the mutation boundary; a demotion/stop can refuse the entire batch.
+    if (!canApply()) throw new Error('denied');
+    for (const t of newTexts) {
+      this.markComplete(fileDocId(t.id));
+      if (t.text) textDocs.get(t.id)?.insert(0, t.text);
+    }
     this.root.transact(() => {
       for (const o of ops) {
         if (o.op === 'delete') this.files.delete(o.id);
@@ -699,7 +708,7 @@ export class ProjectModel {
         this.files.set(t.id, m);
       }
     }, LOCAL_ORIGIN);
-    for (const o of ops) if (o.op === 'text' && o.id) applyTextDiff(await this.openText(o.id), o.text);
+    for (const o of ops) if (o.op === 'text' && o.id) applyTextDiff(textDocs.get(o.id) as Y.Text, o.text);
     return { created };
   }
 
@@ -726,21 +735,27 @@ export class ProjectModel {
    * Restores a snapshot as ordinary edits (so it syncs to everyone and can itself be undone by
    * restoring the pre-restore snapshot, which is captured first).
    */
-  async restore(snapshotId: string): Promise<{ undoId: string }> {
+  async restore(snapshotId: string, canApply: () => boolean = () => true): Promise<{ undoId: string }> {
     const snaps = await this.store.listSnapshots();
     const target = snaps.find((s) => s.id === snapshotId);
     if (!target) throw new Error('snapshot not found');
     const undo = await this.captureSnapshot();
+    if (!canApply()) throw new Error('denied');
     const want = new Map(target.files.map((f) => [f.path, f]));
     const have = new Map(this.list().map((f) => [f.path, f]));
     for (const [path, f] of have) if (!want.has(path)) this.delete(f.id);
     for (const [path, w] of want) {
+      if (!canApply()) throw new Error('denied');
       const cur = have.get(path);
       if (w.kind === 'text') {
-        if (cur && cur.kind === 'text') applyTextDiff(await this.openText(cur.id), w.text ?? '');
+        if (cur && cur.kind === 'text') {
+          const text = await this.openText(cur.id);
+          if (!canApply()) throw new Error('denied');
+          applyTextDiff(text, w.text ?? '');
+        }
         else {
           if (cur) this.delete(cur.id);
-          await this.createTextNow(path, w.text ?? '');
+          await this.createTextNow(path, w.text ?? '', LOCAL_ORIGIN, canApply);
         }
       } else if (w.kind === 'binary') {
         if (cur?.kind === 'binary') this.setBinary(cur.id, w.hash ?? '', w.size ?? 0);

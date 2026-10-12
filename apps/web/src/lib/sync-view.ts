@@ -1,4 +1,4 @@
-import type { SyncEvent, SyncOutcome, SyncSnapshot } from '@hivetex/sync';
+import type { PeerRoute, PushState, SyncEvent, SyncOutcome, SyncSnapshot } from '@hivetex/sync';
 
 /** "just now", "3 min ago", "2 h ago": when the device was last fully up to date. */
 export function sinceText(at: number | null, now = Date.now()): string {
@@ -77,4 +77,51 @@ export function mergeNotice(error: unknown): string | null {
   if (!error) return null;
   if (error instanceof Error && error.name === 'MergePending') return 'Your offline changes are kept and waiting for a co-author to confirm the project. They are merged as soon as one does.';
   return 'Your offline changes are kept, but could not be prepared for merging yet. This is retried when a co-author connects.';
+}
+
+/**
+ * How a connected co-author is reached, for the People panel. The relay states never claim that files arrived: a
+ * limited relay keeps edits and files queued on both devices until the server accepts traffic again.
+ */
+export function routeText(route: PeerRoute, limited: string | null): string {
+  if (route === 'turn') return 'connected through a TURN relay';
+  if (route === 'direct') return 'connected directly';
+  if (!limited) return 'connected through the HiveTeX server (encrypted)';
+  return limited === 'relay_accounting_unavailable'
+    ? 'server relay unavailable: changes wait on this device'
+    : 'server relay limit reached: changes wait on this device';
+}
+
+/** Router port mapping state reported by the desktop (UPnP, D7). */
+export type MappingState =
+  | { state: 'disabled' }
+  | { state: 'discovering' }
+  | { state: 'mapped'; external: string; lease_secs: number }
+  | { state: 'renewing'; external: string }
+  | { state: 'unsupported'; reason: string }
+  | { state: 'failed'; reason: string };
+
+/**
+ * The port-mapping line of the status view. A mapping is an offer to peers, never a connection: the path a peer
+ * actually uses is only ever `routeText` (from the selected candidate pair).
+ */
+export function mappingText(m: MappingState): string {
+  switch (m.state) {
+    case 'disabled': return 'Router port mapping: off';
+    case 'discovering': return 'Router port mapping: looking for the router…';
+    case 'mapped': return 'Router port mapping: active (offered to co-authors, not a connection)';
+    case 'renewing': return 'Router port mapping: renewing';
+    case 'unsupported': return `Router port mapping: not available (${m.reason})`;
+    case 'failed': return `Router port mapping: failed (${m.reason})`;
+  }
+}
+
+/**
+ * Whether co-authors can reach this device when they open the project (doorbell, D14). Null when there is nothing to say
+ * (no doorbell on this server, or still connecting to the wake-up service).
+ */
+export function doorbellText(state: PushState): string | null {
+  if (state === 'subscribed') return 'Co-authors who open the project reach this device, without keeping a server connection.';
+  if (state === 'unavailable') return 'Wake-up service unreachable: this device stays reachable while the project is open.';
+  return null;
 }

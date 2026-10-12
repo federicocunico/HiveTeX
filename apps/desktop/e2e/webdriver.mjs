@@ -79,7 +79,8 @@ export class Session {
       }
       await new Promise((r) => setTimeout(r, 150));
     }
-    throw new Error(`no visible element for ${sel}${last ? ` (${last.message})` : ''}`);
+    const page = await this.execute(() => document.body.innerText).catch(() => '');
+    throw new Error(`no visible element for ${sel}${last ? ` (${last.message})` : ''}\n${String(page).slice(0, 2000)}`);
   }
   close() {
     return call(this.base, 'DELETE', `/session/${this.id}`);

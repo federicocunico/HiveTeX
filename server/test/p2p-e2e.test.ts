@@ -19,7 +19,7 @@ const cleanup: Array<() => void> = [];
 
 beforeEach(async () => {
   env = await makeEnv();
-  backend = new MemorySignalBackend();
+  backend = new MemorySignalBackend({ recordMessages: true });
   rtc = new FakeRtcNetwork();
 });
 afterEach(() => {
@@ -220,7 +220,7 @@ describe('P2P bootstrap and content privacy (5.3, 6.9)', () => {
   for (const idleIs of ['lower', 'higher'] as const) {
     it(`an idle device stays discoverable beyond the presence lease, so a late joiner connects (idle device has the ${idleIs} id)`, async () => {
       const clock = { ms: Date.now() };
-      backend = new MemorySignalBackend({ now: () => clock.ms }); // leases expire when this clock passes them
+      backend = new MemorySignalBackend({ now: () => clock.ms, recordMessages: true }); // leases expire when this clock passes them
       const { owner, pid, join } = await setupProject(`idle-lease-${idleIs}`);
       const bob = await join('bob');
       const bobId = (await env.db.select().from(schema.users)).find((u) => u.username === 'bob')?.id;

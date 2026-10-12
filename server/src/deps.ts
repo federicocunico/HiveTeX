@@ -1,4 +1,6 @@
+import type { ApplicationRelayMessage, TicketClaims } from '@hivetex/protocol';
 import type { Config } from './config.js';
+import type { UsageMeter } from './signal/hub.js';
 import type { Db } from './db/client.js';
 import type { Mailer } from './mail.js';
 import type { RateLimiter } from './ratelimit.js';
@@ -29,6 +31,19 @@ export interface Deps {
   fetch?: typeof fetch;
   /** Cross-instance signaling relay (Upstash in production, in-memory locally). */
   signal?: SignalBackend;
+  /** Backend command and relay traffic counters for usage reports (no content, no identities). */
+  usage?: UsageMeter;
+  /** Heartbeat renewal batching window per instance (ms); 0/absent renews each ping immediately. */
+  presenceBatchMs?: number;
+  /** Absent until relay routing, admission and deployment headroom have been configured. */
+  applicationRelay?: {
+    attach(context: {
+      claims: TicketClaims;
+      sid: string;
+      send: (message: unknown) => void;
+      active: () => boolean;
+    }): Promise<{ forward(message: ApplicationRelayMessage): Promise<void>; close(): void }>;
+  };
   /** Relay credentials provider; absent => STUN only. */
   turn?: TurnProvider;
   /** Platform WebSocket upgrade (Vercel Functions); absent => /signal answers 426. */

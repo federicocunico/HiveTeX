@@ -104,16 +104,29 @@ class TauriPeer implements RtcPeerLike {
   ) {
     this.ready = (async () => {
       this.unlisten = await listen(`rtc://${this.id}`, (e) => this.onEvent(e));
+      if (this.closed) { this.unlisten(); return; }
       await this.invoke('rtc_create', { id: this.id, ice: iceServers });
+      if (this.closed) await this.invoke('rtc_close', {id:this.id});
     })();
-    this.ready.catch(() => {});
+    this.ready.catch(() => this.fail());
+  }
+
+  private fail() {
+    if (this.closed) return;
+    this.connectionState = 'failed';
+    this.terminateChannels();
+    this.onconnectionstatechange?.();
   }
 
   call<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
-    return this.ready.then(() => this.invoke<T>(cmd, { id: this.id, ...args }));
+    return this.ready.then(() => {
+      if (this.closed && cmd !== 'rtc_close') throw new Error('peer closed');
+      return this.invoke<T>(cmd, { id: this.id, ...args });
+    });
   }
 
   private onEvent(e: BridgeEvent) {
+    if (this.closed) return;
     if (e.kind === 'ice') this.onicecandidate?.({ candidate: e.candidate });
     else if (e.kind === 'state') {
       this.connectionState = e.state.toLowerCase();
@@ -147,7 +160,7 @@ class TauriPeer implements RtcPeerLike {
   createDataChannel(label: string) {
     const ch = new BridgeChannel(label, this);
     this.channels.set(label, ch);
-    void this.call('rtc_create_data_channel', { label });
+    void this.call('rtc_create_data_channel', { label }).catch(() => this.fail());
     return ch;
   }
 
@@ -165,6 +178,11 @@ class TauriPeer implements RtcPeerLike {
   async setRemoteDescription(d: { type: string; sdp?: string }) {
     await this.call('rtc_set_remote', { kind: d.type, sdp: d.sdp ?? '' });
     this.remoteDescription = { type: d.type, ...(d.sdp ? { sdp: d.sdp } : {}) };
+  }
+  /** The selected candidate pair as standard statistics (native: `rtc_stats`); an older native side has none. */
+  async getStats() {
+    const list = (await this.call<Record<string, unknown>[] | null>('rtc_stats', {}).catch(() => null)) ?? [];
+    return { forEach: (cb: (s: Record<string, unknown>) => void) => list.forEach(cb) };
   }
   async addIceCandidate(c: unknown) {
     await this.call('rtc_add_ice', { candidate: c });

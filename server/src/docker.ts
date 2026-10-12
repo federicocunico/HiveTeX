@@ -57,7 +57,7 @@ export async function startDocker(port = Number(process.env.PORT ?? 3000)) {
   (server as import('node:http').Server).on('upgrade', (req, socket, head) => {
     if (!req.url?.startsWith('/api/signal') || !deps.signal) return void socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const h = createSignalSession({ send: (d) => ws.send(d), close: (c, r) => ws.close(c, r) }, deps, deps.signal as NonNullable<typeof deps.signal>);
+      const h = createSignalSession({ get bufferedAmount() { return ws.bufferedAmount; }, send: (d) => ws.send(d), close: (c, r) => ws.close(c, r) }, deps, deps.signal as NonNullable<typeof deps.signal>);
       ws.on('message', (d) => void h.onMessage(String(d)));
       ws.on('close', () => void h.onClose());
     });
