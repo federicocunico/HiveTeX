@@ -134,7 +134,8 @@ describe('connection lifecycle ownership (F10)', () => {
     await flushMicro();
     const ws = sockets[0] as FakeWs;
     ws.say({ t: 'join', ticket: hi.ticket, sid: 's1' });
-    for (let i = 0; i < 200 && pcsOf(rtc).size === 0; i++) await flushMicro(1);
+    // Bounded by real time (Date is not faked): ticket verification is real crypto, slower on a loaded runner.
+    for (const end = Date.now() + 15_000; pcsOf(rtc).size === 0 && Date.now() < end; ) await flushMicro(1);
     // the attempt fails: a retry timer is pending
     const pcs = pcsOf(rtc);
     const pc = [...pcs.values()][0];

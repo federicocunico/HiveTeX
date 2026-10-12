@@ -10,6 +10,7 @@ None of them was an application bug.
 | Cause | Example | Rule |
 | --- | --- | --- |
 | Fixed wait, then a positive assertion | `await tick(100); expect(seen).toEqual([0, 1, 2])` after a compressed send | Wait for the condition, not for a time: `await expect.poll(() => seen).toEqual(…)` (or the file's `until`/`waitFor` helper). Keep fixed waits only to check that something does **not** happen. |
+| Waiting a number of iterations with fake timers | `for (i < 200 && !ready) await flushMicro(1)` while real crypto runs on the thread pool | Bound such loops by real time (`Date` is not faked): `for (const end = Date.now() + 15_000; !ready && Date.now() < end; ) …`. |
 | Asynchronous work behind an event | doorbell rings are verified (JWS) asynchronously, so the test asserted before verification ended | Give the component a way to say it is done (`Doorbell.settled()`, `SeedCatalog.settled()`) and await it. |
 | Too short per-test limits | the vitest default of 5 s for tests that start real worker processes or stage tens of MB | `vitest.config.ts` (sync, compile) and `apps/web/vite.config.ts` use 30 s and two workers per package under `CI`; the server already used 60 s for PGlite. A real hang still fails. |
 | Two writers on one store | a "reopen" helper started a second `ProjectModel` mid-test, whose delayed persistence rewrote old text | Read stored state passively (`stored()` reads `store.load`), or close the second model first. One writer per store, as in the product. |
