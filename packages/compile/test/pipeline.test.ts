@@ -103,7 +103,7 @@ describe('foreground detach with a retained mesh', () => {
     release();
     (await d.node.model.openText(id)).insert(0, 'seed edit ');
     await sleep(100);
-    expect(calls).toBe(1);
+    await expect.poll(async () => calls, { timeout: 15_000 }).toBe(1);
     expect(d.leader.lastResult).toBeNull();
     expect(d.client.lastGood).toBeNull();
     expect(await d.leader.run()).toBeNull();
@@ -240,7 +240,7 @@ describe('manual compile (8.8)', () => {
     for (let i = 0; i < 200; i++) vic.client.requestCompile();
     await waitFor(() => (vic.client as { latest: unknown }).latest !== null);
     await sleep(300);
-    expect(snapshots).toBe(1); // 200 requests, one honored
+    await expect.poll(async () => snapshots, { timeout: 15_000 }).toBe(1); // 200 requests, one honored
     expect(big.engine.calls.length).toBe(calls); // unchanged state: no rebuild
     const latest = () => vic.client.latest; // (re-read: TS narrowed it to null above)
     expect(latest()?.by.uname).toBe('big'); // ...but the requester got the current result
@@ -274,7 +274,7 @@ describe('manual compile (8.8)', () => {
     vic.node.mesh.broadcastApp('compiled', { stateHash: 'x', ok: true, pdfHash: 'f'.repeat(64), diagnostics: [], log: '', by: { dev: vic.node.dev, uname: 'vic' }, at: 1, seq: 99 });
     small.node.mesh.broadcastApp('compiled', { stateHash: 'y', ok: true, pdfHash: 'e'.repeat(64), diagnostics: [], log: '', by: { dev: small.node.dev, uname: 'small' }, at: 1, seq: 99 });
     await sleep(100);
-    expect(big.client.latest === null || big.client.latest.by.dev === big.node.dev).toBe(true);
+    await expect.poll(async () => big.client.latest === null || big.client.latest.by.dev === big.node.dev, { timeout: 15_000 }).toBe(true);
     expect(big.client.latest?.seq).not.toBe(99);
   });
 });

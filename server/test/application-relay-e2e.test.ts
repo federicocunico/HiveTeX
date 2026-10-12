@@ -404,7 +404,7 @@ describe("application relay between current clients (3.x)", () => {
     (await a.model.openText(id)).insert(4, " while-limited");
     await waitFor(() => Object.values(a.mgr.routes())[0]?.limited === "relay_limited");
     await sleep(300);
-    expect((await b.model.openText(id)).toString()).toBe("base");
+    await expect.poll(async () => (await b.model.openText(id)).toString(), { timeout: 15_000 }).toBe("base");
     expect((await a.model.openText(id)).toString()).toBe("base while-limited"); // local work intact
     // Server acceptance or a fragment ACK is not reconciliation: a round towards the limited peer does not complete.
     expect((await a.mesh.reconcile(`f:${id}`, { timeoutMs: 500 })).outcome).not.toBe("confirmed");

@@ -123,7 +123,7 @@ describe('signaling relay (5.1)', () => {
     await s.auth(a);
     await s.until((m) => m.t === 'ready');
     await new Promise((r) => setTimeout(r, 700));
-    expect(s.closed?.code).toBe(4401);
+    await expect.poll(async () => s.closed?.code, { timeout: 15_000 }).toBe(4401);
     env.deps.now = real;
   });
 

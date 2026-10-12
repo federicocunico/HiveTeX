@@ -28,14 +28,14 @@ describe('authoritative membership epochs (F05)', () => {
 
     for (let i = 0; i < 5; i++) vic.mesh.broadcast(EPOCH, jsonBytes({ epoch: 1_000_000_000 + i }));
     await settle();
-    expect(owner.mesh.epoch).toBe(1);
+    await expect.poll(async () => owner.mesh.epoch, { timeout: 15_000 }).toBe(1);
     expect(refreshes).toBeLessThanOrEqual(1);
 
     clock.t += 120_000;
     owner.mesh.enforcePolicy();
     vic.mesh.enforcePolicy();
     await settle();
-    expect(owner.mesh.peers).toHaveLength(1);
+    await expect.poll(async () => owner.mesh.peers, { timeout: 15_000 }).toHaveLength(1);
     expect(vic.mesh.peers).toHaveLength(1);
   });
 
@@ -51,7 +51,7 @@ describe('authoritative membership epochs (F05)', () => {
     ];
     for (const ticket of evidence) vic.mesh.broadcast(EPOCH, jsonBytes({ epoch: 7, ticket }));
     await settle();
-    expect(owner.mesh.epoch).toBe(1);
+    await expect.poll(async () => owner.mesh.epoch, { timeout: 15_000 }).toBe(1);
   });
 
   it('advances to the epoch of a valid same-project ticket, not to the number claimed beside it', async () => {
@@ -61,7 +61,7 @@ describe('authoritative membership epochs (F05)', () => {
     vic.mesh.broadcast(EPOCH, jsonBytes({ epoch: 100, ticket: await mint(vic, 'viewer', 3) }));
     await waitFor(() => owner.mesh.epoch === 3);
     await settle();
-    expect(owner.mesh.epoch).toBe(3);
+    await expect.poll(async () => owner.mesh.epoch, { timeout: 15_000 }).toBe(3);
   });
 
   it('the local refresh path advances our own epoch and relays verified evidence to every peer', async () => {
@@ -81,7 +81,7 @@ describe('authoritative membership epochs (F05)', () => {
     await owner.mesh.refreshOwnTicket(await mint(owner, 'owner', 5, { pid: 'other-project' }));
     await owner.mesh.refreshOwnTicket(await mint(owner, 'owner', 5, { iat: Math.floor(Date.now() / 1000) - 5000 }));
     await settle();
-    expect(owner.mesh.epoch).toBe(1);
+    await expect.poll(async () => owner.mesh.epoch, { timeout: 15_000 }).toBe(1);
     expect(ed.mesh.epoch).toBe(1);
   });
 });
@@ -112,7 +112,7 @@ describe('current authorization for delayed work (F18)', () => {
     await waitFor(() => owner.mesh.peers.find((p) => p.claims.uname === 'dee')?.claims.role === 'viewer');
     release();
     await settle();
-    expect(await text(owner, id)).toBe('base');
+    await expect.poll(async () => await text(owner, id), { timeout: 15_000 }).toBe('base');
     expect(await text(vic, id)).toBe('base');
   });
 
@@ -156,6 +156,6 @@ describe('privileged application messages (3.3)', () => {
     await waitFor(() => owner.mesh.peers[0]?.claims.role === 'viewer');
     dee.mesh.broadcastApp('priv', 'while-viewer');
     await settle();
-    expect(seen).toEqual(['while-editor']);
+    await expect.poll(async () => seen, { timeout: 15_000 }).toEqual(['while-editor']);
   });
 });

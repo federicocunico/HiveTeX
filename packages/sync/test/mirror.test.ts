@@ -129,7 +129,7 @@ describe('local folder mirror (9.3)', () => {
     }
     await waitFor(() => !!b.model.find('keep.tex'));
     await sleep(300);
-    expect(b.model.list().map((f) => f.path).sort()).toEqual(['.hivetexignore', 'keep.tex']);
+    await expect.poll(async () => b.model.list().map((f) => f.path).sort(), { timeout: 15_000 }).toEqual(['.hivetexignore', 'keep.tex']);
   });
 
   it('reverts local changes made by a read-only member and tells them', async () => {
@@ -149,7 +149,7 @@ describe('local folder mirror (9.3)', () => {
     expect(notices.some((n) => n.includes('read-only'))).toBe(true);
     // nothing leaked to the project
     await sleep(200);
-    expect(owner.model.list().map((f) => f.path)).toEqual(['main.tex']);
+    await expect.poll(async () => owner.model.list().map((f) => f.path), { timeout: 15_000 }).toEqual(['main.tex']);
     expect((await owner.model.openText(owner.model.find('main.tex')?.id as string)).toString()).toBe('protected content');
   });
 

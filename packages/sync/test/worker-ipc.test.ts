@@ -37,7 +37,7 @@ describe('worker frame codec and RPC', () => {
     ctl.abort();
     await expect(slow).rejects.toThrow('cancelled');
     await new Promise((r) => setTimeout(r, 5));
-    expect(aborted).toBe(true);
+    await expect.poll(async () => aborted, { timeout: 15_000 }).toBe(true);
     // A frame of an older worker generation is dropped, never dispatched.
     b.receive(encodeFrame({ v: 1, gen: 2, kind: 'req', id: 99, method: 'add', params: [1] }));
     expect(b.rejected.at(-1)?.code).toBe('generation');

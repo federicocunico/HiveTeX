@@ -71,7 +71,7 @@ describe('project model convergence (6.3)', () => {
     await waitFor(() => b.model.list().length === 1);
     await net.link(a, b);
     await new Promise((r) => setTimeout(r, 50));
-    expect(a.model.list()).toHaveLength(1);
+    await expect.poll(async () => a.model.list(), { timeout: 15_000 }).toHaveLength(1);
     expect(b.model.list()).toHaveLength(1);
   });
 

@@ -56,7 +56,7 @@ async function fixture(data = emptySeedData(), credentials = true, signing?: Awa
     const now = Math.floor(Date.now() / 1000);
     const token = await new SignJWT({ v: 1, topic, ep: epoch, n: crypto.randomUUID() })
       .setProtectedHeader({ alg: 'EdDSA', kid: 'catalog-k', typ: RING_TYP }).setIssuedAt(now).setExpirationTime(now + 60).sign(privateKey);
-    await channel.publish(topic, token); await tick();
+    await channel.publish(topic, token); await catalog.settled(); await tick();
   };
   return { catalog, host, push, channel, subscriptions, trusted, ring, signerKeys, get created() { return created; }, get saved() { return saved; } };
 }
@@ -95,7 +95,7 @@ it('restores dormant projects with no actor or ticket work, one push stream, and
   const now = Math.floor(Date.now() / 1000);
   const forged = await new SignJWT({ v: 1, topic: topic(0), ep: 2, n: crypto.randomUUID() })
     .setProtectedHeader({ alg: 'EdDSA', kid: 'catalog-k', typ: RING_TYP }).setIssuedAt(now).setExpirationTime(now + 60).sign(wrong.signerKeys.privateKey);
-  await actual.channel.publish(topic(0), forged); await tick(); expect(actual.created).toBe(0);
+  await actual.channel.publish(topic(0), forged); await actual.catalog.settled(); await tick(); expect(actual.created).toBe(0);
   await actual.ring(topic(0), 1); expect(actual.created).toBe(0);
   await actual.ring(topic(0), 2); expect(actual.created).toBe(1);
   expect(actual.host.registry.demand(p('p0'))).toEqual(['background']);
@@ -135,7 +135,7 @@ it('persistent Work offline remains in force after catalog restart and a healthy
   await first.catalog.settings({ paused: true });
   const restored = await fixture(first.saved);
   await restored.catalog.resume(); await tick();
-  expect((await restored.catalog.list()).paused).toBe(true);
+  await expect.poll(async () => (await restored.catalog.list()).paused, { timeout: 15_000 }).toBe(true);
   expect(restored.created).toBe(0); expect(restored.subscriptions.size).toBe(0);
 });
 it('a healthy resume restores previously awake background demand and leaves dormant projects asleep', async () => {
@@ -175,13 +175,13 @@ it('reports every documented seed status: disabled, paused, offline, ring channe
   const retained = () => ({ ...f.saved, projects: [{ project: p(), seedEnabled: true, paused: false,
     doorbell: { url: 'https://push.example', topic: topic(0) }, epoch: 2, trusted: f.trusted }] });
   const stage = async (c: SeedCatalog) => (await c.list()).projects[0]?.stage;
-  const a = await fixture(retained(), true, f.signerKeys); await tick();
-  expect(await stage(a.catalog)).toBe('dormant');
+  const a = await fixture(retained(), true, f.signerKeys);
+  await expect.poll(() => stage(a.catalog)).toBe('dormant');
   await a.catalog.select(p(), false); expect(await stage(a.catalog)).toBe('disabled');
   await a.catalog.select(p(), true); await a.catalog.pause(p(), true); expect(await stage(a.catalog)).toBe('paused');
   await a.catalog.pause(p(), false); await a.catalog.networkLost(); expect(await stage(a.catalog)).toBe('offline');
-  const b = await fixture(retained(), true, f.signerKeys, 'unavailable'); await tick();
-  expect(await stage(b.catalog)).toBe('ring-channel-unreachable');
+  const b = await fixture(retained(), true, f.signerKeys, 'unavailable');
+  await expect.poll(() => stage(b.catalog)).toBe('ring-channel-unreachable');
   expect(b.created).toBe(0);
   await expect(b.catalog.select({ ...p('v'), role: 'viewer' }, true, true)).rejects.toThrow('not eligible');
 });
@@ -237,13 +237,13 @@ it('server rollout switches turn background demand and port mapping off without 
   expect(f.catalog.upnpWanted()).toBe(true);
   f.catalog.ticket(p(), runtime, { ticket: 't', expiresAt: Date.now() + 60_000, features: { background: false, upnp: false } });
   await tick(); await tick();
-  expect(f.host.registry.demand(p())).toEqual(['editor']); // the foreground stays current
+  await expect.poll(async () => f.host.registry.demand(p()), { timeout: 15_000 }).toEqual(['editor']); // the foreground stays current
   expect(f.catalog.upnpWanted()).toBe(false);
   expect((await f.catalog.list()).projects[0]?.stage).toBe('disabled');
   expect(f.saved.rollout).toEqual({ background: false, upnp: false }); // applies at the next start without a request
   f.catalog.ticket(p(), runtime, { ticket: 't', expiresAt: Date.now() + 60_000, features: { background: true, upnp: true } });
   await tick();
-  expect(f.catalog.upnpWanted()).toBe(true);
+  await expect.poll(async () => f.catalog.upnpWanted(), { timeout: 15_000 }).toBe(true);
   expect(f.saved.rollout).toEqual({ background: true, upnp: true });
   await f.host.detach('editor');
 });

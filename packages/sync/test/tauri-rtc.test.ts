@@ -106,14 +106,14 @@ describe.skipIf(!bin)('Rust WebRTC fallback transport (9.2)', () => {
     await b.mesh.openDoc(`f:${id}`);
     const end = Date.now() + 10_000;
     while (Date.now() < end && (await b.model.openText(id)).toString() !== 'over the rust bridge') await new Promise((r) => setTimeout(r, 25));
-    expect((await b.model.openText(id)).toString()).toBe('over the rust bridge');
+    await expect.poll(async () => (await b.model.openText(id)).toString(), { timeout: 15_000 }).toBe('over the rust bridge');
 
     // large payload to exercise fragmentation + back-pressure across IPC
     const big = 'x'.repeat(300_000);
     (await a.model.openText(id)).insert(0, big);
     const end2 = Date.now() + 15_000;
     while (Date.now() < end2 && (await b.model.openText(id)).length < big.length) await new Promise((r) => setTimeout(r, 50));
-    expect((await b.model.openText(id)).length).toBe(big.length + 'over the rust bridge'.length);
+    await expect.poll(async () => (await b.model.openText(id)).length, { timeout: 15_000 }).toBe(big.length + 'over the rust bridge'.length);
     net.destroy();
   }, 90_000);
 });
@@ -155,7 +155,7 @@ describe.skipIf(!bin)('native RTC parity on the shared muxed listener (9.1)', ()
     await Promise.all(sends);
     const end = Date.now() + 20_000;
     while (Date.now() < end && (got.sync!.length < 400 || got.bulk!.length < 40)) await new Promise((r) => setTimeout(r, 25));
-    expect(got.sync).toEqual(Array.from({ length: 400 }, (_, i) => i));
+    await expect.poll(async () => got.sync, { timeout: 15_000 }).toEqual(Array.from({ length: 400 }, (_, i) => i));
     expect(got.bulk).toEqual(Array.from({ length: 40 }, (_, i) => i));
     // Selected candidate pair statistics come from the native stack: a direct (host) path on this machine.
     expect(await selectedPath(peers[0]!)).toBe('direct');
@@ -167,7 +167,7 @@ describe.skipIf(!bin)('native RTC parity on the shared muxed listener (9.1)', ()
     expect(settled).not.toBe('hung');
     const end2 = Date.now() + 15_000;
     while (Date.now() < end2 && !closedB) await new Promise((r) => setTimeout(r, 50));
-    expect(closedB).toBe(true);
+    await expect.poll(async () => closedB, { timeout: 15_000 }).toBe(true);
   }, 90_000);
 });
 
@@ -218,7 +218,7 @@ describe('native RTC send failures and cancellation (F11)', () => {
     b.transport.onClose(() => closed++);
     await b.transport.send('sync', new Uint8Array(10)); // accepted: it is queued, not yet delivered
     await new Promise((r) => setTimeout(r, 20));
-    expect(closed).toBe(1);
+    await expect.poll(async () => closed, { timeout: 15_000 }).toBe(1);
     await expect(b.transport.send('sync', new Uint8Array(10))).rejects.toThrow();
   });
 

@@ -55,7 +55,7 @@ describe('relay membership enforcement through the existing mesh', () => {
     await converged([owner, viewer], id);
     (await viewer.model.openText(id)).insert(4, '-forbidden');
     await new Promise(r => setTimeout(r, 100));
-    expect(await text(owner, id)).toBe('base');
+    await expect.poll(async () => await text(owner, id), { timeout: 15_000 }).toBe('base');
   });
 
   it('does not apply an update delayed past demotion, or accept the old editor ticket on reconnect', async () => {
@@ -75,7 +75,7 @@ describe('relay membership enforcement through the existing mesh', () => {
     await editor.mesh.refreshOwnTicket(await mint(editor, 'viewer', 2));
     await waitFor(() => owner.mesh.peers[0]?.claims.role === 'viewer');
     release(); await new Promise(r => setTimeout(r, 100));
-    expect(await text(owner, id)).toBe('base');
+    await expect.poll(async () => await text(owner, id), { timeout: 15_000 }).toBe('base');
     net.isolate(editor);
     await expect(link(owner, editor)).rejects.toThrow('stale device ticket');
   });

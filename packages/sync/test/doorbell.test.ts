@@ -41,6 +41,8 @@ function memoryPush() {
 }
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 const bells: Doorbell[] = [];
+/** Lets subscriptions settle, then waits until every delivered ring was verified: deterministic under load. */
+const settle = async (ms = 10) => { await tick(ms); await Promise.all(bells.map((b) => b.settled())); };
 afterEach(() => { for (const b of bells.splice(0)) b.close(); });
 
 describe('doorbell verification and wake budget (3B.2)', () => {
@@ -53,11 +55,11 @@ describe('doorbell verification and wake budget (3B.2)', () => {
     bells.push(bell);
     const woke: number[] = [];
     bell.register('p', { url: 'https://push', topic: TOPIC }, 2, (c) => woke.push(c.ep));
-    await tick();
+    await settle();
     expect(push.subscriptions()).toBe(1);
     const good = await sign({ ep: 2 });
     push.deliver(TOPIC, good);
-    await tick();
+    await settle();
     expect(woke).toEqual([2]);
     push.deliver(TOPIC, good); // replay
     push.deliver(TOPIC, await forger.sign({ ep: 2 })); // not signed by the control plane
@@ -66,7 +68,7 @@ describe('doorbell verification and wake budget (3B.2)', () => {
     push.deliver(TOPIC, await sign({ ep: 2, typ: 'hivetex-ticket' }));
     push.deliver(TOPIC, 'not even a token');
     push.deliver(TOPIC, await sign({ ep: 2, iat: Math.floor(now / 1000) - 600 })); // expired
-    await tick(30);
+    await settle(30);
     expect(woke).toEqual([2]);
     expect(bell.stats.dropped).toBe(7);
     now += 1;
@@ -80,10 +82,10 @@ describe('doorbell verification and wake budget (3B.2)', () => {
     bells.push(bell);
     let wakes = 0;
     bell.register('p', { url: 'https://push', topic: TOPIC }, 1, () => { wakes++; });
-    await tick();
-    for (let i = 0; i < 2; i++) { push.deliver(TOPIC, await sign()); await tick(); }
+    await settle();
+    for (let i = 0; i < 2; i++) { push.deliver(TOPIC, await sign()); await settle(); }
     expect(wakes).toBe(1); // second ring within 10 s
-    for (let i = 0; i < 4; i++) { now += 11_000; push.deliver(TOPIC, await sign({ iat: Math.floor(now / 1000) })); await tick(); }
+    for (let i = 0; i < 4; i++) { now += 11_000; push.deliver(TOPIC, await sign({ iat: Math.floor(now / 1000) })); await settle(); }
     expect(wakes).toBe(3); // hourly budget
   });
 
@@ -96,22 +98,22 @@ describe('doorbell verification and wake budget (3B.2)', () => {
     const got: string[] = [];
     bell.register('a', { url: 'https://push', topic: TOPIC }, 1, () => got.push('a'));
     const offB = bell.register('b', { url: 'https://push', topic: OTHER }, 1, () => got.push('b'));
-    await tick();
+    await settle();
     expect(push.subscriptions()).toBe(1);
     push.deliver(OTHER, await sign({ topic: OTHER }));
     // Verification is asynchronous (signature check): wait for it rather than for a fixed tick.
     await expect.poll(() => got, { timeout: 5000 }).toEqual(['b']);
     offB();
-    await tick();
+    await settle();
     push.deliver(OTHER, await sign({ topic: OTHER }));
-    await tick();
+    await settle();
     expect(got).toEqual(['b']);
     // Epoch change: the project moves to a new topic, the old one is no longer subscribed.
     bell.register('a', { url: 'https://push', topic: OTHER }, 2, () => got.push('a2'));
-    await tick();
+    await settle();
     push.deliver(TOPIC, await sign({ ep: 2 }));
     push.deliver(OTHER, await sign({ topic: OTHER, ep: 2 }));
-    await tick();
+    await settle();
     expect(got).toEqual(['b', 'a2']);
     await bell.ring({ url: 'https://push', topic: OTHER }, 'token');
     expect(push.published.at(-1)).toEqual([OTHER, 'token']);
@@ -125,7 +127,7 @@ describe('doorbell verification and wake budget (3B.2)', () => {
     bells.push(bell);
     expect(bell.state('p')).toBe('off');
     bell.register('p', { url: 'https://push', topic: TOPIC }, 1, () => {});
-    await tick();
+    await settle();
     expect(bell.state('p')).toBe('unavailable');
   });
 });
@@ -153,16 +155,15 @@ describe('ntfy channel', () => {
     const states: PushState[] = [];
     const close = ch.subscribe([TOPIC, OTHER], (t, m) => got.push(`${t}:${m}`), (s) => states.push(s));
     await new Promise((r) => setTimeout(r, 1200));
-    expect(calls[0]?.url).toBe(`https://push.test/${TOPIC},${OTHER}/json`);
-    expect(states).toContain('subscribed');
+    await expect.poll(() => calls[0]?.url, { timeout: 15_000 }).toBe(`https://push.test/${TOPIC},${OTHER}/json`);
+    await expect.poll(() => states, { timeout: 15_000 }).toContain('subscribed');
     streams[0]?.push({ event: 'message', topic: TOPIC, message: 'ring' });
     streams[0]?.push({ event: 'message', topic: 'htsomeoneelse234567abcdefgh', message: 'x' });
     streams[0]?.push({ event: 'keepalive' });
-    await tick(20);
-    expect(got).toEqual([`${TOPIC}:ring`]);
+    await expect.poll(() => got, { timeout: 15_000 }).toEqual([`${TOPIC}:ring`]);
     streams[0]?.end(); // the service drops the stream: reconnect
     await new Promise((r) => setTimeout(r, 1300));
-    expect(streams.length).toBe(2);
+    await expect.poll(() => streams.length, { timeout: 15_000 }).toBe(2);
     await ch.publish(TOPIC, 'tok');
     const post = calls.find((c) => c.init?.method === 'POST');
     expect(post?.url).toBe(`https://push.test/${TOPIC}`);

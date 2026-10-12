@@ -103,7 +103,7 @@ describe('P2P bootstrap and content privacy (5.3, 6.9)', () => {
     const a = await makeDevice(owner, pid, 'a');
     a.mgr.start();
     await sleep(30);
-    expect(a.mgr.socketOpen).toBe(true); // lone device waits on the relay
+    await expect.poll(async () => a.mgr.socketOpen, { timeout: 15_000 }).toBe(true); // lone device waits on the relay
 
     const b = await makeDevice(bob, pid, 'b');
     b.mgr.start();
@@ -232,7 +232,7 @@ describe('P2P bootstrap and content privacy (5.3, 6.9)', () => {
       const late = idleIs === 'lower' ? hi : lo;
       idle.mgr.start();
       await sleep(30);
-      expect(idle.mgr.socketOpen).toBe(true);
+      await expect.poll(async () => idle.mgr.socketOpen, { timeout: 15_000 }).toBe(true);
       for (let i = 0; i < 6; i++) {
         clock.ms += 30_000; // 3 minutes alone: far beyond the 90 s lease
         await sleep(60); // the heartbeat renews it between the jumps

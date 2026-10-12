@@ -48,7 +48,7 @@ export interface SeedRuntimeStatus {
 const STAGES: Record<string, string> = {
   dormant: 'Reachable on request',
   waking: 'Waking',
-  connecting: 'Waking',
+  connecting: 'Connecting to the wake-up service',
   alone: 'Waiting for co-authors',
   queued: 'Queued: other projects are syncing',
   'ring-channel-unreachable': 'Wake-up service unreachable',

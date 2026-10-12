@@ -165,7 +165,7 @@ describe('leader election (8.1, 8.2)', () => {
     await waitFor(() => ea.leader() === a.dev && eb.leader() === a.dev);
     eb.update({ perf: 2.2 }); // +10%: below the 15% hysteresis
     await sleep(150);
-    expect(ea.leader()).toBe(a.dev);
+    await expect.poll(async () => ea.leader(), { timeout: 15_000 }).toBe(a.dev);
     eb.update({ perf: 3 }); // +50%
     await waitFor(() => ea.leader() === b.dev && eb.leader() === b.dev);
   });

@@ -169,6 +169,9 @@ jobs:
           "MSEDGEDRIVER=$dir\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: cargo install tauri-driver --locked
       - run: pnpm install --frozen-lockfile
+      # The relay, 13.7 and doorbell tests pair the desktop app with a real Chromium co-author.
+      - name: Browser for the desktop/browser tests
+        run: pnpm exec playwright install --with-deps chromium
       - name: Desktop UI tests (Linux, virtual display)
         if: runner.os == 'Linux'
         # The app keeps device keys in the OS keychain (Secret Service): give it an unlocked keyring on a session bus.

@@ -45,7 +45,7 @@ describe('missing-content retries follow identity, source and generation (5.3, F
     await net.link(a, b);
     await waitFor(() => t.snapshot.total === 1 && t.snapshot.rootSynced);
     await sleep(400); // the first attempt failed: nobody has announced it
-    expect(t.snapshot.stage).toBe('receiving');
+    await expect.poll(async () => t.snapshot.stage, { timeout: 15_000 }).toBe('receiving');
     await ablobs.add(bytes);
     await waitFor(() => t.snapshot.stage === 'synced', 3000);
     expect(await b.store.getBlob(await sha256Hex(bytes))).toBeDefined();

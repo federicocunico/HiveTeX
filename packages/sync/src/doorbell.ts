@@ -134,6 +134,8 @@ export class Doorbell {
   private resubscribe: ReturnType<typeof setTimeout> | null = null;
   private gen = 0;
   readonly stats = { rings: 0, wakes: 0, dropped: 0 };
+  /** Rings received and still being verified. */
+  private inflight = new Set<Promise<void>>();
 
   constructor(private o: DoorbellOptions) {}
 
@@ -200,7 +202,11 @@ export class Doorbell {
     for (const [url, topics] of byUrl) {
       const close = this.o.channel(url).subscribe(
         topics.sort(),
-        (topic, message) => void this.onMessage(url, topic, message),
+        (topic, message) => {
+          const handled = this.onMessage(url, topic, message);
+          this.inflight.add(handled);
+          void handled.finally(() => this.inflight.delete(handled));
+        },
         (s) => {
           // States of a subscription that was replaced (topics changed) are ignored.
           if (gen !== this.gen) return;
@@ -211,6 +217,11 @@ export class Doorbell {
       this.subs.set(url, close);
     }
     for (const cb of this.stateCbs) cb();
+  }
+
+  /** Resolves once every ring received so far has been verified and handled (tests and diagnostics). */
+  async settled() {
+    while (this.inflight.size) await Promise.allSettled([...this.inflight]);
   }
 
   private async onMessage(url: string, topic: string, token: string) {

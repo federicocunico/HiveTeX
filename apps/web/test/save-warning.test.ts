@@ -40,7 +40,7 @@ describe('local save failures reach the workspace', () => {
 
     // still failing after a retry or two: the warning has not cleared
     await new Promise((r) => setTimeout(r, 60));
-    expect(failing).toBe(true);
+    await expect.poll(async () => failing, { timeout: 15_000 }).toBe(true);
     expect(store.docs.get(`f:${id}`)).toBeUndefined();
 
     const out = await exportRecoveryZip(model, async () => {

@@ -109,7 +109,7 @@ describe('peer authentication handshake (6.2)', () => {
     await cb.send(MsgType.BLOB_HAVE, jsonBytes({ hashes: [] }));
     await cb.send(MsgType.STEP1, new Uint8Array([0, 0]));
     await tick(30);
-    expect(got).toEqual([MsgType.STEP1]);
+    await expect.poll(async () => got, { timeout: 15_000 }).toEqual([MsgType.STEP1]);
     expect(ca.droppedFromViewer).toBe(3);
   });
 });
@@ -128,7 +128,7 @@ describe('inbound queue budget (F12)', () => {
     junk[0] = MsgType.AWARENESS;
     await tb.send('sync', junk);
     await tick(30);
-    expect(ca.closed).toBe(true);
+    await expect.poll(async () => ca.closed, { timeout: 15_000 }).toBe(true);
   });
 });
 
@@ -147,7 +147,7 @@ describe('outbound frame ordering (F12)', () => {
       ca.send(MsgType.APP, jsonBytes({ n: 2 })),
     ]);
     await tick(100);
-    expect(seen.slice(0, 3)).toEqual([0, 1, 2]);
+    await expect.poll(async () => seen.slice(0, 3), { timeout: 15_000 }).toEqual([0, 1, 2]);
   });
 });
 

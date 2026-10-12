@@ -243,7 +243,9 @@ export class SeedCatalog {
         const stage = this.errors.get(key) ?? (!this.credentialsAvailable ? 'auth-required' : !this.networkAvailable ? 'offline' :
           !this.data.background || this.data.rollout?.background === false || !r.seedEnabled ? 'disabled' : this.data.paused || r.paused ? 'paused' :
           this.queued.has(key) ? 'queued' : this.awake.has(key) ? status?.syncStatus?.stage ?? 'waking' :
-          !r.doorbell || !r.trusted.length ? 'offline' : this.bell.state(key) === 'subscribed' ? 'dormant' : 'ring-channel-unreachable');
+          !r.doorbell || !r.trusted.length ? 'offline' : this.bell.state(key) === 'subscribed' ? 'dormant'
+          // Still opening the push stream is not an outage: only a failed stream is reported as unreachable.
+          : this.bell.state(key) === 'unavailable' ? 'ring-channel-unreachable' : 'connecting');
         return { project: r.project, seedEnabled: r.seedEnabled, paused: r.paused, stage, status };
       }),
     };
@@ -306,6 +308,10 @@ export class SeedCatalog {
     this.bell.close(); this.queued.clear();
     await Promise.all([...this.awake.keys()].map((key) => this.sleep(key)));
     await this.writes;
+  }
+  /** Resolves once every ring received so far was verified and handled (tests). */
+  settled() {
+    return this.bell.settled();
   }
   install(rpc: RpcEndpoint) {
     const handle = (name: string, fn: (p: any) => unknown) => rpc.handle(name, async (wire) => {

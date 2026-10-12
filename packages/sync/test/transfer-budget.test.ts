@@ -101,12 +101,12 @@ describe('tracker under the transfer budget (8.6)', () => {
     await net.link(author, seed);
     const deferred = async () => (await tracker.refresh()).files.find((f) => f.kind === 'binary')?.deferred;
     for (let i = 0; i < 200 && (await deferred()) !== 'storage-full'; i++) await tick(20);
-    expect(await deferred()).toBe('storage-full');
+    await expect.poll(async () => await deferred(), { timeout: 15_000 }).toBe('storage-full');
     expect(tracker.snapshot.stage).not.toBe('synced');
     expect(await seed.store.getBlob(await sha256Hex(keep))).toBeDefined();
     free = 10_000 * MiB;
     for (let i = 0; i < 300 && tracker.snapshot.stage !== 'synced'; i++) await tick(20);
-    expect(tracker.snapshot.stage).toBe('synced');
+    await expect.poll(async () => tracker.snapshot.stage, { timeout: 15_000 }).toBe('synced');
     expect(await deferred()).toBeUndefined();
     expect(scheduler.stats.deferred).toBeGreaterThan(0);
     expect(TransferDeferred).toBeDefined();

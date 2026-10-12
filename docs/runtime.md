@@ -111,6 +111,7 @@ An absent seed field keeps the ordinary presence presentation.
 | Stage | Test |
 | --- | --- |
 | `dormant` | `seed-catalog.test.ts` › restores dormant projects |
+| `connecting` (push stream still opening; not an outage) | `seed-catalog.test.ts` › reports every documented seed status (polls past it) |
 | `queued` (more than four awake) and rotation | `seed-catalog.test.ts` › keeps at most four background projects awake |
 | `disabled`, `paused`, `offline`, `ring-channel-unreachable`, viewer refusal | `seed-catalog.test.ts` › reports every documented seed status |
 | `auth-required` | `seed-catalog.test.ts` › locked credentials |

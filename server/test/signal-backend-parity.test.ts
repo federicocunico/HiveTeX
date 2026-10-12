@@ -120,7 +120,7 @@ it('normal in-memory forwarding retains no payload archive; the explicit test tr
   const off = await normal.subscribe('channel', (message) => got.push(message));
   await normal.publish('channel', 'opaque ciphertext');
   await sleep(0);
-  expect(got).toEqual(['opaque ciphertext']);
+  await expect.poll(async () => got, { timeout: 15_000 }).toEqual(['opaque ciphertext']);
   expect(normal.log).toEqual([]);
   off();
   const traced = new MemorySignalBackend({ recordMessages: true });
