@@ -86,6 +86,8 @@ let code = 1;
 try {
   const nativeDriver = win ? await edgeDriver() : null;
   if (!process.env.SKIP_BUILD) {
+    // The pinned Node runtime and the worker bundle (checksummed resources the app verifies before starting it).
+    run(process.execPath, [join(desktop, 'prepare-worker.mjs')], { cwd: desktop, shell: false });
     run('npx', ['tauri', 'build', '--debug', '--no-bundle', '--features', 'test-picker', '--config', join(here, 'tauri.e2e.conf.json')], {
       cwd: desktop,
       env: { ...process.env, VITE_API_BASE: 'http://localhost:3000', VITE_E2E: '1' },
