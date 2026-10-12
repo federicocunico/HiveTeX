@@ -5,8 +5,9 @@ import { FakeDataChannel } from './transport.js';
 /** In-memory stand-in for the browser's WebRTC stack. Establishes data channels when SDP has been exchanged. */
 export class FakeRtcNetwork {
   private pcs = new Map<string, FakePc>();
-  private counter = 0;
-  readonly factory: RtcFactory = () => new FakePc(this, `pc${++this.counter}`);
+  /** Process-wide, so peers of separate fake networks never share an id. */
+  private static counter = 0;
+  readonly factory: RtcFactory = () => new FakePc(this, `pc${++FakeRtcNetwork.counter}`);
   /** When set, SDP fingerprints are rewritten to simulate a signaling-server MITM. */
   tamper: ((sdp: string) => string) | null = null;
   /** The next N connection attempts silently never complete (lost signal / ICE stuck), without a failure event. */

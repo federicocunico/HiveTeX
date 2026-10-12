@@ -74,6 +74,29 @@ async function device(
   return { n, agent, blobs };
 }
 
+describe('foreground backup detach', () => {
+  it('does not send a backup when the token arrives after the editor detached', async () => {
+    net = await Net.create();
+    const n = await net.add('owner', 'owner');
+    const gh = new FakeGitHub(); gh.repo('owner/paper', { empty: true });
+    let release!: (token: string) => void;
+    const token = new Promise<string>(resolve => { release = resolve; });
+    let calls = 0;
+    const agent = new BackupAgent({mesh:n.mesh,model:n.model,blobs:new BlobManager(n.mesh,n.store),self:{dev:n.dev,uname:'owner'},getRole:()=> 'owner',getToken:()=>token,
+      fetchImpl:async(input,init)=>{calls++;return gh.fetch(input,init);}});
+    agents.push(agent);
+    agent.setBinding({repo:{owner:'owner',repo:'paper'},branch:'main'});
+    await n.model.createTextNow('main.tex','saved');
+    const pending=agent.backupNow();
+    agent.stop();release('token');
+    await expect(pending).rejects.toThrow('cancelled');
+    (await n.model.openText(n.model.find('main.tex')!.id)).insert(0,'background ');
+    await agent.tick();
+    expect(calls).toBe(0);
+    expect(agent.pushes).toBe(0);
+  });
+});
+
 describe('backup agent: scheduling and writer election (10.4, 10.5)', () => {
   it('commits after the idle period and again after the change count, with contributor names', async () => {
     net = await Net.create();

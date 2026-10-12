@@ -2,6 +2,7 @@
   // Signed in: share a project that exists only on this computer (publish), or merge it into a project you join (link).
   import { api } from '../lib/api.js';
   import { type LocalProject, publishLocalProject, setPendingLink } from '../lib/local-projects.js';
+  import { auth } from '../lib/auth.svelte.js';
   import { go } from '../lib/router.svelte.js';
   import type { ProjectInfo } from '../lib/session.svelte.js';
   import Button from '../ui/Button.svelte';
@@ -30,8 +31,10 @@
     error = '';
     try {
       if (mode === 'publish') {
-        const info = await publishLocalProject(project, async () =>
-          (await api<{ project: ProjectInfo }>('POST', '/projects', { ...(slug.trim() ? { slug: slug.trim() } : {}), ...(unprotected ? { passwordProtected: false } : { password }) })).project,
+        const info = await publishLocalProject(
+          project,
+          async () => (await api<{ project: ProjectInfo }>('POST', '/projects', { ...(slug.trim() ? { slug: slug.trim() } : {}), ...(unprotected ? { passwordProtected: false } : { password }) })).project,
+          auth.user?.id ?? '',
         );
         onDone?.();
         go(`/p/${info.id}`);

@@ -14,6 +14,7 @@ describe('presence', () => {
       [2, { user: { name: 'ada', color: '#000' }, file: 'intro.tex' }],
       [3, { user: { name: 'old-client' } }],
       [4, { cursor: {} }],
+      [5, { seed: true, deviceId: 'd5', user: { name: 'stale-user' }, file: 'stale.tex', cursor: {} }],
     ]);
     expect(peopleFromAwareness(states, 1)).toEqual([
       { clientId: 2, name: 'ada', color: presenceColor('ada'), file: 'intro.tex' },

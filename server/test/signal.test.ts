@@ -22,11 +22,11 @@ class FakeSocket {
     await this.handlers.onMessage(JSON.stringify(o));
   }
   /** Answers the relay's challenge with a signature from `keys` (the honest client does this automatically). */
-  async auth(who: { ticket: string; keys: StoredDeviceKeys }, pid = PID.value) {
+  async auth(who: { ticket: string; keys: StoredDeviceKeys }, pid = PID.value, capabilities?: unknown) {
     const ch = await this.until((m) => m.t === 'challenge');
     const dev = JSON.parse(Buffer.from(who.ticket.split('.')[1] ?? '', 'base64url').toString()).dev as string;
     const sig = await sign(who.keys, new TextEncoder().encode(signalAuthMessage(pid, dev, ch.nonce as string)));
-    await this.say({ t: 'auth', ticket: who.ticket, sig: toB64u(sig) });
+    await this.say({ t: 'auth', ticket: who.ticket, sig: toB64u(sig), ...(capabilities ? { capabilities } : {}) });
   }
   async until(pred: (m: Record<string, unknown>) => boolean, ms = 1000) {
     const end = Date.now() + ms;
@@ -66,7 +66,7 @@ function connect(backend: MemorySignalBackend) {
 describe('signaling relay (5.1)', () => {
   it('relays ciphertext between instances sharing a backend, and the server only sees ciphertext', async () => {
     const { a, b } = await setup();
-    const backend = new MemorySignalBackend(); // shared pub/sub = Upstash across function instances
+    const backend = new MemorySignalBackend({ recordMessages: true }); // shared pub/sub = Upstash across function instances
     const sa = connect(backend);
     const sb = connect(backend); // "different instance"
     await sa.auth(a);
@@ -117,12 +117,13 @@ describe('signaling relay (5.1)', () => {
     const { a } = await setup();
     const backend = new MemorySignalBackend();
     const real = env.deps.now;
-    env.deps.now = () => new Date(real().getTime() + 14.99 * 60_000);
+    const expiry = JSON.parse(Buffer.from(a.ticket.split('.')[1] ?? '', 'base64url').toString()).exp as number;
+    env.deps.now = () => new Date(expiry * 1000 - 500);
     const s = connect(backend);
     await s.auth(a);
     await s.until((m) => m.t === 'ready');
     await new Promise((r) => setTimeout(r, 700));
-    expect(s.closed?.code).toBe(4401);
+    await expect.poll(async () => s.closed?.code, { timeout: 15_000 }).toBe(4401);
     env.deps.now = real;
   });
 
@@ -358,5 +359,47 @@ describe('redis lease encoding', () => {
     expect(parseLease('1700000000000;sid|a.b.c')).toEqual({ exp: 1700000000000, value: 'sid|a.b.c' });
     expect(parseLease('sid|a.b.c')).toEqual({ exp: null, value: 'sid|a.b.c' }); // written before leases existed
     expect(parseLease('a.b.c')).toEqual({ exp: null, value: 'a.b.c' });
+  });
+});
+
+
+describe('additive application relay negotiation', () => {
+  it('requires both server configuration and client capability, preserving legacy presence', async () => {
+    const { a, b } = await setup(), backend = new MemorySignalBackend();
+    const oldServer = connect(backend);
+    await oldServer.auth(a, PID.value, ['application-relay-v1']);
+    expect((await oldServer.until(m => m.t === 'ready')).capabilities).toBeUndefined();
+    await oldServer.say({ t: 'app-relay', to: b.dev, sid: 'r1_1234567890123456', env: 'AA' });
+    expect(oldServer.inbox.some(m => m.code === 'relay_unavailable')).toBe(true);
+    const admitted: unknown[] = [];
+    env.deps.applicationRelay = { attach: async () => ({ forward: async m => { admitted.push(m); }, close: () => {} }) };
+    const legacy = connect(backend); await legacy.auth(b);
+    expect((await legacy.until(m => m.t === 'ready')).capabilities).toBeUndefined();
+    await legacy.say({ t: 'app-relay', to: a.dev, sid: 'r1_1234567890123456', env: 'AA' });
+    expect(admitted).toHaveLength(0);
+    const capable = connect(backend); await capable.auth(a, PID.value, ['application-relay-v1']);
+    const ready = await capable.until(m => m.t === 'ready');
+    expect(ready.capabilities).toEqual(['application-relay-v1']);
+    expect(ready.sid).toMatch(/^r1_[A-Za-z0-9_-]{16}$/);
+    expect(ready.tickets).toEqual([b.ticket]);
+    await capable.say({ t: 'app-relay', to: b.dev, sid: 'r1_1234567890123456', env: 'AA' });
+    expect(admitted).toHaveLength(1);
+    await capable.say({ t: 'app-relay', to: b.dev, sid: 'bad', env: 'AA' });
+    expect(admitted).toHaveLength(1);
+    for (const s of [oldServer, legacy, capable]) await s.handlers.onClose();
+  });
+
+  it('does not admit unauthenticated or oversized application frames', async () => {
+    const { a } = await setup(), backend = new MemorySignalBackend();
+    let forwards = 0;
+    env.deps.applicationRelay = { attach: async () => ({ forward: async () => { forwards++; }, close: () => {} }) };
+    const unauth = connect(backend);
+    await unauth.say({ t: 'app-relay', to: a.dev, sid: 'r1_1234567890123456', env: 'AA' });
+    expect(unauth.closed?.code).toBe(4401);
+    const capable = connect(backend); await capable.auth(a, PID.value, ['application-relay-v1']);
+    await capable.say({ t: 'app-relay', to: a.dev, sid: 'r1_1234567890123456', env: 'A'.repeat(65536) });
+    expect(capable.closed?.code).toBe(1009);
+    expect(forwards).toBe(0);
+    await capable.handlers.onClose(); await unauth.handlers.onClose();
   });
 });

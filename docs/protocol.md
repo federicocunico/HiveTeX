@@ -67,6 +67,91 @@ timers, closes the socket and links, removes the manager's mesh handlers and inv
 resuming repeatedly never leaves handlers, transports or timers behind. Messages of a socket that is no longer the current
 one are ignored.
 
+## The doorbell: waking devices without a server connection
+
+No device keeps a connection to the server while it waits (D14). Instead every running client keeps **one
+subscription to a push service** (ntfy, `https://ntfy.sh` unless the server says otherwise) for the ring topics of its
+projects, and the server holds a signaling socket only while devices are being introduced.
+
+1. **Topic.** The ticket answer carries `doorbell: { url, topic }`. The topic is an HMAC of project id and membership
+   epoch under a key derived from the ticket signing key: opaque, the same for all members, and different after any
+   epoch change (removal, demotion), so a removed member no longer knows it.
+2. **Ringing.** A client that needs co-authors (it opens a project and nobody is connected, or Sync now) calls
+   `POST /projects/:id/ring` with its device id. After the membership check the server returns a token: an Ed25519 JWS
+   (`typ: hivetex-ring`, signed with the ticket key) with only `v`, `topic`, `ep`, `iat`, `exp` (60 s) and a random
+   nonce `n`. The client publishes it to the topic itself (`POST <url>/<topic>`, `Cache: no`). One message rings every
+   device of the project. Limits: one ring per device and project per 20 s, 60 an hour.
+3. **Waking.** Subscribers verify the token offline (pinned ticket keys, exact topic, epoch not older than their own,
+   unexpired, nonce not seen, not their own ring) and drop anything else without any network activity. A device that is
+   not linked to anyone answers, and so does the lowest device id of an existing mesh; the others are introduced
+   through peer exchange. A device answers at most one ring per project every 10 s (120 an hour).
+4. **Introduction window.** Ringing or answering opens the signaling socket (fetching a fresh ticket first if the old
+   one lapsed). The socket closes once every device seen there is linked (after at least 8 s, so late answers still find
+   us) or after 30 s. Devices that are connected keep editing peer to peer and renew tickets; a device that is alone and
+   has no socket renews nothing.
+5. **Fallback.** Without the push service (unreachable, or `DOORBELL_URL=off`), a client keeps the older behaviour: a
+   gatekeeper socket while the project is open, so it stays reachable while open. Older clients still keep gatekeeper
+   sockets; current clients find them when they introduce themselves.
+
+Pausing (Work offline) also closes the push subscription. Tests: `server/test/doorbell.test.ts` (topics, tokens, limits,
+dev push service), `packages/sync/test/doorbell.test.ts` (verification, replay, epochs, wake budget, ntfy stream),
+`server/test/doorbell-e2e.test.ts` (introductions with the real hub, representatives, older clients, fallback).
+
+## Route selection and the application relay
+
+A connected peer is reached in one of three ways, shown per person in the People panel (`ConnectionManager.routes()`):
+
+| Route | When | What the server sees |
+| --- | --- | --- |
+| **Direct** WebRTC | ICE found a host or server-reflexive pair (the normal case, also on most home networks) | nothing after signaling |
+| **TURN** WebRTC | the deployment configured TURN (`CF_TURN_*`) and only a relayed candidate pair works | nothing: TURN carries DTLS ciphertext |
+| **Application relay** | neither works, and the server and both clients negotiated `application-relay-v1` | routing metadata and ciphertext frames |
+
+Preference is always direct, then TURN, then the application relay. When a relay-capable peer has no working link 8 s
+after it was seen (`relayAfterMs`), or a WebRTC attempt failed, the lower device id starts relay setup (the spec requires
+it within 10 s). With TURN credentials configured the relay waits until that WebRTC attempt failed or timed out: TURN
+costs the control plane nothing per byte, a relay session holds sockets open. While a peer is reached through the relay, direct
+attempts continue every 60 s at most (`directRetryMs`). When a direct link authenticates, the mesh replaces the relay
+connection (both ends must have completed the key-possession handshake on the new path first) and the Yjs exchange on
+the new connection fills any gap; the old relay generation is then closed.
+
+**Negotiation.** The client adds `capabilities: ["application-relay-v1"]` to `auth`. A server that has the relay role
+enabled answers with a relay session id (`r1_…`) and the capability in `ready`, and announces it in `join`. A client uses
+the relay towards a device only if its own and the device's session ids are relay sessions. Older servers ignore the field
+and older clients never send it: they keep using WebRTC only.
+
+**Relay messages.** `{ t: 'app-relay', to, sid, env }`: `to`/`sid` name the recipient's current session; the server adds
+`from`/`fromSid` from the sender's authenticated socket and publishes to that one session's channel. `env` is either a
+handshake step (`H…`) or an encrypted frame (`F…`, at most 16 KiB of plaintext). The handshake binds fresh ephemeral keys
+to both tickets ([application-relay-security.md](application-relay-security.md)); its transcript hash then replaces the
+DTLS fingerprints in the usual peer authentication, so a relay connection proves device-key possession like a WebRTC one.
+
+**Delivery** (`packages/sync/src/relay-transport.ts`). Redis Pub/Sub delivers at most once, so a published frame counts
+for nothing: each data frame is acknowledged by the peer (authenticated, batched within 20 ms), at most 256 KiB stay
+unacknowledged per peer, a missing ACK triggers a retransmission of the identical ciphertext (1.5 s, doubling, six
+times), and then the connection closes and reconnects with new keys. The receiver reorders per channel and applies every
+frame once. An ACK only releases sending credit; it is not a save receipt and not reconciliation: the Sync panel's states
+and "All changes synced" still come from the peers' answers for each document and from stored blobs.
+
+**Socket lifetime.** Relay sessions belong to one signaling socket. When Vercel ends the socket (300 s) or an instance
+goes away, both clients reconnect, run a new handshake and the mesh reconciles; nothing of the old encrypted session is
+replayed. Edits made meanwhile stay on the device.
+
+**Limited relay.** If the server refuses forwarding (`relay_limited`: the deployment budget is spent;
+`relay_accounting_unavailable`: the budget store cannot be reached; rate limits), the peer shows *server relay limit
+reached: changes wait on this device*. Text and control frames go first; files (`bulk`) wait until the retry time the
+server gave. Nothing is dropped and direct links are not affected. See [deployment.md](deployment.md#application-relay)
+for the budgets.
+
+**No source online.** The relay only connects devices that are online. When no owner or editor device holding the
+project is reachable, a new member gets the usual *no co-author online* state (and the GitHub bootstrap, if linked);
+there is no server copy to fall back to.
+
+Tests: `packages/sync/test/relay-transport.test.ts` (loss, duplicates, reordering, stalls, credit, priority),
+`server/test/application-relay-e2e.test.ts` (current clients and the real hub with WebRTC unusable: setup deadline,
+text and images, socket rotation, subscription failure, handover, limited budget, incomplete-image status, older peers),
+`e2e/application-relay.spec.ts` (two browsers, `APPLICATION_RELAY=1`) and the desktop e2e relay test.
+
 **Diagnostics** (`ConnectionManager.candidates()` / `diagnostics()`, the Sync panel) contain device ids, attempt counts,
 timestamps and error text only. The relay sees device ids, session ids, tickets and ciphertext, never project content
 (`server/test/p2p-e2e.test.ts` checks this). Tests: `packages/sync/test/connect-lifecycle.test.ts`,

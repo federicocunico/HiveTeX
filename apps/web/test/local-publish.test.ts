@@ -37,7 +37,7 @@ describe('publishing a local project', () => {
 
   it('leaves the local project untouched when the server refuses', async () => {
     const local = createLocalProject('Paper');
-    await expect(publishLocalProject(local, async () => Promise.reject(new Error('ID unavailable')))).rejects.toThrow('ID unavailable');
+    await expect(publishLocalProject(local, async () => Promise.reject(new Error('ID unavailable')), 'u1')).rejects.toThrow('ID unavailable');
     expect(listLocalProjects().map((p) => p.id)).toContain(local.id);
   });
 });

@@ -17,6 +17,8 @@ const world = vi.hoisted(() => ({
   tickets: 0,
   ticketGate: null as null | Promise<void>,
   managers: [] as Array<{ started: boolean; stopped: boolean }>,
+  /** What the fake manager reports: relying on the doorbell (no gatekeeper socket). */
+  doorbellMode: false,
 }));
 
 vi.mock('../src/lib/api.js', async (orig) => {
@@ -35,7 +37,7 @@ vi.mock('../src/lib/api.js', async (orig) => {
         world.tickets++;
         if (world.ticketGate) await world.ticketGate;
         if (body?.deviceId !== world.knownDevice) throw new real.ApiError(404, 'not_found', 'Unknown device');
-        const claims = { dev: world.knownDevice, role: 'editor', ep: 1 };
+        const claims = { dev: world.knownDevice, role: 'editor', ep: 1, exp: Math.floor(Date.now() / 1000) + 900 };
         return { ticket: `h.${btoa(JSON.stringify(claims))}.s`, expiresAt: Date.now() + 15 * 60_000 };
       }
       if (path === '/turn') return { iceServers: [], expiresAt: Date.now() + 3_600_000 };
@@ -83,6 +85,15 @@ vi.mock('@hivetex/sync', async (orig) => {
       return {};
     }
     reconnectNow() {}
+    routes() {
+      return {};
+    }
+    setDoorbellAvailable() {}
+    answerRing() {}
+    get doorbellMode() {
+      return world.doorbellMode;
+    }
+    socketOpen = false;
   }
   return { ...real, ConnectionManager: FakeManager };
 });
@@ -120,6 +131,7 @@ beforeEach(async () => {
   world.tickets = 0;
   world.ticketGate = null;
   world.managers = [];
+  world.doorbellMode = false;
   vi.mocked(api).mockClear();
 });
 afterEach(async () => {
@@ -201,7 +213,7 @@ describe('session-owned work stops with the session (F10)', () => {
     release();
     await sleep(50);
     expect(world.managers).toHaveLength(0);
-    expect((s as unknown as { ticketTimer: unknown }).ticketTimer).toBeNull();
+    expect((s as unknown as { runtime: { ticketTimer: unknown } }).runtime.ticketTimer).toBeNull();
   });
 
   it('pausing cancels a pending ticket request; resuming recovers', async () => {
@@ -215,7 +227,7 @@ describe('session-owned work stops with the session (F10)', () => {
     release();
     await sleep(50);
     expect(world.managers).toHaveLength(0);
-    expect((s as unknown as { ticketTimer: unknown }).ticketTimer).toBeNull();
+    expect((s as unknown as { runtime: { ticketTimer: unknown } }).runtime.ticketTimer).toBeNull();
     world.ticketGate = null;
     s.setPaused(false);
     await vi.waitFor(() => expect(running()).toHaveLength(1));
@@ -246,5 +258,44 @@ describe('session-owned work stops with the session (F10)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(world.managers).toHaveLength(0);
     fetchSpy.mockRestore();
+  });
+});
+
+describe('zero idle cost (3B.4)', () => {
+  it('stops renewing the ticket while alone without a socket in doorbell mode, and keeps renewing otherwise', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    world.online = true;
+    world.doorbellMode = true;
+    world.stored.deviceId = 'dev-real';
+    await openSession();
+    await vi.waitFor(() => expect(running()).toHaveLength(1));
+    const first = world.tickets;
+    await vi.advanceTimersByTimeAsync(3 * 3600_000);
+    expect(world.tickets).toBe(first); // dormant: nobody needs a fresh ticket, nothing is requested
+    world.doorbellMode = false;
+    await openSession(project('proj-2'));
+    const before = world.tickets;
+    await vi.advanceTimersByTimeAsync(3600_000);
+    expect(world.tickets).toBeGreaterThan(before + 2); // gatekeeper mode renews as before
+  });
+});
+
+describe('editor detach versus background demand (7.4)', () => {
+  it('closing the workspace keeps the runtime while a background lease remains, and the last release stops it', async () => {
+    world.online = true;
+    world.stored.deviceId = 'dev-real';
+    const { runtimes } = await import('../src/lib/runtimes.js');
+    const s = await openSession();
+    await vi.waitFor(() => expect(running()).toHaveLength(1));
+    const key = { server: (await import('../src/lib/api.js')).apiBase(), account: 'u1', project: 'proj-1' };
+    const seed = runtimes.attach(key, 'background');
+    await seed.runtime;
+    await s.close();
+    sessions.splice(sessions.indexOf(s), 1);
+    expect(running()).toHaveLength(1); // the seed keeps synchronizing without the editor
+    expect(runtimes.get(key)).not.toBeNull();
+    await seed.release();
+    expect(running()).toHaveLength(0);
+    expect(runtimes.get(key)).toBeNull();
   });
 });

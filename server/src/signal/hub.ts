@@ -1,3 +1,4 @@
+import { APPLICATION_RELAY_CAPABILITY, RELAY_SESSION_PREFIX, supportsApplicationRelay, isApplicationRelayMessage } from '@hivetex/protocol';
 import { randomBytes } from 'node:crypto';
 import { fromB64u, verify } from '@hivetex/crypto';
 import { type TicketClaims, type TrustedKey, signalAuthMessage } from '@hivetex/protocol';
@@ -20,10 +21,72 @@ export interface SignalBackend {
   setPresence(projectId: string, deviceId: string, value: string, ttlSec: number): Promise<void>;
   /** Extends the lease only if the live entry still belongs to session `sid` (compare-and-renew). True when renewed. */
   renewPresence(projectId: string, deviceId: string, sid: string, ttlSec: number): Promise<boolean>;
+  /**
+   * Optional batched compare-and-renew for sessions co-located on one instance: one backend call, one result per entry.
+   * Each entry is still renewed only if it belongs to its own session; absent => individual renewPresence calls.
+   */
+  renewPresenceMany?(entries: PresenceRenewal[], ttlSec: number): Promise<boolean[]>;
   /** Removes the entry only if it still belongs to session `sid` (compare-and-delete). True when removed. */
   removePresence(projectId: string, deviceId: string, sid: string): Promise<boolean>;
   /** The devices whose lease has not expired. */
   getPresence(projectId: string): Promise<Record<string, string>>;
+}
+
+export interface PresenceRenewal { projectId: string; deviceId: string; sid: string }
+
+/** Counts backend operations and relay traffic per category for usage reports. Never records content or identities. */
+export class UsageMeter {
+  readonly counts: Record<string, number> = {};
+  add(name: string, n = 1) { this.counts[name] = (this.counts[name] ?? 0) + n; }
+  snapshot(): Record<string, number> { return { ...this.counts }; }
+  reset() { for (const k of Object.keys(this.counts)) delete this.counts[k]; }
+}
+
+/** Wraps a backend so every call is counted as `signal.<operation>`; behaviour is unchanged. */
+export function meterSignalBackend(backend: SignalBackend, meter: UsageMeter): SignalBackend {
+  const counted = <A extends unknown[], R>(name: string, f: (...a: A) => Promise<R>) => (...a: A) => { meter.add(`signal.${name}`); return f(...a); };
+  const many = backend.renewPresenceMany?.bind(backend);
+  return {
+    publish: counted('publish', backend.publish.bind(backend)),
+    subscribe: counted('subscribe', backend.subscribe.bind(backend)),
+    setPresence: counted('setPresence', backend.setPresence.bind(backend)),
+    renewPresence: counted('renewPresence', backend.renewPresence.bind(backend)),
+    ...(many ? { renewPresenceMany: (e: PresenceRenewal[], ttl: number) => { meter.add('signal.renewPresenceMany'); meter.add('signal.renewPresenceMany.entries', e.length); return many(e, ttl); } } : {}),
+    removePresence: counted('removePresence', backend.removePresence.bind(backend)),
+    getPresence: counted('getPresence', backend.getPresence.bind(backend)),
+  };
+}
+
+const MAX_RENEW_BATCH = 64;
+const renewers = new WeakMap<SignalBackend, (r: PresenceRenewal) => Promise<boolean>>();
+/**
+ * Coalesces heartbeat renewals of the sessions sharing this backend (one function instance) for at most `flushMs`:
+ * a 30 s heartbeat plus the window stays inside the 90 s lease. Distributed sessions still renew independently; nothing extends authorization.
+ */
+export function presenceRenewer(backend: SignalBackend, flushMs = 0): (r: PresenceRenewal) => Promise<boolean> {
+  const existing = renewers.get(backend);
+  if (existing) return existing;
+  if (flushMs <= 0) return r => backend.renewPresence(r.projectId, r.deviceId, r.sid, PRESENCE_TTL);
+  const many = backend.renewPresenceMany?.bind(backend);
+  let pending: Array<{ r: PresenceRenewal; done: (ok: boolean) => void; fail: (e: unknown) => void }> = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = async () => {
+    timer = null;
+    const batch = pending.splice(0, MAX_RENEW_BATCH);
+    if (pending.length) timer = setTimeout(() => void flush(), 0);
+    if (!batch.length) return;
+    try {
+      const results = many && batch.length > 1 ? await many(batch.map(b => b.r), PRESENCE_TTL) : await Promise.all(batch.map(b => backend.renewPresence(b.r.projectId, b.r.deviceId, b.r.sid, PRESENCE_TTL)));
+      batch.forEach((b, i) => { b.done(results[i] === true); });
+    } catch (e) { for (const b of batch) b.fail(e); }
+  };
+  const renew = (r: PresenceRenewal) => new Promise<boolean>((done, fail) => {
+    pending.push({ r, done, fail });
+    if (pending.length >= MAX_RENEW_BATCH) { if (timer) clearTimeout(timer); void flush(); }
+    else timer ??= setTimeout(() => void flush(), flushMs);
+  });
+  renewers.set(backend, renew);
+  return renew;
 }
 
 /** Splits a presence value (`sid|ticket`; older entries are a bare ticket). */
@@ -41,11 +104,12 @@ export function presenceSid(value: string): string | undefined {
 export class MemorySignalBackend implements SignalBackend {
   private subs = new Map<string, Set<(m: string) => void>>();
   private presence = new Map<string, Map<string, { value: string; exp: number }>>();
-  /** Everything ever published, so tests can assert the server only saw ciphertext. */
+  /** Opt-in bounded test transcript. Normal local/dev forwarding retains no message payload. */
   readonly log: string[] = [];
+  private logBytes = 0;
 
   /** `now` (epoch ms) lets tests move the clock: leases expire like the production backend's. */
-  constructor(private o: { now?: () => number } = {}) {}
+  constructor(private o: { now?: () => number; recordMessages?: boolean } = {}) {}
   private now() {
     return (this.o.now ?? Date.now)();
   }
@@ -60,7 +124,10 @@ export class MemorySignalBackend implements SignalBackend {
   }
 
   async publish(channel: string, message: string) {
-    this.log.push(message);
+    if (this.o.recordMessages && this.log.length < 4096) {
+      const size = Buffer.byteLength(message, 'utf8');
+      if (this.logBytes + size <= 4 * 1024 * 1024) { this.log.push(message); this.logBytes += size; }
+    }
     for (const cb of this.subs.get(channel) ?? []) queueMicrotask(() => cb(message));
   }
   async subscribe(channel: string, cb: (m: string) => void) {
@@ -79,6 +146,11 @@ export class MemorySignalBackend implements SignalBackend {
     if (!e?.value.startsWith(`${sid}|`)) return false;
     e.exp = this.now() + ttlSec * 1000;
     return true;
+  }
+  async renewPresenceMany(entries: PresenceRenewal[], ttlSec = 90) {
+    const out: boolean[] = [];
+    for (const e of entries) out.push(await this.renewPresence(e.projectId, e.deviceId, e.sid, ttlSec));
+    return out;
   }
   async removePresence(p: string, d: string, sid: string) {
     if (!this.live(p, d)?.value.startsWith(`${sid}|`)) return false;
@@ -117,8 +189,8 @@ export async function createUpstashSignalBackend(url: string, token: string): Pr
       const sub = redis.subscribe(channel);
       // The SSE subscription becomes active asynchronously: wait for Redis' confirmation, otherwise messages
       // published right after we announce presence (e.g. a peer's offer) are silently lost.
-      const ready = new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, 5000);
+      const ready = new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => { void sub.unsubscribe(); reject(new Error('subscription readiness timed out')); }, 5000);
         sub.on('subscribe', () => {
           clearTimeout(t);
           resolve();
@@ -138,6 +210,14 @@ export async function createUpstashSignalBackend(url: string, token: string): Pr
       const now = Date.now();
       const renewed = await redis.eval(RENEW_IF_SESSION, [`presence:${projectId}`], [deviceId, `${sid}|`, String(now + ttlSec * 1000), String(now)]);
       return Number(renewed) === 1;
+    },
+    async renewPresenceMany(entries, ttlSec) {
+      const now = Date.now();
+      const args = [String(now), String(now + ttlSec * 1000)];
+      for (const e of entries) args.push(e.deviceId, `${e.sid}|`);
+      const result = await redis.eval(RENEW_MANY_IF_SESSION, entries.map(e => `presence:${e.projectId}`), args);
+      if (!Array.isArray(result) || result.length !== entries.length) throw new Error('unexpected batched renewal result');
+      return result.map(r => Number(r) === 1);
     },
     async removePresence(projectId, deviceId, sid) {
       // Atomic compare-and-delete: a closing old session must not remove the entry of the device's new session.
@@ -182,6 +262,24 @@ if exp and tonumber(exp) <= tonumber(ARGV[4]) then return 0 end
 redis.call('HSET', KEYS[1], ARGV[1], ARGV[3] .. ';' .. rest)
 return 1`;
 
+/** Batched RENEW_IF_SESSION: KEYS[i] presence hash of entry i; ARGV[1] now; ARGV[2] new expiry; then device/prefix pairs. */
+export const RENEW_MANY_IF_SESSION = `local out = {}
+for i, key in ipairs(KEYS) do
+  local dev, prefix = ARGV[1 + i * 2], ARGV[2 + i * 2]
+  local v = redis.call('HGET', key, dev)
+  local ok = 0
+  if v then
+    local exp, rest = string.match(v, '^(%d+);(.*)$')
+    if not rest then rest = v end
+    if string.sub(rest, 1, string.len(prefix)) == prefix and not (exp and tonumber(exp) <= tonumber(ARGV[1])) then
+      redis.call('HSET', key, dev, ARGV[2] .. ';' .. rest)
+      ok = 1
+    end
+  end
+  out[i] = ok
+end
+return out`;
+
 /** Removes an expired lease unless it changed meanwhile. ARGV[1] device id; ARGV[2] the exact stored value. */
 export const PRUNE_IF_UNCHANGED = `if redis.call('HGET', KEYS[1], ARGV[1]) == ARGV[2] then
   redis.call('HDEL', KEYS[1], ARGV[1])
@@ -190,6 +288,7 @@ end
 return 0`;
 
 export interface SocketLike {
+  readonly bufferedAmount?: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
 }
@@ -198,7 +297,7 @@ const MAX_MSG = 64 * 1024;
 /** A device's presence lease. Clients renew it with a `ping` every 30 s (see ConnectionManager). */
 export const PRESENCE_TTL = 90;
 
-export async function verifyServerTicket(deps: Deps, ticket: string): Promise<TicketClaims> {
+export async function verifyServerTicket(deps: Pick<Deps, 'config' | 'now'>, ticket: string): Promise<TicketClaims> {
   const keys: TrustedKey[] = deps.config.ticketPublicJwks;
   const kid = JSON.parse(Buffer.from(ticket.split('.')[0] ?? '', 'base64url').toString() || '{}').kid as string | undefined;
   const k = keys.find((x) => x.kid === kid);
@@ -219,24 +318,42 @@ export async function verifyServerTicket(deps: Deps, ticket: string): Promise<Ti
  * member, so the ticket alone must not be enough to appear (or disappear) as that device.
  */
 export function createSignalSession(sock: SocketLike, deps: Deps, backend: SignalBackend) {
+  const batchMs = deps.presenceBatchMs ?? 0;
+  const renewPresence = presenceRenewer(backend, batchMs);
+  let renewing: Promise<void> | null = null;
   let claims: TicketClaims | null = null;
   let unsub: (() => void) | null = null;
   let closed = false;
   let expiry: ReturnType<typeof setTimeout> | null = null;
   let ticketStr = '';
+  let authenticating = false;
+  let relay: Awaited<ReturnType<NonNullable<Deps['applicationRelay']>['attach']>> | null = null;
   const recent: number[] = [];
+  const relayRecent: number[] = [];
+  let pendingRelayBytes = 0, pendingRelayFrames = 0, lastRelayError = 0;
   const send = (o: unknown) => {
-    if (!closed) sock.send(JSON.stringify(o));
+    if (closed) return;
+    const raw = JSON.stringify(o);
+    const size = Buffer.byteLength(raw, 'utf8');
+    const application = (o as { t?: string }).t === 'app-relay';
+    const queued = sock.bufferedAmount ?? 0;
+    // Reserve 64 KiB for signaling/control even when application delivery stalls.
+    if (size > MAX_MSG || queued + size > (application ? 256 * 1024 : 320 * 1024)) {
+      if (!application) { void cleanup(); sock.close(1013, 'slow recipient'); }
+      return;
+    }
+    sock.send(raw);
   };
   const nonce = randomBytes(32).toString('base64url');
-  const sid = randomBytes(12).toString('base64url');
+  let sid = randomBytes(12).toString('base64url');
   send({ t: 'challenge', nonce });
 
-  const cleanup = async () => {
+  async function cleanup() {
     if (closed) return;
     closed = true;
     if (expiry) clearTimeout(expiry);
     unsub?.();
+    relay?.close();
     if (claims) {
       const removed = await backend.removePresence(claims.pid, claims.dev, sid).catch(() => false);
       // A newer session of this device already took over: announcing a leave would drop its fresh links.
@@ -249,7 +366,7 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
    * entry of another session is never touched: an old session's late ping must not take the device back from its newer one.
    */
   async function renewLease(c: TicketClaims) {
-    const renewed = await backend.renewPresence(c.pid, c.dev, sid, PRESENCE_TTL).catch(() => true);
+    const renewed = await renewPresence({ projectId: c.pid, deviceId: c.dev, sid }).catch(() => true);
     if (renewed || closed) return;
     const current = await backend.getPresence(c.pid).catch(() => null);
     if (!current || c.dev in current) return;
@@ -257,7 +374,7 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     if (closed) await backend.removePresence(c.pid, c.dev, sid); // closed while re-announcing
   }
 
-  async function onAuth(ticket: string, sig: string) {
+  async function onAuth(ticket: string, sig: string, capabilities: unknown) {
     let c: TicketClaims;
     try {
       c = await verifyServerTicket(deps, ticket);
@@ -268,6 +385,9 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
       sock.close(4401, 'bad ticket');
       return;
     }
+    if (closed) return;
+    if (c.exp * 1000 <= deps.now().getTime()) { sock.close(4401, 'ticket expired'); return; }
+    if (deps.applicationRelay && supportsApplicationRelay(capabilities)) sid = RELAY_SESSION_PREFIX + sid;
     claims = c;
     ticketStr = ticket;
     // Never outlive the ticket: members must refresh (and thus be re-checked) to stay connected.
@@ -284,8 +404,15 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
         if (m.dev !== c.dev) send(m);
       }
     });
+    if (closed) { unsub?.(); return; }
+    if (sid.startsWith(RELAY_SESSION_PREFIX) && deps.applicationRelay) {
+      relay = await deps.applicationRelay.attach({ claims: c, sid, send, active: () => !closed && c.exp * 1000 > deps.now().getTime() });
+      if (closed) { relay.close(); unsub?.(); return; }
+    }
     const presence = await backend.getPresence(c.pid);
+    if (closed) return;
     await backend.setPresence(c.pid, c.dev, `${sid}|${ticket}`, PRESENCE_TTL);
+    if (closed) { await backend.removePresence(c.pid, c.dev, sid); return; }
     const others = Object.entries(presence).filter(([d]) => d !== c.dev);
     // `sessions` (device -> session id) is additive: clients that only know `tickets` keep working.
     const sessions: Record<string, string> = {};
@@ -293,30 +420,55 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
       const s = presenceSid(v);
       if (s) sessions[d] = s;
     }
-    send({ t: 'ready', tickets: others.map(([, v]) => presenceTicket(v)), sessions });
-    await backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'join', dev: c.dev, ticket, sid }));
+    send({ t: 'ready', tickets: others.map(([, v]) => presenceTicket(v)), sessions, ...(relay ? { sid, capabilities: [APPLICATION_RELAY_CAPABILITY] } : {}) });
+    await backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'join', dev: c.dev, ticket, sid, ...(relay ? { capabilities: [APPLICATION_RELAY_CAPABILITY] } : {}) }));
   }
 
   return {
     async onMessage(data: string) {
       if (closed) return;
-      if (data.length > MAX_MSG) return void sock.close(1009, 'too large');
-      const now = Date.now();
-      while (recent.length && recent[0] !== undefined && recent[0] < now - 10_000) recent.shift();
-      recent.push(now);
-      if (recent.length > 60) {
-        send({ t: 'err', code: 'rate_limited' });
-        return void sock.close(4429, 'rate limited');
-      }
-      let m: { t?: string; ticket?: string; sig?: string; to?: string; env?: string };
+      if (Buffer.byteLength(data, 'utf8') > MAX_MSG) return void sock.close(1009, 'too large');
+      let m: { t?: string; ticket?: string; sig?: string; to?: string; env?: string; capabilities?: unknown };
       try {
         m = JSON.parse(data);
       } catch {
         return void sock.close(1003, 'bad json');
       }
-      if (!claims) {
-        if (m.t === 'auth' && typeof m.ticket === 'string' && typeof m.sig === 'string') await onAuth(m.ticket, m.sig);
-        else sock.close(4401, 'auth required');
+      if (!m || typeof m !== 'object') return void sock.close(1003, 'bad message');
+      const now = Date.now();
+      const application = m.t === 'app-relay' && relay && !authenticating;
+      const rate = application ? relayRecent : recent;
+      while (rate.length && (rate[0] ?? now) < now - 10_000) rate.shift();
+      if (rate.length >= (application ? 1200 : 60)) {
+        if (application) {
+          if (now - lastRelayError >= 1000) { lastRelayError = now; send({ t: 'relay-error', code: 'relay_rate_limited', retryAfterMs: 10_000 }); }
+        } else { send({ t: 'err', code: 'rate_limited' }); void cleanup(); sock.close(4429, 'rate limited'); }
+        return;
+      }
+      rate.push(now);
+      if (!claims || authenticating) {
+        if (authenticating) return void sock.close(4401, 'authentication pending');
+        if (m.t === 'auth' && typeof m.ticket === 'string' && typeof m.sig === 'string') {
+          authenticating = true;
+          try { await onAuth(m.ticket, m.sig, m.capabilities); }
+          catch { await cleanup(); sock.close(1011, 'session setup failed'); }
+          finally { authenticating = false; }
+        } else sock.close(4401, 'auth required');
+        return;
+      }
+      if (m.t === 'app-relay') {
+        if (!relay) { send({ t: 'err', code: 'relay_unavailable' }); return; }
+        if (!isApplicationRelayMessage(m)) { send({ t: 'err', code: 'bad_relay_message' }); return; }
+        if (claims.exp * 1000 <= deps.now().getTime()) return void sock.close(4401, 'ticket expired');
+        const size = Buffer.byteLength(data, 'utf8');
+        if (pendingRelayFrames >= 64 || pendingRelayBytes + size > 1024 * 1024) {
+          if (now - lastRelayError >= 1000) { lastRelayError = now; send({ t: 'relay-error', code: 'relay_backpressure', retryAfterMs: 1000 }); }
+          return;
+        }
+        pendingRelayFrames++; pendingRelayBytes += size;
+        try { await relay.forward(m); }
+        catch { if (!closed && now - lastRelayError >= 1000) { lastRelayError = now; send({ t: 'relay-error', code: 'relay_unavailable', retryAfterMs: 30_000 }); } }
+        finally { pendingRelayFrames--; pendingRelayBytes -= size; }
         return;
       }
       if (m.t === 'sig' && typeof m.to === 'string' && typeof m.env === 'string') {
@@ -325,8 +477,11 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
           JSON.stringify({ t: 'sig', from: claims.dev, fromTicket: ticketStr, to: m.to, env: m.env }),
         );
       } else if (m.t === 'ping') {
-        await renewLease(claims);
+        // Clients do not wait for the pong; the renewal joins this instance's batch and never overlaps itself.
         send({ t: 'pong' });
+        const c = claims;
+        renewing ??= renewLease(c).catch(() => {}).finally(() => { renewing = null; });
+        if (batchMs === 0) await renewing;
       }
     },
     onClose: cleanup,

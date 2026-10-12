@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
@@ -30,11 +31,15 @@ pub type Emit = Arc<dyn Fn(String, Value) + Send + Sync>;
 struct Peer {
     pc: Arc<RTCPeerConnection>,
     dcs: Mutex<HashMap<String, Arc<RTCDataChannel>>>,
+    /// The shared UDP listener this connection negotiated on (muxed connections only).
+    _lease: Option<crate::transport::Lease>,
 }
 
 #[derive(Default)]
 pub struct RtcState {
     peers: Mutex<HashMap<String, Arc<Peer>>>,
+    /// Shared, generation-scoped UDP listeners for muxed connections (the worker's native transport).
+    pub transport: Arc<crate::transport::Transport>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -95,10 +100,21 @@ impl RtcState {
     }
 
     pub async fn create(&self, id: &str, ice: Vec<IceServer>, emit: Emit) -> Result<(), String> {
+        self.create_with(id, ice, emit, false).await
+    }
+
+    /// Creates a connection; `muxed` negotiates on the shared listener of the current network generation, keeping
+    /// ordinary host/STUN/TURN gathering and adding a verified mapped endpoint when one is published.
+    pub async fn create_with(&self, id: &str, ice: Vec<IceServer>, emit: Emit, muxed: bool) -> Result<(), String> {
+        let lease = if muxed { Some(self.transport.acquire().await?) } else { None };
+        let mut setting = SettingEngine::default();
+        if let Some(lease) = &lease {
+            setting.set_udp_network(lease.udp_network());
+        }
         let mut m = MediaEngine::default();
         m.register_default_codecs().map_err(|e| e.to_string())?;
         let registry = register_default_interceptors(Registry::new(), &mut m).map_err(|e| e.to_string())?;
-        let api = APIBuilder::new().with_media_engine(m).with_interceptor_registry(registry).build();
+        let api = APIBuilder::new().with_media_engine(m).with_interceptor_registry(registry).with_setting_engine(setting).build();
         let ice_servers = ice
             .into_iter()
             .map(|s| RTCIceServer {
@@ -113,7 +129,7 @@ impl RtcState {
             })
             .collect();
         let pc = Arc::new(api.new_peer_connection(RTCConfiguration { ice_servers, ..Default::default() }).await.map_err(|e| e.to_string())?);
-        let peer = Arc::new(Peer { pc: pc.clone(), dcs: Mutex::new(HashMap::new()) });
+        let peer = Arc::new(Peer { pc: pc.clone(), dcs: Mutex::new(HashMap::new()), _lease: lease });
 
         {
             let (e, id) = (emit.clone(), id.to_string());
@@ -203,10 +219,64 @@ impl RtcState {
         Ok(dc.buffered_amount().await)
     }
 
+    /// The selected candidate pair in the shape of standard WebRTC statistics (`transport`, `candidate-pair`,
+    /// `local-candidate`, `remote-candidate`). Addresses stay on this device; peers never receive them from here.
+    pub async fn stats(&self, id: &str) -> Result<Value, String> {
+        use webrtc::stats::StatsReportType;
+        let report = self.peer(id).await?.pc.get_stats().await;
+        let mut pair = None;
+        for r in report.reports.values() {
+            if let StatsReportType::CandidatePair(p) = r {
+                let succeeded = format!("{:?}", p.state).eq_ignore_ascii_case("succeeded");
+                if p.nominated && succeeded {
+                    pair = Some(p);
+                }
+            }
+        }
+        let Some(pair) = pair else { return Ok(json!([])) };
+        let candidate = |cid: &str, kind: &str| {
+            report.reports.values().find_map(|r| match r {
+                StatsReportType::LocalCandidate(c) | StatsReportType::RemoteCandidate(c) if c.id == cid => Some(json!({
+                    "id": c.id, "type": kind, "candidateType": c.candidate_type.to_string(),
+                    "address": c.ip, "port": c.port, "relayProtocol": c.relay_protocol,
+                })),
+                _ => None,
+            })
+        };
+        let mut out = vec![
+            json!({ "id": "T", "type": "transport", "selectedCandidatePairId": pair.id }),
+            json!({ "id": pair.id, "type": "candidate-pair", "selected": true, "nominated": true, "state": "succeeded",
+                "localCandidateId": pair.local_candidate_id, "remoteCandidateId": pair.remote_candidate_id,
+                "bytesSent": pair.bytes_sent, "bytesReceived": pair.bytes_received }),
+        ];
+        out.extend(candidate(&pair.local_candidate_id, "local-candidate"));
+        out.extend(candidate(&pair.remote_candidate_id, "remote-candidate"));
+        Ok(Value::Array(out))
+    }
+
     pub async fn close(&self, id: &str) {
         if let Some(p) = self.peers.lock().await.remove(id) {
             let _ = p.pc.close().await;
         }
+    }
+
+    /// Closes every connection whose id matches (a replaced worker generation); returns how many.
+    pub async fn close_where(&self, f: impl Fn(&str) -> bool) -> usize {
+        let gone: Vec<Arc<Peer>> = {
+            let mut peers = self.peers.lock().await;
+            let ids: Vec<String> = peers.keys().filter(|k| f(k)).cloned().collect();
+            ids.iter().filter_map(|k| peers.remove(k)).collect()
+        };
+        for p in &gone {
+            let _ = p.pc.close().await;
+        }
+        gone.len()
+    }
+
+    pub async fn ids(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.peers.lock().await.keys().cloned().collect();
+        v.sort();
+        v
     }
 }
 
@@ -297,4 +367,177 @@ mod tests {
     fn rb_take(rx: &mut mpsc::UnboundedReceiver<(String, Value)>) -> mpsc::UnboundedReceiver<(String, Value)> {
         ra_take(rx)
     }
+
+    /// Connects `a` (on `sa`) to `b` (on `sb`) with trickle ICE, both muxed. Returns the message receivers of each side
+    /// (payload bytes) once A sent its first message.
+    async fn pair(sa: Arc<RtcState>, a: &str, sb: Arc<RtcState>, b: &str, muxed: bool) -> (mpsc::UnboundedReceiver<Vec<u8>>, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (ea, ra) = emitter();
+        let (eb, rb) = emitter();
+        sa.create_with(a, vec![], ea.clone(), muxed).await.unwrap();
+        sb.create_with(b, vec![], eb.clone(), muxed).await.unwrap();
+        sa.create_data_channel(a, "sync", ea.clone()).await.unwrap();
+        let offer = sa.create_offer(a).await.unwrap();
+        sa.set_local(a, "offer", offer.clone()).await.unwrap();
+        sb.set_remote(b, "offer", offer).await.unwrap();
+        let answer = sb.create_answer(b).await.unwrap();
+        sb.set_local(b, "answer", answer.clone()).await.unwrap();
+        sa.set_remote(a, "answer", answer).await.unwrap();
+        fn pump(mut rx: mpsc::UnboundedReceiver<(String, Value)>, to: String, st: Arc<RtcState>) -> mpsc::UnboundedReceiver<Vec<u8>> {
+            let (tx, out) = mpsc::unbounded_channel();
+            tokio::spawn(async move {
+                while let Some((_, v)) = rx.recv().await {
+                    match v["kind"].as_str() {
+                        Some("ice") => { let _ = st.add_ice(&to, v["candidate"].clone()).await; }
+                        Some("message") => { let _ = tx.send(B64.decode(v["b64"].as_str().unwrap()).unwrap()); }
+                        _ => {}
+                    }
+                }
+            });
+            out
+        }
+        let ma = pump(ra, b.to_string(), sb.clone());
+        let mb = pump(rb, a.to_string(), sa.clone());
+        let mut opened = false;
+        for _ in 0..150 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if sa.send(a, "sync", &B64.encode(b"hello")).await.is_ok() { opened = true; break; }
+        }
+        assert!(opened, "muxed channel never opened");
+        (ma, mb)
+    }
+
+    async fn recv(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> Vec<u8> {
+        tokio::time::timeout(Duration::from_secs(15), rx.recv()).await.expect("timed out").expect("closed")
+    }
+
+    /// CPU time of this process (seconds).
+    #[cfg(windows)]
+    fn cpu_seconds() -> f64 {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+        let z = || FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut c, mut e, mut k, mut u) = (z(), z(), z(), z());
+        unsafe { GetProcessTimes(GetCurrentProcess(), &mut c, &mut e, &mut k, &mut u) };
+        let t = |f: FILETIME| ((f.dwHighDateTime as u64) << 32 | f.dwLowDateTime as u64) as f64 / 1e7;
+        t(k) + t(u)
+    }
+    #[cfg(not(windows))]
+    fn cpu_seconds() -> f64 {
+        0.0
+    }
+
+    /// Measures the CPU an established but idle connection costs (manual: `cargo test --lib idle_connection_cpu -- --ignored --nocapture`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore]
+    async fn idle_connection_cpu() {
+        for muxed in [false, true] {
+            let (sa, sb) = (Arc::new(RtcState::default()), Arc::new(RtcState::default()));
+            let (_ra, _rb) = pair(sa.clone(), "a", sb.clone(), "b", muxed).await;
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let start = cpu_seconds();
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            let used = cpu_seconds() - start;
+            println!("idle pair (muxed={muxed}): {:.1}% of one core over 10 s", used * 10.0);
+            sa.close("a").await;
+            sb.close("b").await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn muxed_connections_share_one_listener_and_survive_each_others_close() {
+        let (sa, sb) = (Arc::new(RtcState::default()), Arc::new(RtcState::default()));
+        let (_a1, mut b1) = pair(sa.clone(), "a1", sb.clone(), "b1", true).await;
+        let (_a2, mut b2) = pair(sa.clone(), "a2", sb.clone(), "b2", true).await;
+        assert_eq!(recv(&mut b1).await, b"hello");
+        assert_eq!(recv(&mut b2).await, b"hello");
+        // Both of A's connections negotiated on the same bound socket.
+        let port = sa.transport.current_local().unwrap().1.port();
+        for id in ["a1", "a2"] {
+            let sdp = sa.local_sdp(id).await.unwrap().unwrap();
+            assert!(sdp.contains(&format!(" {port} typ host")), "{id} not on the shared listener: {sdp}");
+        }
+        // The selected pair is visible as standard statistics.
+        let stats = sa.stats("a2").await.unwrap();
+        let types: Vec<&str> = stats.as_array().unwrap().iter().filter_map(|s| s["type"].as_str()).collect();
+        assert!(types.contains(&"candidate-pair") && types.contains(&"local-candidate"), "{stats}");
+        // Closing one connection leaves the shared listener and the other connection working.
+        sa.close("a1").await;
+        sb.close("b1").await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        sa.send("a2", "sync", &B64.encode(b"still here")).await.unwrap();
+        loop {
+            if recv(&mut b2).await == b"still here" { break; }
+        }
+        assert_eq!(sa.transport.current_local().unwrap().1.port(), port);
+        sa.close("a2").await;
+        sb.close("b2").await;
+    }
+
+    async fn gathered_sdp(st: &RtcState, id: &str) -> String {
+        st.create_with(id, vec![], Arc::new(|_, _| {}), true).await.unwrap();
+        st.create_data_channel(id, "sync", Arc::new(|_, _| {})).await.unwrap();
+        let offer = st.create_offer(id).await.unwrap();
+        st.set_local(id, "offer", offer).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        st.local_sdp(id).await.unwrap().unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn muxed_gathering_keeps_ipv6_host_candidates_where_the_machine_has_them() {
+        let v6_hosts = |sdp: &str| -> usize {
+            sdp.lines().filter(|l| l.starts_with("a=candidate") && l.contains(" typ host") && l.split(' ').nth(4).is_some_and(|ip| ip.contains(':'))).count()
+        };
+        let plain = RtcState::default();
+        plain.create("p", vec![], Arc::new(|_, _| {})).await.unwrap();
+        plain.create_data_channel("p", "sync", Arc::new(|_, _| {})).await.unwrap();
+        let offer = plain.create_offer("p").await.unwrap();
+        plain.set_local("p", "offer", offer).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let ordinary = plain.local_sdp("p").await.unwrap().unwrap();
+        let muxed = gathered_sdp(&RtcState::default(), "m").await;
+        // IPv6 host candidates come from ephemeral sockets next to the IPv4 mux: same set as ordinary gathering.
+        assert_eq!(v6_hosts(&muxed), v6_hosts(&ordinary), "ordinary:\n{ordinary}\nmuxed:\n{muxed}");
+        println!("ipv6 host candidates: {}", v6_hosts(&muxed));
+        plain.close("p").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn negotiation_does_not_wait_for_a_slow_router_and_publishes_nothing_unverified() {
+        let st = RtcState::default();
+        let discover: crate::portmap::Discover = Arc::new(|| Box::pin(async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Err(crate::igd::IgdError::NotFound)
+        }));
+        let mapper = crate::portmap::Mapper::new(st.transport.clone(), discover, "tok".into());
+        mapper.enable();
+        let started = std::time::Instant::now();
+        let sdp = gathered_sdp(&st, "slow").await;
+        assert!(started.elapsed() < Duration::from_secs(3), "ICE waited for UPnP");
+        assert!(sdp.contains(" typ host") && !sdp.contains("typ srflx raddr"), "{sdp}");
+        assert_eq!(mapper.status(), crate::portmap::MapStatus::Discovering);
+        mapper.disable().await;
+        st.close("slow").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn verified_mapping_is_offered_by_new_negotiations_only_while_published() {
+        let st = RtcState::default();
+        let lease = st.transport.acquire().await.unwrap();
+        let port = lease.local_addr().port();
+        let external: std::net::SocketAddr = format!("203.0.113.7:{port}").parse().unwrap();
+        let internal: std::net::SocketAddr = format!("192.168.1.20:{port}").parse().unwrap();
+        assert!(st.transport.set_mapping(0, Some((external, internal))));
+        let with = gathered_sdp(&st, "m1").await;
+        assert!(with.contains(&format!("203.0.113.7 {port} typ srflx raddr 192.168.1.20 rport {port}")), "{with}");
+        assert!(with.contains(&format!(" {port} typ host")), "ordinary host candidates kept: {with}");
+        // Withdrawn (expired or changed): excluded from the next negotiation at once.
+        assert!(st.transport.set_mapping(0, None));
+        let without = gathered_sdp(&st, "m2").await;
+        assert!(!without.contains("203.0.113.7"), "{without}");
+        st.close("m1").await;
+        st.close("m2").await;
+        drop(lease);
+    }
+
 }

@@ -1,6 +1,7 @@
 import type { SyncOutcome, SyncSnapshot } from '@hivetex/sync';
 import { describe, expect, it } from 'vitest';
 import { editorsByFile, sinceText, syncEventText, syncLabel, syncNowMessage } from '../src/lib/sync-view.js';
+import { doorbellText, mappingText, routeText, type MappingState } from '../src/lib/sync-view.js';
 
 const snap = (o: Partial<SyncSnapshot> = {}): SyncSnapshot => ({
   stage: 'synced', peers: 1, connecting: 0, rootSynced: true, rootReconciled: true, total: 10, received: 10, reconciled: 10, percent: 100, files: [], lastSyncAt: 1000, stalled: false, ...o,
@@ -59,5 +60,44 @@ describe('merge notice', () => {
     expect(mergeNotice(new MergePending('root', 'timeout'))).toContain('waiting');
     expect(mergeNotice(new MergePending('root', 'timeout'))).toContain('kept');
     expect(mergeNotice(new Error('load failed'))).toContain('could not be prepared');
+  });
+});
+
+describe('peer route text (3.6)', () => {
+  it('distinguishes direct, TURN, application relay and a limited relay without claiming delivery', () => {
+    expect(routeText('direct', null)).toBe('connected directly');
+    expect(routeText('turn', null)).toBe('connected through a TURN relay');
+    expect(routeText('relay', null)).toContain('HiveTeX server (encrypted)');
+    expect(routeText('relay', 'relay_limited')).toBe('server relay limit reached: changes wait on this device');
+    expect(routeText('relay', 'relay_accounting_unavailable')).toContain('unavailable');
+    for (const t of [routeText('relay', 'relay_limited'), routeText('relay', 'relay_accounting_unavailable')]) expect(t).not.toMatch(/synced|received/);
+  });
+});
+
+describe('doorbell text (3B.6)', () => {
+  it('says whether co-authors can wake this device and stays quiet otherwise', () => {
+    expect(doorbellText('subscribed')).toContain('reach this device');
+    expect(doorbellText('unavailable')).toContain('reachable while the project is open');
+    expect(doorbellText('connecting')).toBeNull();
+    expect(doorbellText('off')).toBeNull();
+  });
+});
+
+describe('router port mapping status (10.6)', () => {
+  it('reports mapping independently of the route, so a mapping never claims a direct connection', () => {
+    const mapped: MappingState = { state: 'mapped', external: '203.0.113.7:41000', lease_secs: 1800 };
+    for (const m of [mapped, { state: 'renewing', external: 'x' } as MappingState]) {
+      expect(mappingText(m)).not.toMatch(/connected|direct/i);
+    }
+    // Mapped but the selected pair goes through TURN or the application relay: the route line says so.
+    expect(routeText('turn', null)).toBe('connected through a TURN relay');
+    expect(routeText('relay', null)).toMatch(/HiveTeX server/);
+    expect(routeText('relay', 'relay_budget_exhausted')).toMatch(/limit reached/);
+    expect(mappingText(mapped)).toMatch(/not a connection/);
+    expect(mappingText({ state: 'unsupported', reason: 'router only accepts permanent mappings' })).toMatch(/not available/);
+    expect(mappingText({ state: 'disabled' })).toMatch(/off/);
+    expect(mappingText({ state: 'failed', reason: 'gateway unreachable' })).toMatch(/failed/);
+    // The external address is never shown (it stays in local diagnostics).
+    expect(mappingText(mapped)).not.toContain('203.0.113.7');
   });
 });

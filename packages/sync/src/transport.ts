@@ -3,11 +3,23 @@ import { MAX_DECOMPRESSED } from './frames.js';
 
 export type ChannelName = 'sync' | 'bulk';
 
-/** A connected, encrypted link to one peer (WebRTC in production, loopback in tests). */
+/** Transport-specific material covered by the peer's device-key possession proof. */
+export type PeerAuthenticationBinding =
+  | { readonly kind: "dtls"; readonly localFingerprint: string; readonly remoteFingerprint: string }
+  | {
+      readonly kind: "relay";
+      /** SHA-256 of the mutually authenticated ephemeral relay handshake transcript (base64url). */
+      readonly transcriptHash: string;
+      readonly localRole: "initiator" | "responder";
+    };
+
+/** A connected, encrypted link to one peer. Relay implementations must complete key confirmation before exposure. */
 export interface PeerTransport {
-  /** DTLS fingerprints of both ends; bound into the authentication handshake. */
-  readonly localFingerprint: string;
-  readonly remoteFingerprint: string;
+  /** Explicit on new transports. Absent only for legacy DTLS adapters. */
+  readonly authenticationBinding?: PeerAuthenticationBinding | undefined;
+  /** Legacy DTLS adapter compatibility; never synthesize fingerprints for a relay. */
+  readonly localFingerprint?: string | undefined;
+  readonly remoteFingerprint?: string | undefined;
   /** Resolves once the message is queued and the channel buffer is below the high-water mark. */
   send(channel: ChannelName, data: Uint8Array): Promise<void>;
   onMessage(cb: (channel: ChannelName, data: Uint8Array) => void): void;
@@ -220,6 +232,8 @@ export class DataChannelTransport implements PeerTransport {
   private bulk: FragmentedChannel;
   private closed = false;
   private dcs: DataChannelLike[];
+  /** The selected ICE path once known: a TURN server, a direct pair, or not reported by the RTC implementation. */
+  path: 'direct' | 'turn' | 'unknown' = 'unknown';
 
   constructor(
     syncDc: DataChannelLike,
@@ -246,6 +260,14 @@ export class DataChannelTransport implements PeerTransport {
     syncDc.onerror = fire;
     bulkDc.onerror = fire;
     this.dcs = [syncDc, bulkDc];
+  }
+
+  get authenticationBinding(): PeerAuthenticationBinding {
+    return {
+      kind: "dtls",
+      localFingerprint: this.localFingerprint,
+      remoteFingerprint: this.remoteFingerprint,
+    };
   }
 
   get peakBuffered() {

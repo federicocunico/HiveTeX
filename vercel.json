@@ -30,7 +30,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' wss: https://api.github.com https://texlive2.swiftlatex.com http://127.0.0.1:47812 http://127.0.0.1:47813 http://127.0.0.1:47814 http://127.0.0.1:47815; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self' wss: https://ntfy.sh https://api.github.com https://texlive2.swiftlatex.com http://127.0.0.1:47812 http://127.0.0.1:47813 http://127.0.0.1:47814 http://127.0.0.1:47815; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         },
         {
           "key": "Strict-Transport-Security",

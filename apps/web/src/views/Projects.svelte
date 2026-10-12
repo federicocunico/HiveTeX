@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TemplateGallery from '../components/TemplateGallery.svelte';
-  import { ApiError, api } from '../lib/api.js';
+  import { ApiError, api, isDesktop } from '../lib/api.js';
+  import BackgroundSeeds from '../components/BackgroundSeeds.svelte';
   import { registerCommands } from '../lib/commands.svelte.js';
   import { auth } from '../lib/auth.svelte.js';
   import { go } from '../lib/router.svelte.js';
@@ -301,6 +302,9 @@
   {#if folderMessage && !showJoin}<div class="notice" role="status" data-testid="folder-message">{folderMessage}</div>{/if}
   {#if auth.offline}
     <div class="notice">You are offline. Projects stored on this device still open and can be edited.</div>
+  {/if}
+  {#if isDesktop && !auth.local && auth.user}
+    <BackgroundSeeds {projects} account={auth.user.id} />
   {/if}
 
   {#if localProjects.length}

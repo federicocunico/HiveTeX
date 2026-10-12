@@ -2,6 +2,7 @@
   import { apiBase, defaultServer, safeStorage, serverLabel, setServerUrl, useDefaultServer } from '../lib/api.js';
   import { Wifi } from '../ui/icons.js';
   import Icon from '../ui/Icon.svelte';
+  import {stopRuntimes} from '../lib/runtimes.js';
 
   /** Desktop only: which control plane this app talks to, changeable before signing in. */
   const current = apiBase();
@@ -10,10 +11,11 @@
   let value = $state(current);
   let error = $state('');
 
-  function save(e: Event) {
+  async function save(e: Event) {
     e.preventDefault();
     error = '';
     try {
+      await stopRuntimes();
       if (setServerUrl(value) !== current) location.reload(); // every module reads the server on load
       else editing = false;
     } catch (err) {
@@ -21,7 +23,8 @@
     }
   }
 
-  function backToDefault() {
+  async function backToDefault() {
+    await stopRuntimes();
     useDefaultServer();
     location.reload();
   }

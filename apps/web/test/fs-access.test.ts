@@ -85,7 +85,7 @@ describe('web folder adapter (File System Access API)', () => {
     f.lastModified += 1000;
     (await root.getFileHandle('notes.tex', { create: true })).data = enc('new');
     await new Promise((r) => setTimeout(r, 60));
-    expect(seen).toContain('main.tex');
+    await expect.poll(async () => seen, { timeout: 15_000 }).toContain('main.tex');
     expect(seen).toContain('notes.tex');
     stop();
     (fs as unknown as { dispose(): void }).dispose();

@@ -22,7 +22,7 @@ export default defineConfig({
           {
             command: 'npx pnpm@10 --filter @hivetex/server dev',
             url: 'http://localhost:3000/api/health',
-            env: { MEMORY_DB: '1', PORT: '3000', E2E_FAKE_GITHUB: '1', E2E_NO_LIMITS: '1' },
+            env: { MEMORY_DB: '1', PORT: '3000', E2E_FAKE_GITHUB: '1', E2E_NO_LIMITS: '1', APPLICATION_RELAY: process.env.APPLICATION_RELAY ?? '' },
             reuseExistingServer: !process.env.CI,
             timeout: 120_000,
           },

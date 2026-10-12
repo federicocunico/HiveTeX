@@ -1,5 +1,5 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
-import { TICKET_TYP, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
+import { RING_TOPIC_RE, RING_TYP, type RingClaims, TICKET_TYP, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import { type JWK, importJWK, jwtVerify } from 'jose';
 
 const enc = new TextEncoder();
@@ -175,3 +175,33 @@ export async function verifyTicket(
     throw new TicketError('ticket verification failed');
   }
 }
+
+/**
+ * Verifies a doorbell ring token (D14) offline: signed by a pinned control-plane key, typed as a ring, unexpired, with
+ * exactly the minimal claims. The caller still checks topic, epoch and nonce against its own state.
+ */
+export async function verifyRingToken(token: string, trusted: TrustedKey[], opts: { now?: Date; clockToleranceSec?: number } = {}): Promise<RingClaims> {
+  if (typeof token !== 'string' || token.length > 2048) throw new TicketError('bad ring token');
+  let header: { kid?: string; typ?: string; alg?: string };
+  try {
+    header = JSON.parse(new TextDecoder().decode(fromB64u(token.split('.')[0] ?? '')) || '{}');
+  } catch {
+    throw new TicketError('bad ring token');
+  }
+  if (header.alg !== 'EdDSA' || header.typ !== RING_TYP) throw new TicketError('bad ring header');
+  const k = trusted.find((t) => t.kid === header.kid);
+  if (!k) throw new TicketError('unknown ring key');
+  let c: RingClaims;
+  try {
+    const pub = await importJWK(k.jwk as JWK, 'EdDSA');
+    const { payload } = await jwtVerify(token, pub, { algorithms: ['EdDSA'], typ: RING_TYP, currentDate: opts.now ?? new Date(), clockTolerance: opts.clockToleranceSec ?? 30 });
+    c = payload as unknown as RingClaims;
+  } catch {
+    throw new TicketError('ring token verification failed');
+  }
+  if (c.v !== 1 || typeof c.topic !== 'string' || !RING_TOPIC_RE.test(c.topic) || !Number.isSafeInteger(c.ep) || typeof c.n !== 'string' || c.n.length < 16 || c.n.length > 64 || c.exp - c.iat > 120)
+    throw new TicketError('malformed ring claims');
+  return c;
+}
+
+export * from './relay.js';

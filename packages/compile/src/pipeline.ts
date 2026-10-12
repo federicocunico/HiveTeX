@@ -91,6 +91,9 @@ export class CompileLeader {
   /** The last run that could not start for lack of content (cleared by the next one that could). */
   lastIncomplete: CompileResult | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
+  private unsubs: Array<() => void> = [];
+  private aborts = new Set<AbortController>();
 
   constructor(
     private o: {
@@ -115,8 +118,8 @@ export class CompileLeader {
       retryMs?: number;
     },
   ) {
-    o.model.onDocUpdate(() => this.schedule());
-    o.mesh.onApp('compile-request', (from) => {
+    this.unsubs.push(o.model.onDocUpdate(() => this.schedule()));
+    this.unsubs.push(o.mesh.onApp('compile-request', (from) => {
       if (!this.o.election.isLeader()) return;
       // Any member (viewers included) may ask, so a flood must not keep the leader busy: one request per peer per window.
       const now = Date.now();
@@ -124,28 +127,40 @@ export class CompileLeader {
       this.lastRequestAt.set(from.deviceId, now);
       void this.run().then((r) => {
         // Unchanged project: nothing was rebuilt, so make sure the requester has the current result.
-        if (r && r === this.lastResult && this.lastResult.seq === r.seq) void o.mesh.sendApp(from.deviceId, 'compiled', r);
+        if (!this.stopped && r && r === this.lastResult && this.lastResult.seq === r.seq) void o.mesh.sendApp(from.deviceId, 'compiled', r);
       });
-    });
-    o.mesh.onPeerJoin((p) => {
+    }));
+    this.unsubs.push(o.mesh.onPeerJoin((p) => {
       if (this.lastResult && this.o.election.isLeader()) void o.mesh.sendApp(p.deviceId, 'compiled', this.lastResult);
-    });
-    o.election.onLeaderChange((l) => {
+    }));
+    this.unsubs.push(o.election.onLeaderChange((l) => {
       // Compile for the new state after a normal debounce, by which time the election has settled.
       if (l === o.self.dev) {
         this.leaderSince = Date.now();
         if (this.lastResult) o.mesh.broadcastApp('compiled', this.lastResult);
         this.schedule();
       } else this.leaderSince = 0;
-    });
+    }));
   }
 
   onResult(cb: (r: CompileResult) => void) {
     this.resultCbs.add(cb);
+    return () => void this.resultCbs.delete(cb);
+  }
+
+  stop() {
+    this.stopped = true;
+    this.rerun = false;
+    if (this.timer) clearTimeout(this.timer);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.timer = this.retryTimer = null;
+    for (const abort of this.aborts) abort.abort();
+    for (const off of this.unsubs.splice(0)) off();
+    this.resultCbs.clear();
   }
 
   private schedule(immediate = false) {
-    if (!this.o.election.isLeader()) return;
+    if (this.stopped || !this.o.election.isLeader()) return;
     const now = Date.now();
     if (!this.timer) this.firstAt = now;
     if (this.timer) clearTimeout(this.timer);
@@ -190,11 +205,17 @@ export class CompileLeader {
 
   /** Compiles on this device regardless of leadership; the result is returned, never distributed. */
   async compileLocally(): Promise<{ result: CompileResult; pdf?: Uint8Array; synctex?: Uint8Array }> {
+    if (this.stopped) throw new Error('Editor detached');
+    const abort = new AbortController();
+    this.aborts.add(abort);
+    try {
     const input = await this.snapshot();
+    if (this.stopped) throw new Error('Editor detached');
     if (!this.o.engine.supports.includes(input.engine)) {
       throw new Error(`This device cannot run ${input.engine}`);
     }
-    const out = await this.o.engine.compile(input, { timeoutMs: this.o.timeoutMs ?? 120_000 });
+    const out = await this.o.engine.compile(input, { timeoutMs: this.o.timeoutMs ?? 120_000, signal: abort.signal });
+    if (this.stopped) throw new Error('Editor detached');
     const result: CompileResult = {
       stateHash: input.stateHash,
       ok: out.ok && !!out.pdf,
@@ -205,10 +226,12 @@ export class CompileLeader {
       seq: 0,
     };
     return { result, ...(out.pdf ? { pdf: out.pdf } : {}), ...(out.synctex ? { synctex: out.synctex } : {}) };
+    } finally { this.aborts.delete(abort); }
   }
 
   /** Compiles now. A request while one is running queues exactly one follow-up run. */
   async run(): Promise<CompileResult | null> {
+    if (this.stopped) return null;
     if (this.running) {
       this.rerun = true;
       return null;
@@ -220,12 +243,15 @@ export class CompileLeader {
       return null;
     }
     this.running = true;
+    const abort = new AbortController();
+    this.aborts.add(abort);
     let result: CompileResult | null = null;
     try {
       let input: CompileInput;
       try {
         input = await this.snapshot();
       } catch (e) {
+        if (this.stopped) return null;
         if (!(e instanceof IncompleteInputError)) throw e;
         // Say so once per set of missing files, and look again later: images arriving raise no document update.
         const r = this.incompleteResult(e);
@@ -243,13 +269,15 @@ export class CompileLeader {
         return r;
       }
       this.lastIncomplete = null;
+      if (this.stopped || !this.o.election.isLeader()) return null;
       if (this.lastResult?.stateHash === input.stateHash && this.lastResult.ok) return this.lastResult;
       let out: CompileOutput;
       try {
-        out = await this.o.engine.compile(input, { timeoutMs: this.o.timeoutMs ?? 120_000 });
+        out = await this.o.engine.compile(input, { timeoutMs: this.o.timeoutMs ?? 120_000, signal: abort.signal });
       } catch (e) {
         out = { ok: false, log: `! Compile failed: ${e instanceof Error ? e.message : String(e)}` };
       }
+      if (this.stopped || !this.o.election.isLeader()) return null;
       this.compiles++;
       const diagnostics = parseLog(out.log, input.main);
       result = {
@@ -262,11 +290,14 @@ export class CompileLeader {
         seq: ++this.seq,
       };
       if (out.pdf) result.pdfHash = await this.o.blobs.add(out.pdf);
+      if (this.stopped || !this.o.election.isLeader()) return null;
       if (out.synctex) result.synctexHash = await this.o.blobs.add(out.synctex);
+      if (this.stopped || !this.o.election.isLeader()) return null;
       this.lastResult = result;
       this.o.mesh.broadcastApp('compiled', result);
       for (const cb of this.resultCbs) cb(result);
     } finally {
+      this.aborts.delete(abort);
       this.running = false;
       if (this.rerun) {
         this.rerun = false;
@@ -282,12 +313,14 @@ export class CompileClient {
   latest: CompileResult | null = null;
   lastGood: { result: CompileResult; pdf: Uint8Array; synctex?: Uint8Array } | null = null;
   private cbs = new Set<() => void>();
+  private stopped = false;
+  private unsubs: Array<() => void> = [];
 
   constructor(
     private o: { mesh: Mesh; model: ProjectModel; blobs: BlobManager; election?: Election; leader?: CompileLeader },
   ) {
-    o.mesh.onApp('compiled', (from, body) => void this.onResult(from, body as CompileResult), { editorOnly: true });
-    o.election?.onLeaderChange((l) => {
+    this.unsubs.push(o.mesh.onApp('compiled', (from, body) => void this.onResult(from, body as CompileResult), { editorOnly: true }));
+    const electionOff = o.election?.onLeaderChange((l) => {
       const held = l ? this.pending.get(l) : undefined;
       if (held && l) {
         this.pending.delete(l);
@@ -296,8 +329,17 @@ export class CompileClient {
         if (sender && sender.claims.role !== 'viewer') void this.accept(held);
       }
     });
+    if (electionOff) this.unsubs.push(electionOff);
     // Results produced on this very device are delivered locally (the mesh only reaches other peers).
-    o.leader?.onResult((r) => void this.accept(r));
+    const leaderOff = o.leader?.onResult((r) => void this.accept(r));
+    if (leaderOff) this.unsubs.push(leaderOff);
+  }
+
+  stop() {
+    this.stopped = true;
+    for (const off of this.unsubs.splice(0)) off();
+    this.pending.clear();
+    this.cbs.clear();
   }
 
   onChange(cb: () => void) {
@@ -322,13 +364,14 @@ export class CompileClient {
   private pending = new Map<string, CompileResult>();
 
   private async accept(r: CompileResult) {
+    if (this.stopped) return;
     this.latest = r;
     this.emit();
     if (r.ok && r.pdfHash) {
       try {
         const pdf = await this.o.blobs.fetch(r.pdfHash, 20_000);
         const synctex = r.synctexHash ? await this.o.blobs.fetch(r.synctexHash, 20_000).catch(() => undefined) : undefined;
-        if (this.latest === r) {
+        if (!this.stopped && this.latest === r) {
           this.lastGood = { result: r, pdf, ...(synctex ? { synctex } : {}) };
           this.emit();
         }
@@ -349,6 +392,7 @@ export class CompileClient {
 
   /** Any member (including viewers) can ask the leader to recompile now. */
   requestCompile() {
+    if (this.stopped) return;
     this.o.mesh.broadcastApp('compile-request', { at: Date.now() });
   }
 

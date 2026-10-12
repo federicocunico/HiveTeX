@@ -24,10 +24,11 @@
   import { tourWanted } from '../lib/tour.js';
   import SearchPanel from '../components/workspace/SearchPanel.svelte';
   import StatusBar from '../components/workspace/StatusBar.svelte';
-  import { ApiError, api, isDesktop } from '../lib/api.js';
+  import { ApiError, api, apiBase, isDesktop } from '../lib/api.js';
   import { missingPackageHint } from '../lib/compile-mode.js';
   import { PAIR_MESSAGES } from '../lib/helper-engine.js';
   import { auth } from '../lib/auth.svelte.js';
+  import { MigrationAssociationRequired, confirmLegacyAssociation, exportLegacyRecovery, type StoreRef } from '../lib/project-store.js';
   import { registerCommands, registerSource, setGotoLine } from '../lib/commands.svelte.js';
   import { openPalette, openShortcuts } from '../lib/palette.svelte.js';
   import { takeFreshFolderProject } from '../lib/folders.js';
@@ -103,6 +104,7 @@
 
   let session = $state<ProjectSession | null>(null);
   let error = $state('');
+  let migration = $state<MigrationAssociationRequired | null>(null);
   let activeId = $state<string | null>(null);
   let index = $state.raw<ProjectIndex>(emptyIndex());
   let outline = $state.raw<OutlineEntry[]>([]);
@@ -163,6 +165,8 @@
     return () => mq.removeEventListener('change', update);
   });
 
+  let pendingSession: ProjectSession | null = null;
+  let workspaceClosed = false;
   onMount(async () => {
     try {
       if (!auth.user) return;
@@ -178,10 +182,14 @@
         } else throw e;
       }
       if (!info) throw new Error('Project not found on this device');
+      if (workspaceClosed) return;
       // Account recents (best effort: offline opens are simply not recorded).
       void api('POST', `/projects/${projectId}/opened`).catch(() => {});
       const s = new ProjectSession(info, auth.user);
+      pendingSession = s;
       await s.open();
+      if (workspaceClosed) { await s.close(); return; }
+      pendingSession = null;
       session = s;
       if (localStorage.getItem('hivetex.test') === '1')
         (window as unknown as { __p2p: unknown }).__p2p = {
@@ -213,13 +221,25 @@
       const first = s.model.find(String(s.model.settings.get('main') ?? 'main.tex')) ?? s.files.find((f) => f.kind === 'text');
       if (first) activeId = first.id;
     } catch (e) {
-      error = e instanceof Error ? e.message : 'Could not open the project';
+      if (workspaceClosed) return;
+      if (e instanceof MigrationAssociationRequired) migration = e;
+      error = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Could not open the project';
     }
   });
+  async function confirmMigration(ref: StoreRef) {
+    try { await confirmLegacyAssociation(ref); location.reload(); }
+    catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
+  async function recoverLegacy(ref: StoreRef) {
+    try { await download(`hivetex-${projectId}-legacy-recovery.json`, await exportLegacyRecovery(ref), 'application/json'); }
+    catch (e) { error = e instanceof Error ? e.message : String(e); }
+  }
 
   onDestroy(() => {
+    workspaceClosed = true;
     if (indexTimer) clearTimeout(indexTimer);
     void session?.close();
+    void pendingSession?.close();
   });
 
   function scheduleIndex(delay = 400) {
@@ -798,7 +818,16 @@
 </script>
 
 {#if error}
-  <div class="ws-message"><div class="error" role="alert">{error}</div><a href="#/">← Back to projects</a></div>
+  <div class="ws-message"><div class="error" role="alert">{error}</div>
+    {#if migration}
+      <p>No content from this older cache is being shared or seeded.</p>
+      {#if migration.mayConfirm}
+        <p>Confirm only if this cache belongs to {auth.user?.username} on {apiBase() || location.origin}.</p>
+        <button type="button" onclick={() => migration && confirmMigration(migration.ref)}>Confirm this account and server, then migrate</button>
+      {/if}
+      <button type="button" onclick={() => migration && recoverLegacy(migration.ref)}>Export older cache for recovery</button>
+    {/if}
+    <a href="#/">← Back to projects</a></div>
 {:else if !session}
   <div class="ws-message"><p class="muted">Opening project…</p></div>
 {:else}

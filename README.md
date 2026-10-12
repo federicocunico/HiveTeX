@@ -118,6 +118,54 @@ make dev-local   # everything on your computer: API on :3000 (embedded database,
 
 ## Host your own server
 
+### Desktop background syncing
+
+On **Your projects → Background syncing**, retained owner/editor projects are selected as dormant seeds by default.
+Joining a project does not download it: open its editor once or choose **Download and seed**. Background downloads
+do not change the account's recently opened projects. Viewers cannot seed.
+
+Dormant seeds listen on one shared push stream per service; they hold no project runtime or control-plane socket and
+do not renew tickets. A verified ring wakes the project and fetches current authorization. **Enable background syncing**
+only controls background demand; **Work offline** pauses networking and is remembered in the native catalog. You can
+disable an individual seed without deleting its contents. Background actors do not compile, push GitHub backups or
+watch folders; folder edits reconcile when the editor reopens.
+
+The catalog is scoped to the signed-in account and server. Locked/missing credentials show **Sign in to resume**;
+the worker never invents a temporary background identity. A complete cached replica describes the last verified root,
+not changes no peer has supplied yet. Old caches with an unknown association require confirmation before migration.
+See [desktop storage and recovery](docs/desktop-storage.md) and [runtime ownership](docs/runtime.md).
+
+**Who can seed.** Owners and editors of a signed-in, cloud project. A viewer cannot seed and cannot be selected for
+download; a member demoted to viewer, or removed, stops seeding at its next verified answer and keeps its local copy.
+Local-only projects never seed.
+
+**What each status means** (shown per project in Background syncing):
+
+| Status | Meaning |
+| --- | --- |
+| Dormant | Listening for a ring on the shared push stream. No runtime, ticket or socket. |
+| Waking, Connecting, Receiving, Reconciling, Synced | Rung awake: connected to peers, fetching every text and referenced file, serving newcomers. Synced only once every file is held and reconciled. |
+| Receiving with a missing file | No reachable peer holds that file. It stays listed as missing and is retried; the project never reports Synced meanwhile. |
+| File deferred | A file waits for space: background content would exceed 2 GiB, or less than 128 MiB of disk would remain. Nothing already stored is deleted to make room. |
+| Queued | Four background projects are already awake. Queued projects rotate in as awake ones go idle. |
+| Ring channel unreachable | The push service cannot be reached. The seed stays asleep and does **not** fall back to a server socket. Open the project or use Sync now. |
+| Offline / Sign in to resume | No network, or the OS keychain is locked or empty. |
+| Paused / Disabled | Work offline, or background seeding switched off for that project. Contents are kept. |
+
+**Limits.** At most four background projects are awake at once (open editors do not count). Background transfers use
+two at a time (one per project), a 32 MiB receive buffer and about 5 MiB/s; the open project always goes first.
+
+**When the server is unreachable.** Tickets last 15 minutes. Peers already connected keep syncing until their tickets
+expire, and are then disconnected. Dormant seeds cannot be rung, and new devices cannot join, until the control plane
+is back. Rings themselves are limited to one per 20 s and 60 per hour per device and project.
+
+**Router port mapping.** While an account actively syncs, the desktop app asks the home router (UPnP) to forward
+its one peer-to-peer UDP port with a 30-minute lease, and removes it when sync stops or the app quits. It is an extra
+address for co-authors, never shown as a connection; see [router port mapping](docs/port-mapping.md).
+
+**Closing the window keeps syncing** in the tray; Quit stops it. Starting with the computer (optionally without a
+window) is opt-in. See [the desktop app in the background](docs/desktop-app.md).
+
 HiveTeX's server runs on [Vercel](https://vercel.com) (Hobby plan, free), with [Neon](https://neon.tech) (Postgres)
 and [Upstash](https://upstash.com) (Redis) from the Vercel marketplace. You need accounts on GitHub and Vercel, and a
 Gmail address used only to send email. Vercel Hobby is for non-commercial use. To run everything on your own
@@ -150,6 +198,14 @@ Run the commands from the repository root (Git Bash on Windows).
    - **TURN:** testers on different networks connect more reliably with a free
      [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key (`CF_TURN_KEY_ID`,
      `CF_TURN_API_TOKEN`).
+   - **Application relay (optional):** without TURN, devices that cannot connect directly can exchange end-to-end
+     encrypted traffic through your own server. It is off by default because it spends the same free Vercel/Upstash
+     quotas as everything else; see [docs/deployment.md](docs/deployment.md#application-relay) for the budget
+     variables and [docs/protocol.md](docs/protocol.md#route-selection-and-the-application-relay) for how routes are chosen.
+   - **Doorbell (on by default, free):** idle devices keep no connection to your server. They wait on the free
+     [ntfy.sh](https://ntfy.sh) push service and are rung awake when a co-author opens the project, so the free tiers
+     scale with introductions instead of installed devices. `DOORBELL_URL` points at a self-hosted ntfy; see
+     [docs/deployment.md](docs/deployment.md#doorbell-push-service).
 
 4. **Become admin:** open the URL printed at the end and register the admin username you gave. It becomes the
    platform admin automatically, but only while no admin exists yet.

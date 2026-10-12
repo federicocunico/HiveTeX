@@ -9,6 +9,7 @@ import type { Deps, Env } from '../deps.js';
 import { AppError } from '../errors.js';
 import { rateLimit } from '../middleware.js';
 import { parseBody, randomId } from '../util.js';
+import { doorbellInfo, signRingToken } from './doorbell.js';
 import { signTicket } from './tickets.js';
 
 const SLUG_RE = /^[a-z0-9-]{6,48}$/;
@@ -370,7 +371,35 @@ projectRoutes.post('/:id/ticket', rateLimit('ticket', 120, 900), async (c) => {
     { v: 1, pid: p.id, uid: u.id, uname: u.username, dev: dev.id, devX: dev.x25519Pub, devE: dev.ed25519Pub, role: m.role as Role, ep: p.epoch },
     nowSec,
   );
-  return c.json({ ticket, expiresAt: (nowSec + 15 * 60) * 1000, epoch: p.epoch, githubRepo: p.githubRepo ?? null });
+  const doorbell = doorbellInfo(deps.config, p.id, p.epoch);
+  return c.json({ ticket, expiresAt: (nowSec + 15 * 60) * 1000, epoch: p.epoch, githubRepo: p.githubRepo ?? null, ...(doorbell ? { doorbell } : {}), ...(deps.config.desktopFeatures ? { features: deps.config.desktopFeatures } : {}) });
+});
+
+/**
+ * Doorbell (D14): a member that needs peers gets a short-lived signed ring token for the project's current topic and
+ * publishes it to the push service itself. Ringing grants nothing: woken devices still authenticate with tickets.
+ */
+projectRoutes.post('/:id/ring', rateLimit('ring', 600, 3600), async (c) => {
+  const deps = c.get('deps');
+  const { u } = await requireAuth(c);
+  const { deviceId } = await parseBody(c, v.object({ deviceId: v.pipe(v.string(), v.maxLength(64)) }));
+  const p = await loadProject(deps, c.req.param('id'));
+  const m = await membership(deps, p.id, u.id);
+  if (!m) throw new AppError(403, 'not_member', 'Not a member of this project');
+  const [dev] = await deps.db
+    .select()
+    .from(schema.devices)
+    .where(and(eq(schema.devices.id, deviceId), eq(schema.devices.userId, u.id)))
+    .limit(1);
+  if (!dev || dev.revokedAt) throw new AppError(403, 'bad_device', 'Unknown or revoked device');
+  const doorbell = doorbellInfo(deps.config, p.id, p.epoch);
+  if (!doorbell) throw new AppError(404, 'doorbell_disabled', 'Ringing is not enabled on this server');
+  for (const [key, limit, windowSec] of [[`ring-dev:${dev.id}:${p.id}`, 1, 20], [`ring-hour:${dev.id}:${p.id}`, 60, 3600]] as const) {
+    const r = await deps.limiter.hit(key, limit, windowSec);
+    if (!r.ok) throw new AppError(429, 'rate_limited', 'Too many rings', { 'Retry-After': String(r.retryAfter) });
+  }
+  const nowSec = Math.floor(deps.now().getTime() / 1000);
+  return c.json({ ...doorbell, token: await signRingToken(deps.config, doorbell.topic, p.epoch, nowSec), epoch: p.epoch });
 });
 
 export const keyRoutes = new Hono<Env>();
