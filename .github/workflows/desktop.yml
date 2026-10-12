@@ -48,32 +48,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config \
             texlive-latex-base texlive-latex-recommended latexmk
-      - name: Windows TeX (MiKTeX)
+      - name: Windows TeX (TinyTeX)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # The Chocolatey feed is sometimes briefly unavailable (503): retry before failing the job.
+          # TinyTeX from GitHub releases, the same archive and checksum the app installs (src/managed.rs): MiKTeX's
+          # Chocolatey package and on-the-fly installs depend on miktex.org mirrors that time out on runners.
+          $url = 'https://github.com/rstudio/tinytex-releases/releases/download/v2026.10/TinyTeX-1-windows-v2026.10.exe'
+          $sfx = Join-Path $env:RUNNER_TEMP 'tinytex.exe'
           for ($i = 1; $i -le 4; $i++) {
-            choco install miktex --no-progress -y
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($i -eq 4) { exit 1 }
-            Start-Sleep -Seconds (30 * $i)
+            try { Invoke-WebRequest $url -OutFile $sfx; break } catch { if ($i -eq 4) { throw }; Start-Sleep -Seconds (15 * $i) }
           }
-          $bin = "C:\Program Files\MiKTeX\miktex\bin\x64"
+          $hash = (Get-FileHash $sfx -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '36c329c644683d981a668419d13c8804696e2816ae4d287ad755788fee231a31') { throw "TinyTeX checksum mismatch: $hash" }
+          7z x $sfx "-o$env:RUNNER_TEMP" -y | Out-Null
+          $bin = Join-Path $env:RUNNER_TEMP 'TinyTeX\bin\windows'
+          if (-not (Test-Path "$bin\pdflatex.exe")) { Get-ChildItem (Join-Path $env:RUNNER_TEMP 'TinyTeX\bin'); throw 'pdflatex not found' }
           $env:PATH = "$bin;$env:PATH"
-          # A fresh MiKTeX refuses to run until its package database exists, and it must be allowed to fetch
-          # missing packages (article.cls, fonts...) without a prompt.
-          initexmf --admin --set-config-value="[MPM]AutoInstall=1"
-          miktex --admin packages update-package-database
-          miktex --admin packages update
-          initexmf --admin --update-fndb
-          initexmf --update-fndb
-          # Warm-up build: the packages a test document needs are installed now, not in the middle of a test.
+          # Warm-up build: a broken TeX fails here, with its log, not in the middle of a test.
           $warm = Join-Path $env:RUNNER_TEMP 'tex-warmup'
           New-Item -ItemType Directory -Force $warm | Out-Null
           Set-Content -Path "$warm\main.tex" -Value '\documentclass{article}\begin{document}Hello \LaTeX{}\end{document}'
           Push-Location $warm
-          latexmk -pdf -interaction=nonstopmode -latexoption=--enable-installer main.tex
+          latexmk -pdf -interaction=nonstopmode main.tex
           if (-not (Test-Path main.pdf)) { Get-Content main.log -ErrorAction SilentlyContinue; exit 1 }
           Pop-Location
           echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
