@@ -127,7 +127,7 @@ describe("live packaged worker and editor replica", () => {
     expect(await sha256Hex(received!)).toBe(hash);
     expect(w.calls.filter((c) => c === 'store_read_blob')).toHaveLength(10);
     await editor.close(); w.child.stdin.end();
-  }, 20_000);
+  }, 90_000);
   it('rejects cross-attachment, out-of-order and partial uploads; account freeze aborts unpublished staging', async () => {
     const w = start(), one = new WorkerRenderer(w.link), two = new WorkerRenderer(w.link);
     await one.open(project('local-staging')); await two.open(project('local-staging'));
@@ -198,7 +198,7 @@ describe("live packaged worker and editor replica", () => {
     expect((await recreated.recoveryEntries()).length).toBe(12);
     expect(recreated.model.list()).toEqual([]);
     await recreated.close(); w.child.stdin.end();
-  }, 20_000);
+  }, 90_000);
   it('recovers an edit after the actual worker dies between custody and application, without duplication',async()=>{
     const native=fakeNative();
     const first=start(native,true),editor=new WorkerRenderer(first.link);

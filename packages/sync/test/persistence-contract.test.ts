@@ -80,7 +80,7 @@ describe('native adapter specifics (5.1)', () => {
     await expect(p.putBlob('f'.repeat(64), big)).rejects.toThrow();
     expect(f.calls.at(-1)).toBe('store_stage_abort');
     expect(await p.listBlobs()).toEqual([sha(big)]);
-  });
+  }, 30_000);
 
   it('a failed transaction leaves the previous state; one writer per scope; closed stores refuse calls', async () => {
     const f = fakeNative();

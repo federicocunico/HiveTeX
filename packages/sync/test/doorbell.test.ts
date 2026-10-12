@@ -99,8 +99,8 @@ describe('doorbell verification and wake budget (3B.2)', () => {
     await tick();
     expect(push.subscriptions()).toBe(1);
     push.deliver(OTHER, await sign({ topic: OTHER }));
-    await tick();
-    expect(got).toEqual(['b']);
+    // Verification is asynchronous (signature check): wait for it rather than for a fixed tick.
+    await expect.poll(() => got, { timeout: 5000 }).toEqual(['b']);
     offB();
     await tick();
     push.deliver(OTHER, await sign({ topic: OTHER }));
