@@ -1,6 +1,65 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type LinkSignal, RtcLink, candidateType, selectedPair, selectedPath, type RtcPeerLike } from '../src/rtc.js';
 import { FakeRtcNetwork } from '../src/testing.js';
+import type { PeerTransport } from '../src/transport.js';
+
+/** Two links connected through the fake network; `pcA` is the offering side's connection. */
+async function linked(disconnectGraceMs = 30) {
+  const net = new FakeRtcNetwork();
+  const pcs: RtcPeerLike[] = [];
+  const factory = (s: unknown[]) => {
+    const pc = net.factory(s);
+    pcs.push(pc);
+    return pc;
+  };
+  const trace: string[] = [];
+  let ta: PeerTransport | undefined;
+  let tb: PeerTransport | undefined;
+  const b: { link?: RtcLink } = {};
+  const a = new RtcLink({
+    factory, iceServers: [], initiator: true, send: (s) => void b.link?.handle(s), onTransport: (t) => (ta = t), onFail: () => {},
+    trace: (ev) => trace.push(ev), disconnectGraceMs,
+  });
+  b.link = new RtcLink({ factory, iceServers: [], initiator: false, send: (s) => void a.handle(s), onTransport: (t) => (tb = t), onFail: () => {} });
+  await a.start();
+  await vi.waitFor(() => expect(ta && tb).toBeTruthy());
+  const pcA = pcs[0] as RtcPeerLike & { connectionState: string };
+  const closed = vi.fn();
+  (ta as PeerTransport).onClose(closed);
+  const setState = (s: string) => {
+    pcA.connectionState = s;
+    pcA.onconnectionstatechange?.();
+  };
+  return { ta: ta as PeerTransport, closed, setState, trace };
+}
+
+describe('a link that was up', () => {
+  it('ends its transport when the connection stays disconnected, so the peer leaves and is connected again', async () => {
+    const { closed, setState, trace } = await linked();
+    setState('disconnected');
+    expect(closed).not.toHaveBeenCalled(); // a short interruption is allowed
+    await vi.waitFor(() => expect(closed).toHaveBeenCalledTimes(1));
+    expect(trace).toContain('lost');
+  });
+
+  it('keeps it when the connection comes back within the grace period, and ends it at once when it fails', async () => {
+    const { closed, setState } = await linked(40);
+    setState('disconnected');
+    setState('connected');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(closed).not.toHaveBeenCalled();
+    setState('failed');
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('a transport closed on purpose is not reported lost', async () => {
+    const { ta, setState, trace } = await linked();
+    ta.close();
+    setState('closed');
+    await new Promise((r) => setTimeout(r, 60));
+    expect(trace).not.toContain('lost');
+  });
+});
 
 describe('connection diagnostics data', () => {
   it('reads the type of a candidate without exposing its address', () => {

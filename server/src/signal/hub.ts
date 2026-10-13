@@ -534,8 +534,11 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
       const s = presenceSid(v);
       if (s) sessions[d] = s;
     }
-    send({ t: 'ready', tickets: others.map(([, v]) => presenceTicket(v)), sessions, ...(relay ? { sid, capabilities: [APPLICATION_RELAY_CAPABILITY] } : {}) });
     await backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'join', dev: c.dev, ticket, sid, ...(relay ? { capabilities: [APPLICATION_RELAY_CAPABILITY] } : {}) }));
+    if (closed) return;
+    // Last, with nothing awaited after it: the client sends at once on `ready` (an offer with a cached configuration, a
+    // connection test), and a message arriving while `authenticating` is still set would end the session (4401).
+    send({ t: 'ready', tickets: others.map(([, v]) => presenceTicket(v)), sessions, ...(relay ? { sid, capabilities: [APPLICATION_RELAY_CAPABILITY] } : {}) });
   }
 
   return {

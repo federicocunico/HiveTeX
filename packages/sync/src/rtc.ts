@@ -99,6 +99,9 @@ export class RtcLink {
   private pendingIce: unknown[] = [];
   private remoteSet = false;
   private done = false;
+  /** The transport handed over once both channels opened; ended here if the connection under it is lost. */
+  private transport: DataChannelTransport | null = null;
+  private grace: ReturnType<typeof setTimeout> | null = null;
   private seen: LinkDiag = { state: 'new', offerReceived: false, offerSent: false, answerReceived: false, localCandidates: [], remoteCandidates: [] };
 
   /** What this link has seen so far (for the attempt's failure cause and the diagnostics page). */
@@ -116,6 +119,8 @@ export class RtcLink {
       onFail: (why: string) => void;
       /** Optional trace of this link's steps (see ConnectionManager's trace option). */
       trace?: (ev: string, data?: Record<string, string | number | boolean>) => void;
+      /** After the link is up: how long `disconnected` may last before the transport is ended (default 10 s). */
+      disconnectGraceMs?: number;
     },
   ) {
     this.pc = o.factory(o.iceServers);
@@ -126,8 +131,25 @@ export class RtcLink {
       o.send({ k: 'ice', candidate: ev.candidate });
     };
     this.pc.onconnectionstatechange = () => {
-      o.trace?.('state', { connection: this.pc.connectionState, ice: this.pc.iceConnectionState ?? 'n/a' });
-      if (['failed', 'closed', 'disconnected'].includes(this.pc.connectionState) && !this.done) {
+      const state = this.pc.connectionState;
+      o.trace?.('state', { connection: state, ice: this.pc.iceConnectionState ?? 'n/a' });
+      if (this.transport) {
+        // Up already: a connection that failed, or stayed disconnected, carries nothing any more. Without ending the
+        // transport the peer would stay "connected" in the mesh, every edit queued for it, and nobody would reconnect.
+        if (state === 'connected') {
+          if (this.grace) clearTimeout(this.grace);
+          this.grace = null;
+        } else if (state === 'failed' || state === 'closed') {
+          this.lose(state);
+        } else if (state === 'disconnected' && !this.grace) {
+          this.grace = setTimeout(() => {
+            this.grace = null;
+            if (this.pc.connectionState !== 'connected') this.lose('disconnected');
+          }, o.disconnectGraceMs ?? 10_000);
+        }
+        return;
+      }
+      if (['failed', 'closed', 'disconnected'].includes(state) && !this.done) {
         this.done = true;
         o.onFail(`connection ${this.pc.connectionState}`);
       }
@@ -149,14 +171,31 @@ export class RtcLink {
     const local = fingerprintOf(this.pc.localDescription?.sdp);
     const remote = fingerprintOf(this.pc.remoteDescription?.sdp);
     this.done = true;
-    const t = new DataChannelTransport(s, b, local, remote, () => this.pc.close());
+    const t = new DataChannelTransport(s, b, local, remote, () => {
+      // Closed on purpose (or after `lose`): the state change that follows is not a loss.
+      this.transport = null;
+      if (this.grace) clearTimeout(this.grace);
+      this.grace = null;
+      this.pc.close();
+    });
     this.o.trace?.('channels.open');
     void selectedPair(this.pc).then((p) => {
       this.o.trace?.('route', { local: p?.local ?? 'n/a', remote: p?.remote ?? 'n/a' });
       t.pair = p;
       t.path = !p ? 'unknown' : p.local === 'relay' || p.remote === 'relay' ? 'turn' : p.local !== 'unknown' && p.remote !== 'unknown' ? 'direct' : 'unknown';
     });
+    this.transport = t;
     this.o.onTransport(t);
+  }
+
+  private lose(state: string) {
+    const t = this.transport;
+    if (!t) return;
+    this.transport = null;
+    if (this.grace) clearTimeout(this.grace);
+    this.grace = null;
+    this.o.trace?.('lost', { state });
+    t.fail();
   }
 
   async start() {

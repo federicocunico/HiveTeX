@@ -11,7 +11,8 @@ export interface WebSocketLike {
   close(code?: number, reason?: string): void;
   onopen: (() => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
-  onclose: (() => void) | null;
+  /** Browsers and `ws` pass the close code and reason (the service's 4401, 4429, 1012 ... say why it ended). */
+  onclose: ((ev?: { code?: number; reason?: string }) => void) | null;
   onerror: (() => void) | null;
 }
 
@@ -775,6 +776,10 @@ export class ConnectionManager {
     this.unsubs.push(
       mesh.onPeerJoin((p) => this.onPeerJoin(p)),
       mesh.onPeerLeave((p) => {
+        this.tr('peer.lost', p.deviceId, { meshPeers: mesh.peers.length, socketOpen: this.socketOpen });
+        // On-demand signaling (desktop) is usually closed while linked: open it to learn whether the device is still
+        // online and connect again (the server lists it, and setup messages need the socket).
+        if (!this.stopped && !this.socketOpen && (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle))) void this.introduce(false);
         this.evaluate();
         this.emitState();
         // The peer may simply have restarted: try to reach it again shortly (bounded by the link attempt itself).
@@ -1004,14 +1009,19 @@ export class ConnectionManager {
     ws.onmessage = (ev) => {
       if (this.ws === ws) void this.onServerMessage(String(ev.data), ws);
     };
-    const lost = () => {
+    const lost = (ev?: { code?: number; reason?: string }) => {
       this.cancel(rotate);
       cancelBeat();
       if (this.ws !== ws) return;
       // Decided before the presence it relies on is cleared: a rotation or a lost connection while a device is still
       // being connected reopens the socket.
       const wanted = this.wantSocket();
-      this.tr('socket.closed', undefined, { backoffMs: this.backoff, reopen: wanted });
+      this.tr('socket.closed', undefined, {
+        ...(typeof ev?.code === 'number' ? { code: ev.code } : {}),
+        ...(ev?.reason ? { reason: String(ev.reason).slice(0, 60) } : {}),
+        backoffMs: this.backoff,
+        reopen: wanted,
+      });
       this.ws = null;
       this.onRelay.clear();
       // Relay sessions are bound to this socket's session id: they end with it (fresh keys after reconnecting).

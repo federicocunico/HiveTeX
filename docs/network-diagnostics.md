@@ -65,6 +65,7 @@ content. **Show connection trace** on the page shows the latest 200 steps live.
 | `link.state` | Connection and ICE state changes. |
 | `link.channels.open`, `link.route`, `link.up` | The data channels opened, the selected pair's candidate types, the link handed to sync. |
 | `mesh.auth-ok`, `mesh.auth-failed` | The peers proved their membership over the new link, or that check failed (with the error). |
+| `link.lost`, `peer.lost` | A connected link stopped carrying data (`state`: failed, or disconnected for more than 10 s) and was ended; the device left the mesh, and on-demand signaling reopens to connect it again. |
 | `link.timeout`, `link.failed`, `link.abandoned` | An attempt ended without a link, with the stage it reached (`cause`). |
 | `retry.scheduled` | The next attempt and its delay. |
 | `sig.send` | A setup message left: kind, path (service or a co-author), whether the target is seen on the service. |

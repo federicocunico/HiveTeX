@@ -249,14 +249,7 @@ export class DataChannelTransport implements PeerTransport {
     const bad = () => this.close();
     this.sync = new FragmentedChannel(syncDc, (d) => this.msgCb('sync', d), { ...limits, onViolation: bad });
     this.bulk = new FragmentedChannel(bulkDc, (d) => this.msgCb('bulk', d), { ...limits, onViolation: bad });
-    const fire = () => {
-      // Settle pending sends first so nothing waits on a drain event that a dead channel never delivers.
-      this.sync.abort();
-      this.bulk.abort();
-      if (this.closed) return;
-      this.closed = true;
-      this.closeCb();
-    };
+    const fire = () => this.ended();
     syncDc.onclose = fire;
     bulkDc.onclose = fire;
     syncDc.onerror = fire;
@@ -292,6 +285,22 @@ export class DataChannelTransport implements PeerTransport {
     this.bulk.abort(new Error('transport closed'));
     for (const dc of this.dcs) dc.close();
     this.dispose();
+  }
+  /**
+   * The connection under the channels is gone (ICE failed, or stayed disconnected): end the transport now, without
+   * waiting for channel events that a dead connection may never deliver.
+   */
+  fail() {
+    this.ended();
+    this.close();
+  }
+  private ended() {
+    // Settle pending sends first so nothing waits on a drain event that a dead channel never delivers.
+    this.sync.abort();
+    this.bulk.abort();
+    if (this.closed) return;
+    this.closed = true;
+    this.closeCb();
   }
 }
 

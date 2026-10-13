@@ -153,6 +153,28 @@ describe('signaling relay (5.1)', () => {
     env.deps.now = real;
   });
 
+  it('a client may send the moment it is ready, even when announcing it to the others is slow', async () => {
+    const { a, b } = await setup();
+    // Upstash from a function: the join publish takes a while
+    class SlowPublish extends MemorySignalBackend {
+      override async publish(channel: string, message: string) {
+        await new Promise((r) => setTimeout(r, 80));
+        return super.publish(channel, message);
+      }
+    }
+    const backend = new SlowPublish();
+    const sb = connect(backend);
+    await sb.auth(b);
+    await sb.until((m) => m.t === 'ready');
+    const sa = connect(backend);
+    const authed = sa.auth(a); // a real socket does not wait for the server to finish handling `auth`
+    await sa.until((m) => m.t === 'ready', 2000);
+    await sa.say({ t: 'sig', to: b.dev, env: 'AAAA', ack: 'offer-1' }); // the offer, sent at once
+    await authed;
+    expect(sa.closed).toBeNull();
+    expect(await sb.until((m) => m.t === 'sig', 2000)).toMatchObject({ from: a.dev, env: 'AAAA' });
+  });
+
   it('a session whose subscription is lost says so and closes, instead of staying present and deaf', async () => {
     const { a, b } = await setup();
     const backend = new MemorySignalBackend();
