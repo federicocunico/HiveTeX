@@ -75,9 +75,10 @@ make deploy-prod CONFIRM=1                   # runs `make check`, then vercel de
   endpoint cannot make a failed release deploy look green. Migrations still run during the build and must remain
   compatible with the currently serving version.
 - **Settings and recovery.** Reuse `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`; `make setup` configures
-  them. `HIVETEX_API_BASE` names the stable production domain. If unique deployment URLs require authentication, set
-  the repository’s `VERCEL_AUTOMATION_BYPASS_SECRET` from that Vercel project’s automation bypass setting; checks send
-  it in a header and protection stays enabled. The run summary reports source, tag, deployment URL and terminal state.
+  them. `HIVETEX_API_BASE` names the stable production domain. When unique deployment URLs require authentication, the
+  health check goes through `vercel curl` with `VERCEL_TOKEN`; optionally set the repository’s
+  `VERCEL_AUTOMATION_BYPASS_SECRET` from that Vercel project’s automation bypass setting to send it in a header instead.
+  Protection stays enabled either way. The run summary reports source, tag, deployment URL and terminal state.
   Upload/promotion failures have bounded retries and a deployment budget. A deploy failure keeps published installers.
   Retry without republishing them: `gh workflow run deploy.yml -f release_tag=v1.2.3`. For a checked branch commit, use
   `gh workflow run deploy.yml`. Vercel’s own Git deploys remain disabled in `vercel.json`.

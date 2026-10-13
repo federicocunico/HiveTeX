@@ -100,8 +100,11 @@ try {
   killAll();
 
   // Login startup with "start in background": no window, the worker restores the projects.
-  const settings = join(process.env.APPDATA ?? '', 'app.hivetex.desktop', 'startup.json');
-  const { existsSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  // The test build has its own identifier (tauri.e2e.conf.json), so the installed app's settings are untouched.
+  const { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const { identifier } = JSON.parse(readFileSync(join(here, 'tauri.e2e.conf.json'), 'utf8'));
+  const settings = join(process.env.APPDATA ?? '', identifier, 'startup.json');
+  mkdirSync(dirname(settings), { recursive: true });
   const saved = existsSync(settings) ? readFileSync(settings) : null;
   writeFileSync(settings, JSON.stringify({ background: true }));
   try {
