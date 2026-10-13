@@ -193,7 +193,8 @@ function dependencies(options, env) {
           if (isProtected(response)) {
             if (bypass) throw new Error('Health check is protected and VERCEL_AUTOMATION_BYPASS_SECRET was rejected.');
             // Without a bypass secret, the Vercel CLI authenticates with the deploy token; protection stays enabled.
-            const { stdout } = await exec('npx', ['--yes', 'vercel@latest', 'curl', url + '/api/health', '--yes', ...(options.token ? ['--token', options.token] : []), '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
+            // --token goes before `curl`: options after the URL are passed through to curl itself.
+            const { stdout } = await exec('npx', ['--yes', 'vercel@latest', ...(options.token ? ['--token', options.token] : []), 'curl', url + '/api/health', '--yes', '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
               { timeout: 120_000, signal: abort.signal, windowsHide: true });
             if (JSON.parse(stdout.trim().split('\n').at(-1)).ok === true) return;
           } else if (response.ok && (await response.json()).ok === true) return;
