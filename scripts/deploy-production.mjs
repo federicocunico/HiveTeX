@@ -75,7 +75,7 @@ export async function guard(candidate, current, deps) {
   if (current.projectId !== candidate.projectId) throw new Error('Production alias belongs to a different Vercel project');
   if (current.readyState !== 'READY') throw new Error('Current production deployment is not READY');
   const meta = current.meta || {};
-  const deployedSHA = meta.hivetexSha || meta.githubCommitSha || current.gitSource?.sha || (candidate.baselineId === current.id ? candidate.baselineSHA : null);
+  const deployedSHA = meta.hivetexSha || meta.githubCommitSha || meta.gitCommitSha || current.gitSource?.sha || (candidate.baselineId === current.id ? candidate.baselineSHA : null);
   if (!SHA.test(deployedSHA || '')) throw new Error('Production source is unknown. Set HIVETEX_PRODUCTION_BASELINE_ID and HIVETEX_PRODUCTION_BASELINE_SHA to the verified current deployment, then retry.');
   if (deployedSHA === candidate.sha) {
     await deps.health('https://' + current.url);

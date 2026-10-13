@@ -40,3 +40,5 @@ Installer tests are in `scripts/verify-upgrade.ps1` and require a disposable run
 ## Validation for 0.7.3
 
 Local Windows checks: all package unit suites passed (14 Turbo tasks); native suite passed 122 tests with five pre-existing opt-in tests ignored; build/lint and Svelte types passed (zero errors). The six lifecycle scenarios above passed, including twelve delayed/concurrent/cross-path launches. The cache reset regression also verifies active-build refusal, deletion-error propagation and repeated worker reset. Installer/CI results are recorded after the disposable-runner checks below.
+
+Production ordering also recognizes the commit metadata of older Vercel CLI uploads, retaining the same project, SHA, ancestry and CI checks.

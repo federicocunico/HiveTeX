@@ -100,6 +100,16 @@ test('duplicate notifications verify the already-current source without uploadin
   assert.equal(f.calls.cli.length, 0);
   assert.deepEqual(f.calls.health, ['https://old.vercel.app']);
 });
+test('legacy CLI git metadata establishes source ordering without bypassing project or SHA checks', async () => {
+  const legacy = fixture({ current: { meta: { gitCommitSha: B } } });
+  assert.equal((await deploy(legacy.options, legacy.deps)).outcome, 'success');
+  assert.equal(legacy.calls.gh.some(path => path.endsWith('/compare/' + B + '...' + A)), true);
+  const wrongProject = fixture({ current: { projectId: 'other-project', meta: { gitCommitSha: B } } });
+  await assert.rejects(deploy(wrongProject.options, wrongProject.deps), /different Vercel project/);
+  const invalid = fixture({ current: { meta: { gitCommitSha: 'invalid' } } });
+  await assert.rejects(deploy(invalid.options, invalid.deps), /source is unknown/);
+  assert.equal(invalid.calls.cli.length, 0);
+});
 test('unknown/divergent production fails and explicit baseline is bound to its deployment ID', async () => {
   const unknown = fixture({ current: { meta: {} } });
   await assert.rejects(deploy(unknown.options, unknown.deps), /source is unknown/);

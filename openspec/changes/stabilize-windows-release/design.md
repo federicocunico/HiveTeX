@@ -35,3 +35,7 @@ The pinned single-instance 2.4.4 Windows implementation finds an existing mutex,
 ## Migration Plan
 
 Sync master first; preserve untracked user files. Write/validate the change, apply with Windows checks, update all versions using set-version.mjs and document the regression evidence. Archive only after tasks and verification complete. Push master and wait for terminal CI/desktop/deploy status, then push the unused version tag. Monitor installer publication and checked production deployment until terminal, fixing actionable failures before reporting readiness. Rollback uses a new patch release; never move a published tag.
+
+## Deployment verification finding
+
+The pre-existing production deploy failed because its source was uploaded through the Vercel CLI and the guard did not read CLI `meta.gitCommitSha`. The authenticated CLI verified the production deployment ID, correct project, READY state and the known ancestor commit b8768d8. Accept this existing metadata field alongside GitHub/HiveTeX fields; preserve project identity, SHA format, ancestry and exact-CI checks. No credential files or tokens are needed for this inspection.
