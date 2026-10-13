@@ -1,4 +1,5 @@
 pub mod managed;
+pub mod maintenance;
 pub mod helper;
 pub mod igd;
 pub mod lifecycle;
@@ -53,6 +54,7 @@ struct ManagedProgress {
 /// Installs a compiler HiveTeX manages (`tectonic` = quick compiler, `tinytex` = full LaTeX) into the app's folder.
 #[tauri::command]
 async fn managed_install(app: tauri::AppHandle, component: String) -> Result<managed::Installed, String> {
+    let _exclusive = maintenance::COMPILER_ACTIVITY.try_write().map_err(|_| "A compile or compiler installation is active; wait for it to finish.".to_string())?;
     let asset = managed::asset(&component).ok_or_else(|| format!("{component} is not available for this system"))?;
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let client = reqwest::Client::builder().build().map_err(|e| e.to_string())?;
@@ -100,14 +102,21 @@ fn managed_remove(app: tauri::AppHandle, component: String) -> Result<(), String
     if component != "tectonic" && component != "tinytex" {
         return Err("unknown component".into());
     }
+    let _exclusive = maintenance::COMPILER_ACTIVITY.try_write().map_err(|_| "A compile or compiler installation is active; wait for it to finish.".to_string())?;
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let res = managed::remove(&root, &component);
     tex::forget_engine();
     res?;
     if component == "tectonic" {
-        let _ = std::fs::remove_dir_all(root.join("tectonic-cache"));
+        maintenance::remove_owned_tree(&root.join("tectonic-cache"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn compiler_cache_clear(app: tauri::AppHandle) -> Result<(), String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    maintenance::clear_compiler_cache(&root)
 }
 
 /// Opens the native folder dialog and records the choice; the only way a folder becomes usable by the webview.
@@ -570,7 +579,13 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     // Launch at login, registered only when the user selects it (lifecycle::startup_set); no page permission.
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![lifecycle::BACKGROUND_ARG])));
+    let autostart = tauri_plugin_autostart::Builder::new()
+        .args([lifecycle::BACKGROUND_ARG])
+        .app_name(if cfg!(feature = "test-picker") { "HiveTeX E2E" } else { "HiveTeX" });
+    #[cfg(target_os = "macos")]
+    let autostart = autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+    #[cfg(desktop)]
+    let builder = builder.plugin(autostart.build());
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -658,6 +673,7 @@ pub fn run() {
             managed_remove,
             texcache_stats,
             texcache_clear,
+            compiler_cache_clear,
             mirror_pick,
             mirror_bind,
             mirror_unbind,
@@ -769,7 +785,7 @@ mod picker_tests {
     #[test]
     fn test_picker_is_not_a_default_feature() {
         let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
-        assert!(manifest.contains("test-picker = []"));
+        assert!(manifest.contains("test-picker = [\"tauri-plugin-single-instance/hivetex-test\"]"));
         for line in manifest.lines().filter(|l| l.trim_start().starts_with("default")) {
             assert!(!line.contains("test-picker"), "test-picker must not be a default feature: {line}");
         }

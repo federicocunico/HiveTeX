@@ -150,6 +150,12 @@ pub fn spawn(spec: &WorkerSpec, gen: u64) -> io::Result<Worker> {
     let mut child = cmd.spawn()?;
     #[cfg(windows)]
     let job = crate::tex::winjob::JobGuard::attach(&child, 0);
+    #[cfg(windows)]
+    if job.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::other("cannot attach the sync worker to its lifetime job"));
+    }
     let stdin = child.stdin.take();
     Ok(Worker {
         child,

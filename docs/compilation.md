@@ -68,8 +68,8 @@ Nothing has to be installed to compile. Each device uses the first compiler avai
 
 | # | Where | Compiler | Builds shared with co-authors |
 |---|---|---|---|
-| 1 | Desktop | **Your TeX distribution** (TeX Live / MiKTeX / MacTeX on `PATH`) | yes |
-| 2 | Desktop | **Full LaTeX**: a TinyTeX that HiveTeX installs on request (Account → Compiler, ~70 MB download). Missing packages are installed automatically during a build (`tlmgr`), then the build is retried | yes |
+| 1 | Desktop | **Full LaTeX**: a TinyTeX that HiveTeX installs on request (Account → Compiler, ~70 MB download). Missing packages are installed automatically during a build (`tlmgr`), then the build is retried | yes |
+| 2 | Desktop | **Your TeX distribution** (TeX Live / MiKTeX / MacTeX on `PATH`) | yes |
 | 3 | Desktop | **Quick compiler**: Tectonic (~10–21 MB), set up automatically at the first compile on a computer without TeX. It downloads each package the first time a document needs it and caches it | **no**: this device only |
 | 4 | Web | **Your desktop app**, if it runs on the same computer and you paired this browser with it (*Compile with my desktop app*) | as for the compiler the desktop app uses |
 | 5 | Web / desktop | **In-browser compiler**: SwiftLaTeX pdfTeX/XeTeX (WebAssembly, in a worker); used only when its TeX file server answers | yes |
@@ -154,3 +154,7 @@ by a third party and may be unavailable; point `VITE_TEXLIVE_URL` (or the *texli
 
 The leader publishes `main.synctex.gz`. Double-click a PDF location to jump to the source line; press **Ctrl+Alt+J** in the
 editor to highlight the matching position in the PDF. (Browser-engine builds have no SyncTeX data.)
+
+## Recovery after older Windows installs
+
+Select **Account > Compiler > Clear compiler caches** to reset build files, downloaded quick-compiler packages, temporary downloads and browser TeX files. Documents, sign-in and installed compilers are preserved. Managed full LaTeX is preferred; system tools are selected from one working installation with bounded probes. See [Windows maintenance](windows-maintenance.md).

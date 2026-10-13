@@ -54,11 +54,25 @@ function setUpCache(): Promise<void> {
 }
 
 /** Empties the in-browser compiler's TeX file cache on this device. */
-export async function clearTexCache(): Promise<void> {
-  if (isDesktop) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('texcache_clear');
-  } else if ('caches' in window) await caches.delete('hivetex-tex-v1');
+const liveRunners = new Set<WeakRef<Runner>>();
+let activeBuilds = 0;
+let clearingCache = false;
+
+export async function clearTexCache(allCompilerCaches = false): Promise<void> {
+  if (activeBuilds || clearingCache) throw new Error('Compiler activity is in progress. Wait for it to finish, then clear the cache.');
+  clearingCache = true;
+  try {
+    if (isDesktop) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke(allCompilerCaches ? 'compiler_cache_clear' : 'texcache_clear');
+    } else if ('caches' in window) await caches.delete('hivetex-tex-v1');
+    for (const reference of liveRunners) {
+      const runner = reference.deref();
+      if (runner) runner.stop();
+      else liveRunners.delete(reference);
+    }
+    try { sessionStorage.removeItem('hivetex.texserver'); } catch { /* storage unavailable */ }
+  } finally { clearingCache = false; }
 }
 
 type EngineName = 'pdflatex' | 'xelatex';
@@ -68,7 +82,7 @@ class Runner {
   private worker: Worker | null = null;
   private paths = '';
 
-  constructor(private name: EngineName) {}
+  constructor(private name: EngineName) { liveRunners.add(new WeakRef(this)); }
 
   private async start(): Promise<Worker> {
     const w = new Worker(`${import.meta.env.BASE_URL}swiftlatex/${SCRIPT[this.name]}`);
@@ -153,10 +167,13 @@ export async function loadWasmEngine(_project: string): Promise<(CompileEngine &
     kind: 'wasm',
     supports: ['pdflatex', 'xelatex'],
     async compile(input, opts) {
+      if (clearingCache) return { ok: false, log: '! Compiler cache maintenance is active; try compiling again when it finishes.' };
       const name = (input.engine === 'xelatex' ? 'xelatex' : 'pdflatex') as EngineName;
       if (input.engine === 'lualatex') return { ok: false, log: '! LuaLaTeX is not available in the browser engine' };
       runners[name] ??= new Runner(name);
-      return (runners[name] as Runner).compile(input, opts.timeoutMs);
+      activeBuilds++;
+      try { return await (runners[name] as Runner).compile(input, opts.timeoutMs); }
+      finally { activeBuilds--; }
     },
   };
 }

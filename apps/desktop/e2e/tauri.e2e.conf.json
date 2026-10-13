@@ -1,6 +1,6 @@
 {
   "build": {
-    "beforeBuildCommand": "npx pnpm@10 --filter @hivetex/web build"
+    "beforeBuildCommand": "pnpm --filter @hivetex/web build"
   },
   "app": {
     "security": {

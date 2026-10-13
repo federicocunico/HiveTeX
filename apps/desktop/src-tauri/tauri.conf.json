@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "HiveTeX",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "identifier": "app.hivetex.desktop",
   "build": {
-    "beforeDevCommand": "npx pnpm@10 --filter @hivetex/web dev",
+    "beforeDevCommand": "pnpm --filter @hivetex/web dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "node prepare-worker.mjs && npx pnpm@10 --filter @hivetex/web build",
+    "beforeBuildCommand": "node prepare-worker.mjs && pnpm --filter @hivetex/web build",
     "frontendDist": "../../web/dist"
   },
   "app": {
@@ -40,7 +40,12 @@
     ],
     "createUpdaterArtifacts": true,
     "windows": {
+      "wix": {
+        "fragmentPaths": ["windows/cleanup.wxs"],
+        "componentGroupRefs": ["HiveTeXCleanupActions"]
+      },
       "nsis": {
+        "template": "windows/installer.nsi",
         "installerHooks": "windows/hooks.nsh"
       }
     },

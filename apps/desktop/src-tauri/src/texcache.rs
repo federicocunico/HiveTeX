@@ -69,6 +69,7 @@ impl TexCache {
 
     /// Serves `rel` from disk, else downloads it once. `Ok(Missing)` = the server does not have it.
     pub async fn get(&self, rel: &Path) -> Result<Lookup, String> {
+        let _active = crate::maintenance::COMPILER_ACTIVITY.try_read().map_err(|_| "Compiler maintenance is active".to_string())?;
         let file = self.root.join(rel);
         if let Ok(b) = std::fs::read(&file) {
             return Ok(Lookup::Hit(b));
@@ -128,11 +129,8 @@ impl TexCache {
     }
 
     pub fn clear(&self) -> Result<(), String> {
-        match std::fs::remove_dir_all(&self.root) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
+        let _exclusive = crate::maintenance::COMPILER_ACTIVITY.try_write().map_err(|_| "Compiler activity is in progress; wait for it to finish.".to_string())?;
+        crate::maintenance::remove_owned_tree(&self.root)
     }
 }
 

@@ -59,6 +59,8 @@ Installed apps check GitHub when they start. If a newer release exists, a badge 
 new Windows installer removes the old version first (setup or MSI), keeping your projects and settings. *Account →
 Check for updates* still installs an update in place.
 
+**Compiler recovery and uninstall:** *Account → Compiler → Clear compiler caches* resets build/download caches while keeping documents and installed compilers. Explicit uninstall removes app-owned local data and saved sign-in; upgrades preserve them. Back up offline-only work before uninstalling. See [Windows maintenance and checks](docs/windows-maintenance.md).
+
 **Compiling on the desktop:**
 - It uses your TeX installation (TeX Live, MiKTeX, MacTeX) if you have one.
 - Otherwise it sets up a **quick compiler** (about 20 MB) at the first compile, and downloads packages as documents
@@ -292,7 +294,7 @@ Every target is a thin wrapper; the plain command is shown next to it.
 | `make dev-local` | `pnpm turbo run dev --filter=@hivetex/server --filter=@hivetex/web` | everything local: API on :3000 (embedded Postgres, console mailer) + web on :1420 |
 | `make test` | `pnpm turbo run test` | unit and integration tests of every package |
 | `make e2e` | `pnpm exec playwright test` | end-to-end tests (starts a local API with an embedded database) |
-| `make check` | build, lint, svelte-check, tests, bundle and CSP checks, e2e | what CI runs |
+| `make check` | build, lint, svelte-check, tests, bundle and CSP checks, e2e | comprehensive local checks; Windows CI keeps timing-dependent e2e as warnings |
 | `make up` / `make down` / `make reset` | `docker compose up -d --build --wait` … | full local stack with the production code path ([docs/local-stack.md](docs/local-stack.md)) |
 | `make test-stack` | | e2e suite against the Docker stack |
 | `make desktop-dev` / `make desktop-test` | `pnpm --filter @hivetex/desktop tauri dev` / `cargo test --lib` | desktop app (the Rust tests compile real LaTeX when a TeX distribution is installed) |

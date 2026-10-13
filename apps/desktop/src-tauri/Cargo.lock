@@ -1960,7 +1960,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hivetex-desktop"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5169,8 +5169,6 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-single-instance"
 version = "2.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cd0cb5c412a5071b69bab6a6df1583cbb89460d4a83b6a24769b08d15b6b1e1"
 dependencies = [
  "serde",
  "serde_json",

@@ -49,19 +49,19 @@ fn tectonic_exe(root: &Path) -> Option<PathBuf> {
     p.is_file().then_some(p)
 }
 
-/// Compilers in order of preference: system TeX (PATH), managed TinyTeX, managed Tectonic (local-only builds).
+/// Compilers in order of preference: managed TinyTeX, working system TeX, managed Tectonic (local-only builds).
 pub fn detect_with(path: Option<&std::ffi::OsStr>, managed: Option<&Path>) -> Option<EngineInfo> {
-    if let Some(info) = path.and_then(detect_in) {
-        return Some(info);
-    }
-    let root = managed?;
-    if let Some(bin) = tinytex_bin(root) {
+    if let Some(bin) = managed.and_then(tinytex_bin) {
         if let Some(mut info) = detect_in(bin.as_os_str()) {
             info.flavor = "tinytex (managed)".into();
             info.bin_dir = Some(bin);
             return Some(info);
         }
     }
+    if let Some(info) = path.and_then(detect_in) {
+        return Some(info);
+    }
+    let root = managed?;
     let exe = tectonic_exe(root)?;
     Some(EngineInfo {
         flavor: "tectonic (managed)".into(),
@@ -129,15 +129,39 @@ pub fn find_exe_in(name: &str, path: &std::ffi::OsStr) -> Option<PathBuf> {
     None
 }
 
-fn version_text(exe: &Path) -> String {
-    background_command(exe)
-        .arg("--version")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default()
+/// A failed or hung program is not an installed compiler. Bound output and lifetime, including child processes.
+fn probe_output(exe: &Path, args: &[&str], timeout: Duration) -> Option<String> {
+    let mut child = background_command(exe).args(args).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    #[cfg(windows)]
+    let job = winjob::JobGuard::attach(&child, 0);
+    #[cfg(windows)]
+    if job.is_none() { let _ = child.kill(); let _ = child.wait(); return None; }
+    let output = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = output.take(65536).read_to_end(&mut bytes);
+        bytes
+    });
+    let start = Instant::now();
+    let ok = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) if start.elapsed() < timeout => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break false;
+            }
+        }
+    };
+    #[cfg(windows)]
+    drop(job);
+    let bytes = reader.join().ok()?;
+    ok.then(|| String::from_utf8_lossy(&bytes).into_owned()).filter(|s| !s.trim().is_empty())
 }
 
 pub fn detect() -> Option<EngineInfo> {
+    let _activity = crate::maintenance::COMPILER_ACTIVITY.try_read().ok()?;
     // HIVETEX_IGNORE_SYSTEM_TEX=1: behave as on a machine without TeX (tests of the managed compilers).
     let path = if std::env::var_os("HIVETEX_IGNORE_SYSTEM_TEX").is_some() { None } else { std::env::var_os("PATH") };
     detect_with(path.as_deref(), managed_root().map(PathBuf::as_path))
@@ -186,6 +210,7 @@ pub fn detect_fresh() -> Option<EngineInfo> {
 /// Forgets the remembered engine (a managed compiler was installed or removed).
 pub fn forget_engine() {
     ENGINE.forget();
+    if let Some(roots) = TEX_ROOTS.get() { roots.lock().unwrap_or_else(|e| e.into_inner()).clear(); }
 }
 
 /// Whether a detected engine's executable still exists.
@@ -202,31 +227,34 @@ fn still_installed(info: &EngineInfo) -> bool {
 
 /// `detect` over an explicit search path (tests).
 pub fn detect_in(path: &std::ffi::OsStr) -> Option<EngineInfo> {
-    let mut supports = Vec::new();
-    let mut flavor = String::new();
-    for e in ["pdflatex", "xelatex", "lualatex"] {
-        if let Some(p) = find_exe_in(e, path) {
-            supports.push(e.to_string());
-            if flavor.is_empty() {
-                let v = version_text(&p);
-                flavor = if v.contains("MiKTeX") {
-                    "miktex"
-                } else if v.contains("TeX Live") || v.contains("TeX Live") {
-                    "texlive"
-                } else {
-                    "tex"
-                }
-                .into();
+    detect_in_with(path, &|p, timeout| probe_output(p, &["--version"], timeout))
+}
+
+fn detect_in_with(path: &std::ffi::OsStr, probe: &dyn Fn(&Path, Duration) -> Option<String>) -> Option<EngineInfo> {
+    let deadline = Instant::now() + Duration::from_secs(6);
+    for bin in std::env::split_paths(path).filter(|p| p.is_absolute()) {
+        let mut supports = Vec::new();
+        let mut flavor = String::new();
+        for engine in ["pdflatex", "xelatex", "lualatex"] {
+            let Some(exe) = find_exe_in(engine, bin.as_os_str()) else { continue };
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() { return None; }
+            let Some(version) = probe(&exe, remaining.min(Duration::from_secs(2))) else { continue };
+            let candidate = if version.contains("MiKTeX") { "miktex" }
+                else if version.contains("TeX Live") { "texlive" } else { continue };
+            if flavor.is_empty() { flavor = candidate.into(); }
+            if flavor == candidate {
+                supports.push(engine.to_string());
             }
+        }
+        if !supports.is_empty() {
+            return Some(EngineInfo { flavor, supports, has_latexmk: find_exe_in("latexmk", bin.as_os_str()).is_some(), verified_reads: true, bin_dir: Some(bin) });
         }
     }
     // A Tectonic found on PATH is not offered: it writes no recorder file, so what a document read cannot be verified
     // (see verify_reads), and its I/O reads absolute paths directly. Only the managed Tectonic is used (detect_with),
     // and only for builds that stay on this device.
-    if supports.is_empty() {
-        return None;
-    }
-    Some(EngineInfo { flavor, supports, has_latexmk: find_exe_in("latexmk", path).is_some(), verified_reads: true, bin_dir: None })
+    None
 }
 
 /// Build tool configuration that must never come from a project (latexmk rc files are executable Perl).
@@ -384,13 +412,16 @@ pub(crate) mod winjob {
                     info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY;
                     info.ProcessMemoryLimit = (memory_mb * 1024 * 1024) as usize;
                 }
-                SetInformationJobObject(
+                let configured = SetInformationJobObject(
                     job,
                     JobObjectExtendedLimitInformation,
                     &info as *const _ as *const _,
                     std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
                 );
-                AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE);
+                if configured == 0 || AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) == 0 {
+                    CloseHandle(job);
+                    return None;
+                }
                 Some(JobGuard(job))
             }
         }
@@ -406,7 +437,17 @@ pub(crate) mod winjob {
 }
 
 fn base_command(exe: PathBuf, dir: &Path) -> Command {
-    let mut c = background_command(exe);
+    let mut c = background_command(&exe);
+    if let Some(bin) = exe.parent().filter(|b| b.is_absolute()) {
+        let mut paths = vec![bin.to_path_buf()];
+        paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|p| p != bin));
+        if let Ok(path) = std::env::join_paths(paths) { c.env("PATH", path); }
+        if managed_root().is_some_and(|root| bin.starts_with(root.join("tinytex"))) {
+            for key in ["TEXMFCNF", "TEXMFROOT", "TEXMFDIST", "TEXMFVAR", "TEXMFCONFIG", "TEXMFHOME", "TEXINPUTS", "BIBINPUTS", "BSTINPUTS"] {
+                c.env_remove(key);
+            }
+        }
+    }
     c.current_dir(dir)
         // TeX Live path restrictions (paranoid: no reads/writes outside the working tree).
         .env("openout_any", "p")
@@ -429,6 +470,10 @@ pub type OnDownload = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload>) -> CompileResp {
     let mut resp = CompileResp::default();
+    let Ok(_activity) = crate::maintenance::COMPILER_ACTIVITY.try_read() else {
+        resp.log = "! Compiler maintenance is in progress; try compiling again when it finishes.".into();
+        return resp;
+    };
     let dir = root.join("builds").join(sanitize_project(&req.project));
     if fs::create_dir_all(&dir).is_err() {
         resp.log = "! cannot create build directory".into();
@@ -605,7 +650,7 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
     // openin_any=p for reads; MiKTeX's switches do not cover \includegraphics). So check what was actually read,
     // and if anything came from outside the project or the TeX installation, nothing produced by this run leaves
     // the device: not the PDF, not SyncTeX, not even the log (it would show the content or the paths).
-    if let Err(n) = verify_reads(&dir, &out_dir, &stem) {
+    if let Err(n) = verify_reads_with(&dir, &out_dir, &stem, &tex_roots_for(&info)) {
         resp.log = format!(
             "! The document tried to read {n} file(s) outside the project (for example \\input, \\includegraphics or a bibliography with an absolute or ../ path).\n! For your safety the result of this compile was discarded on the compiling device.\n"
         );
@@ -740,37 +785,37 @@ fn compile_tectonic(
 // ---------------------------------------------------------------------------------------------
 
 /// Directories of the TeX installation (kpathsea variables), resolved once. Reading from these is expected.
-fn tex_roots() -> &'static Vec<PathBuf> {
-    static ROOTS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
-    ROOTS.get_or_init(|| find_exe("kpsewhich").map(|k| roots_from(&k)).unwrap_or_default())
-}
+static TEX_ROOTS: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Vec<PathBuf>>>> = std::sync::OnceLock::new();
 
-/// The managed TinyTeX's directories, from its own kpsewhich (it is not on PATH), plus the install folder itself.
-fn managed_tinytex_roots() -> &'static Vec<PathBuf> {
-    static ROOTS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
-    ROOTS.get_or_init(|| {
-        let Some(root) = managed_root() else { return Vec::new() };
-        let mut out = tinytex_bin(root).and_then(|b| find_exe_in("kpsewhich", b.as_os_str())).map(|k| roots_from(&k)).unwrap_or_default();
-        if let Ok(c) = root.join("tinytex").canonicalize() {
-            if !out.contains(&c) {
-                out.push(c);
+/// File-read verification belongs to the selected installation too, never whichever kpsewhich is first on PATH.
+fn tex_roots_for(info: &EngineInfo) -> Vec<PathBuf> {
+    let Some(bin) = &info.bin_dir else { return Vec::new() };
+    let mut roots = TEX_ROOTS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    roots.entry(bin.clone()).or_insert_with(|| {
+        let mut out = find_exe_in("kpsewhich", bin.as_os_str()).map(|k| roots_from(&k)).unwrap_or_default();
+        if info.flavor.starts_with("tinytex") {
+            if let Some(root) = bin.parent().and_then(Path::parent).and_then(|p| p.canonicalize().ok()) {
+                if !out.contains(&root) { out.push(root); }
             }
         }
         out
-    })
+    }).clone()
 }
 
 /// The directories a TeX installation reads from, asked from its kpsewhich (canonical paths).
 fn roots_from(kpse: &Path) -> Vec<PathBuf> {
     {
         let mut out = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(6);
         let sep = if cfg!(windows) { ';' } else { ':' };
         for var in [
             "TEXMFROOT", "TEXMFDIST", "TEXMFMAIN", "TEXMFLOCAL", "TEXMFSYSVAR", "TEXMFSYSCONFIG", "TEXMFVAR",
             "TEXMFCONFIG", "TEXMFHOME", "TEXMFCACHE", "SELFAUTOPARENT",
         ] {
-            let Ok(o) = background_command(kpse).arg(format!("-var-value={var}")).stderr(Stdio::null()).output() else { continue };
-            for v in String::from_utf8_lossy(&o.stdout).trim().split(sep) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() { break; }
+            let Some(text) = probe_output(kpse, &[&format!("-var-value={var}")], remaining.min(Duration::from_secs(2))) else { continue };
+            for v in text.trim().split(sep) {
                 let v = v.trim().trim_start_matches("!!");
                 // unexpanded brace/variable lists are not usable roots
                 if v.is_empty() || v.contains('{') || v.contains('$') {
@@ -803,11 +848,12 @@ fn read_allowed(path: &Path, build: &Path, roots: &[PathBuf]) -> bool {
 /// Checks the recorder file (`.fls`: every file the engine opened) and the bibliography log (`.blg`: data sources of
 /// bibtex/biber). Returns the number of files read from outside the project and the TeX installation.
 pub fn verify_reads(build: &Path, out_dir: &Path, stem: &str) -> Result<(), usize> {
+    let roots = ENGINE.get_or_detect(&detect).as_ref().map(tex_roots_for).unwrap_or_default();
+    verify_reads_with(build, out_dir, stem, &roots)
+}
+
+fn verify_reads_with(build: &Path, out_dir: &Path, stem: &str, roots: &[PathBuf]) -> Result<(), usize> {
     let build = build.canonicalize().unwrap_or_else(|_| build.to_path_buf());
-    let mut roots = tex_roots().clone();
-    // The TeX tree HiveTeX installed itself (not on PATH, so the kpsewhich above does not see it).
-    roots.extend(managed_tinytex_roots().iter().cloned());
-    let roots = &roots;
     let mut bad = 0usize;
     let mut check = |p: &Path, base: &Path| {
         let full = if p.is_absolute() { p.to_path_buf() } else { base.join(p) };
@@ -981,7 +1027,7 @@ mod tests {
     }
 
     #[test]
-    fn managed_compilers_come_after_system_tex_tinytex_before_tectonic() {
+    fn managed_tinytex_is_preferred_to_system_versions_and_tectonic() {
         let root = tmp("managed-order");
         let empty = tmp("empty-path");
         assert!(detect_with(Some(empty.as_os_str()), Some(&root)).is_none(), "nothing installed: no engine");
@@ -990,15 +1036,64 @@ mod tests {
         assert_eq!(t.flavor, "tectonic (managed)");
         assert!(!t.verified_reads, "Tectonic builds must stay local");
         let bin = root.join("tinytex").join("bin").join("x86_64-test");
-        fake_exe(&bin, "pdflatex");
+        fake_versioned_engine(&bin);
         let tt = detect_with(Some(empty.as_os_str()), Some(&root)).unwrap();
         assert!(tt.flavor.starts_with("tinytex"), "{}", tt.flavor);
         assert!(tt.verified_reads);
         assert_eq!(tt.bin_dir.as_deref(), Some(bin.as_path()));
         let sys = tmp("system-path");
-        fake_exe(&sys, "pdflatex");
+        fake_versioned_engine(&sys);
         let s = detect_with(Some(sys.as_os_str()), Some(&root)).unwrap();
-        assert!(s.bin_dir.is_none(), "system TeX wins over managed installs");
+        assert_eq!(s.bin_dir.as_deref(), Some(bin.as_path()), "managed full LaTeX wins over system installs");
+        let s = detect_with(Some(sys.as_os_str()), None).unwrap();
+        assert_eq!(s.bin_dir.as_deref(), Some(sys.as_path()), "system TeX keeps its bin directory");
+    }
+
+    fn fake_versioned_engine(dir: &Path) {
+        fs::create_dir_all(dir).unwrap();
+        #[cfg(windows)]
+        fs::write(dir.join("pdflatex.cmd"), "@echo pdfTeX (TeX Live 2026)\r\n@exit /b 0\r\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join("pdflatex");
+            fs::write(&path, "#!/bin/sh\necho 'pdfTeX (TeX Live 2026)'\n").unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    #[test]
+    fn broken_candidates_are_skipped_without_mixing_installations() {
+        let root = tmp("multiple-versions");
+        let stale = root.join("stale");
+        let good = root.join("good");
+        let other = root.join("other");
+        fake_exe(&stale, "pdflatex");
+        fake_exe(&stale, "latexmk");
+        fake_exe(&good, "pdflatex");
+        fake_exe(&other, "xelatex");
+        fake_exe(&other, "latexmk");
+        let path = std::env::join_paths([&stale, &good, &other]).unwrap();
+        let info = detect_in_with(&path, &|exe, _| (!exe.starts_with(&stale)).then(|| "pdfTeX (TeX Live 2026)".into())).unwrap();
+        assert_eq!(info.bin_dir, Some(good));
+        assert_eq!(info.supports, vec!["pdflatex"]);
+        assert!(!info.has_latexmk, "latexmk in a different installation is not used");
+    }
+
+    #[test]
+    fn failed_program_is_not_a_distribution() {
+        let root = tmp("invalid-engine");
+        fake_exe(&root, "pdflatex"); // existing file, but not an executable
+        assert!(detect_in(root.as_os_str()).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_hung_version_probe_is_terminated_within_its_deadline() {
+        let started = Instant::now();
+        let cmd = std::env::var_os("ComSpec").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("cmd.exe"));
+        assert!(probe_output(&cmd, &["/c", "ping -n 30 127.0.0.1 >nul"], Duration::from_millis(200)).is_none());
+        assert!(started.elapsed() < Duration::from_secs(5), "a hung version probe was not bounded");
     }
 
     /// Real build with the managed Tectonic (downloads packages on first use). Run with

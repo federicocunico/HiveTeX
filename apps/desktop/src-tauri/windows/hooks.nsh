@@ -2,7 +2,7 @@
 ;
 ; The setup already replaces an earlier setup-installed HiveTeX. This hook additionally removes a HiveTeX installed from
 ; the MSI (a different product that would otherwise stay listed next to the new one). Only the program is removed:
-; projects, settings and the stored session live in the user's profile and are untouched.
+; Upgrade replacement preserves user state. Explicit uninstall removes HiveTeX-owned user data and credentials.
 
 !macro HiveTeXRemoveMsiFrom ROOT VIEW
   SetRegView ${VIEW}
@@ -20,10 +20,13 @@
     StrCmp $R4 "${PRODUCTNAME}" 0 hivetex_next_${ROOT}_${VIEW}
     DetailPrint "Removing the earlier ${PRODUCTNAME} installation (MSI)"
     ; "runas" asks for administrator rights only when needed (a per-machine MSI cannot be removed without them).
-    ExecShellWait "runas" "msiexec.exe" "/x $R1 /qn /norestart" SW_HIDE
+    ExecShellWait "runas" "msiexec.exe" "/x $R1 /qn /norestart HIVETEX_UPGRADE=1" SW_HIDE
     ReadRegStr $R4 ${ROOT} "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R1" "DisplayName"
-    ; Removed: the key list changed, enumerate again. Still there (declined or failed): go on, the setup continues anyway.
-    StrCmp $R4 "" 0 hivetex_next_${ROOT}_${VIEW}
+    ; A declined/failed uninstall must not leave two installations behind.
+    StrCmp $R4 "" hivetex_removed_${ROOT}_${VIEW}
+    MessageBox MB_OK|MB_ICONSTOP "The earlier HiveTeX MSI could not be removed. Close HiveTeX and retry setup."
+    Abort
+  hivetex_removed_${ROOT}_${VIEW}:
     StrCpy $R0 0
     Goto hivetex_next_${ROOT}_${VIEW}
   hivetex_done_${ROOT}_${VIEW}:
@@ -38,6 +41,7 @@
   !insertmacro HiveTeXRemoveMsiFrom HKLM 64
   !insertmacro HiveTeXRemoveMsiFrom HKLM 32
   !insertmacro HiveTeXRemoveMsiFrom HKCU 64
+  !insertmacro HiveTeXRemoveMsiFrom HKCU 32
   ${If} ${RunningX64}
     SetRegView 64
   ${Else}
@@ -48,4 +52,29 @@
   Pop $R2
   Pop $R1
   Pop $R0
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  ; /UPDATE is used by the updater. _?= is added when setup invokes the previous uninstaller for replacement,
+  ; including an ordinary manual upgrade (which does not necessarily pass /UPDATE).
+  ${If} $UpdateMode <> 1
+    Push $R0
+    Push $R1
+    ClearErrors
+    ${GetOptions} $CMDLINE "_?=" $R0
+    ${If} ${Errors}
+      DetailPrint "Removing HiveTeX user data, compiler caches, credentials and login startup"
+      ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup' $R1
+      ${If} ${Errors}
+        StrCpy $R1 1
+      ${EndIf}
+      ${If} $R1 <> 0
+        MessageBox MB_OK|MB_ICONSTOP "HiveTeX could not remove all its user data. Close HiveTeX and retry uninstall. Your linked project folders are not removed."
+        SetErrorLevel 1
+        Abort
+      ${EndIf}
+    ${EndIf}
+    Pop $R1
+    Pop $R0
+  ${EndIf}
 !macroend

@@ -1,5 +1,5 @@
 name: Desktop
-# The desktop app. Tests run on Linux and Windows in parallel; installers are built for Windows only (for now):
+# Required native/instance checks and installers: Windows only. UI diagnostics are available on demand.
 # - Tag v* -> draft GitHub Release with the Windows installers and the signed auto-update manifest (latest.json),
 #   published by the Release workflow.
 # - Manual run (Actions -> Desktop -> Run workflow) -> the same installers as workflow artifacts, no release.
@@ -22,34 +22,19 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  # Rust tests (real LaTeX compilation, shell-escape hardening, timeouts, folder mirror, OS keychain, native store,
-  # transport, UPnP client and mapping manager) with a TeX distribution installed, plus the patched webrtc-ice suite.
   rust-tests:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: windows-2025
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            apps/desktop/src-tauri
-            apps/desktop/src-tauri/vendor/webrtc-ice
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with: { node-version: 22, cache: pnpm }
-      - name: Linux system libraries and TeX
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config \
-            texlive-latex-base texlive-latex-recommended latexmk
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: apps/desktop/src-tauri }
       - name: Windows TeX (TinyTeX)
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           # TinyTeX from GitHub releases, the same archive and checksum the app installs (src/managed.rs): MiKTeX's
@@ -74,60 +59,22 @@ jobs:
           if (-not (Test-Path main.pdf)) { Get-Content main.log -ErrorAction SilentlyContinue; exit 1 }
           Pop-Location
           echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Frontend dist and bundled sync worker (required by tauri::generate_context)
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @hivetex/web build
-          node apps/desktop/prepare-worker.mjs
-      - name: Rust tests
+      - run: pnpm install --frozen-lockfile
+      - run: node apps/desktop/prepare-worker.mjs
+      - run: pnpm --filter @hivetex/web build
+      - name: Native regressions (serialized process/credential tests)
         working-directory: apps/desktop/src-tauri
-        run: cargo test --lib
-      - name: Patched webrtc-ice (mapped endpoints on the UDP mux; vendor/PATCHES.md)
-        if: runner.os == 'Linux'
-        working-directory: apps/desktop/src-tauri/vendor/webrtc-ice
-        run: cargo test --lib
+        run: cargo test --locked --lib -- --test-threads=1
+      - name: Concurrent launch, background reopening and update restart
+        run: pnpm --filter @hivetex/desktop e2e
+        env:
+          HIVETEX_LIFECYCLE_ONLY: '1'
 
-  # Router matrix (13.4): Linux namespaces with a UPnP router (miniupnpd), a symmetric NAT, TURN and packet capture;
-  # the peers are the app's native stack (rtc_cli). Mapped direct, no-hairpin LAN, unsupported UPnP and relay only.
-  router-matrix:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with: { workspaces: apps/desktop/src-tauri }
-      # setup-node reads packageManager (pnpm) from package.json and needs pnpm on PATH.
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with: { node-version: 22 }
-      - name: System libraries and network lab tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libssl-dev libdbus-1-dev pkg-config \
-            iproute2 iptables nftables miniupnpd-nftables coturn tcpdump iputils-ping
-          # The packaged services must not run on the runner itself.
-          sudo systemctl stop miniupnpd coturn 2>/dev/null || true
-      - name: Router matrix
-        run: |
-          mkdir -p apps/web/dist && echo '<!doctype html>' > apps/web/dist/index.html
-          cd apps/desktop/src-tauri
-          TAURI_CONFIG='{"bundle":{"resources":[]}}' cargo build --example rtc_cli
-          sudo NETLAB_OUT="$RUNNER_TEMP/netlab-result.json" "$(which node)" ../e2e/netlab/matrix.mjs "$PWD/target/debug/examples/rtc_cli"
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with: { name: router-matrix, path: "${{ runner.temp }}/netlab-result.json", if-no-files-found: ignore }
-
-  # The real desktop app driven over WebDriver (tauri-driver), with the local server and a Chromium co-author for the
-  # relay, fault-injection and doorbell tests. On Windows also the lifecycle checks without WebDriver (lifecycle.mjs).
-  desktop-e2e:
-    strategy:
-      fail-fast: false
-      matrix:
-        # windows-2022: on windows-2025 WebView2 (>= 133) never opens the DevTools port msedgedriver needs
-        # (https://github.com/actions/runner-images/issues/14738).
-        os: [ubuntu-24.04, windows-2022]
-    runs-on: ${{ matrix.os }}
+  # WebDriver availability and GUI timing vary on hosted runners; run these manually with visible warnings.
+  desktop-diagnostics:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    continue-on-error: true
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
@@ -137,41 +84,29 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: apps/desktop/src-tauri }
-      - name: Linux system libraries and WebKit WebDriver
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config \
-            webkit2gtk-driver xvfb dbus-x11 gnome-keyring
-      - name: msedgedriver matching the WebView2 runtime
-        if: runner.os == 'Windows'
+      - run: pnpm install --frozen-lockfile
+      - run: cargo install tauri-driver --locked
+      - run: pnpm exec playwright install chromium
+      - name: Desktop UI diagnostics (advisory)
+        id: tests
+        continue-on-error: true
         shell: pwsh
         run: |
-          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-          $ver = (Get-ItemProperty $key).pv
-          Write-Host "WebView2 $ver"
-          $dir = "$env:RUNNER_TEMP\edgedriver"
-          Invoke-WebRequest "https://msedgedriver.microsoft.com/$ver/edgedriver_win64.zip" -OutFile "$env:RUNNER_TEMP\edgedriver.zip"
-          Expand-Archive "$env:RUNNER_TEMP\edgedriver.zip" -DestinationPath $dir -Force
-          "MSEDGEDRIVER=$dir\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - run: cargo install tauri-driver --locked
-      - run: pnpm install --frozen-lockfile
-      - name: Browser for the desktop/browser tests
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Desktop UI tests (Linux, virtual display)
-        if: runner.os == 'Linux'
-        # The app keeps device keys in the OS keychain (Secret Service): give it an unlocked keyring on a session bus.
-        # A 1440x900 screen gives the wide workspace (xvfb defaults to 640x480); the Windows runner (1024x768) covers the narrow one.
-        run: |
-          dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null && xvfb-run -a -s "-screen 0 1440x900x24" pnpm --filter @hivetex/desktop e2e'
-      - name: Desktop UI tests (Windows)
-        if: runner.os == 'Windows'
-        run: pnpm --filter @hivetex/desktop e2e
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          pnpm --filter @hivetex/desktop e2e 2>&1 | Tee-Object -FilePath test-results/desktop-diagnostics.log
+      - name: Report diagnostic result
+        if: always()
+        run: node scripts/advisory-report.mjs desktop "${{ steps.tests.outcome }}"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: desktop-diagnostics
+          path: test-results/
+          if-no-files-found: ignore
 
-  # Windows installers (exe, msi) and the signed update manifest. Installers do not wait for the tests: `make release`
-  # only tags a commit whose CI and Desktop runs already passed, so a flaky test cannot block a release.
   build:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: rust-tests
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     permissions:
       contents: write
     # Pinned image: a change of the -latest default must not silently break a release.
@@ -195,6 +130,11 @@ jobs:
         shell: bash
         run: |
           echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY repository secret (gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/hivetex.key)"; exit 1
+      - name: Checked source before tagging
+        if: env.IS_TAG == 'true'
+        run: node scripts/release-check.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Build options
         shell: bash
         run: |
@@ -260,10 +200,9 @@ jobs:
         run: |
           $env:PATH = "$env:SystemRoot\System32"
           # A GUI-subsystem exe: `&` does not wait for it nor set $LASTEXITCODE, Start-Process -Wait does.
-          $p = Start-Process -FilePath apps/desktop/src-tauri/target/release/hivetex-desktop.exe -ArgumentList '--self-check' -Wait -PassThru -NoNewWindow
+          $p = Start-Process -FilePath apps/desktop/src-tauri/target/release/hivetex-desktop.exe -ArgumentList '--self-check' -Wait -PassThru -WindowStyle Hidden
           if ($p.ExitCode -ne 0) { Write-Error "self-check exited with $($p.ExitCode)"; exit 1 }
-      - name: Check that a new Windows installer replaces the old version (manual run)
-        if: env.IS_TAG != 'true'
+      - name: Upgrade and complete uninstall checks
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

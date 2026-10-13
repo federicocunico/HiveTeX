@@ -90,9 +90,22 @@
   }
 
   async function clearFiles() {
-    await clearTexCache();
-    message = 'Downloaded TeX files removed; they are fetched again when needed.';
-    await refresh();
+    busy = 'cache';
+    message = '';
+    try {
+      if (isDesktop) {
+        await clearTexCache(true);
+        message = 'Compiler caches cleared. Documents and installed compilers are kept; packages are downloaded again when needed.';
+      } else {
+        await clearTexCache();
+        message = 'Downloaded TeX files removed; they are fetched again when needed.';
+      }
+    } catch (e) {
+      message = `Could not clear compiler caches: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      busy = '';
+      await refresh();
+    }
   }
 
   async function setHelper(enabled: boolean) {
@@ -144,9 +157,11 @@
       </div>
       {#if busy && progress}<p class="muted" role="status">Downloading {progress}…</p>{/if}
     {/if}
-    {#if texFiles && texFiles.files > 0}
-      <p class="row" style="gap: 8px">In-browser compiler files: {texFiles.files} · {mb(texFiles.bytes)} <button class="small" onclick={clearFiles}>Clear</button></p>
-    {/if}
+    <p class="row" style="gap: 8px">
+      <button class="small" disabled={!!busy} onclick={clearFiles} data-testid="clear-compiler-cache">Clear compiler caches</button>
+      <small class="muted">Build files and downloaded packages. Documents and installed compilers are kept.</small>
+    </p>
+    {#if texFiles && texFiles.files > 0}<p class="muted">In-browser compiler files: {texFiles.files} · {mb(texFiles.bytes)}</p>{/if}
     {#if helper}
       <label class="row" style="gap: 8px; align-items: flex-start">
         <input type="checkbox" checked={helper.enabled} disabled={!helper.running} onchange={(e) => setHelper((e.currentTarget as HTMLInputElement).checked)} data-testid="helper-enabled" />
@@ -166,7 +181,7 @@
     {:else}
       <button class="small" disabled={busy === 'pair'} onclick={pair} data-testid="pair-desktop">Compile with my desktop app</button>
     {/if}
-    <button class="small" onclick={clearFiles}>Clear in-browser compiler files</button>
+    <button class="small" disabled={!!busy} onclick={clearFiles}>Clear in-browser compiler files</button>
   {/if}
   {#if message}<p class="notice" role="status" style="margin-top: 8px">{message}</p>{/if}
 </div>

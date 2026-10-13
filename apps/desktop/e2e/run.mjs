@@ -19,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const desktop = resolve(here, '..');
 const root = resolve(desktop, '../..');
 const win = process.platform === 'win32';
+const lifecycleOnly = process.env.HIVETEX_LIFECYCLE_ONLY === '1';
 const exe = join(desktop, 'src-tauri/target/debug', win ? 'hivetex-desktop.exe' : 'hivetex-desktop');
 const children = [];
 // Not 4444 (tauri-driver's default; the Docker stack's Neon proxy listens there) nor 4445 (its native driver).
@@ -84,35 +85,37 @@ function start(cmd, args, env = {}) {
 const pickDir = mkdtempSync(join(tmpdir(), 'hivetex-desktop-e2e-'));
 let code = 1;
 try {
-  const nativeDriver = win ? await edgeDriver() : null;
+  const nativeDriver = win && !lifecycleOnly ? await edgeDriver() : null;
   if (!process.env.SKIP_BUILD) {
     // The pinned Node runtime and the worker bundle (checksummed resources the app verifies before starting it).
     run(process.execPath, [join(desktop, 'prepare-worker.mjs')], { cwd: desktop, shell: false });
-    run('npx', ['tauri', 'build', '--debug', '--no-bundle', '--features', 'test-picker', '--config', join(here, 'tauri.e2e.conf.json')], {
+    run('pnpm', ['exec', 'tauri', 'build', '--debug', '--no-bundle', '--features', 'test-picker', '--config', join(here, 'tauri.e2e.conf.json')], {
       cwd: desktop,
       env: { ...process.env, VITE_API_BASE: 'http://localhost:3000', VITE_E2E: '1' },
     });
   }
   if (!existsSync(exe)) throw new Error(`app not built: ${exe}`);
   if (!process.env.SKIP_SERVER) {
-    start('npx', ['pnpm@10', '--filter', '@hivetex/server', 'dev'], { MEMORY_DB: '1', PORT: '3000', E2E_NO_LIMITS: '1', APPLICATION_RELAY: '1' });
+    start('pnpm', [ '--filter', '@hivetex/server', 'dev'], { MEMORY_DB: '1', PORT: '3000', E2E_NO_LIMITS: '1', APPLICATION_RELAY: '1' });
   }
   await waitFor('http://localhost:3000/api/health');
   // The application-relay test drives a browser against the web app as well.
   if (!process.env.SKIP_SERVER) {
-    start('npx', ['pnpm@10', '--filter', '@hivetex/web', 'dev']);
+    start('pnpm', [ '--filter', '@hivetex/web', 'dev']);
     await waitFor('http://localhost:1420');
   }
-  const driverArgs = ['--port', DRIVER_PORT];
-  if (nativeDriver) driverArgs.push('--native-driver', nativeDriver);
-  start('tauri-driver', driverArgs, { HIVETEX_TEST_PICK_DIR: pickDir });
-  await waitFor(`http://127.0.0.1:${DRIVER_PORT}/status`, 30_000);
-  const r = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...process.argv.slice(2), join(here, process.env.HIVETEX_E2E_FILE ?? 'desktop.test.mjs')], {
-    stdio: 'inherit',
-    cwd: root,
-    env: { ...process.env, HIVETEX_APP: exe, HIVETEX_TEST_PICK_DIR: pickDir, HIVETEX_DRIVER_PORT: DRIVER_PORT },
-  });
-  code = r.status ?? 1;
+  code = 0;
+  if (!lifecycleOnly) {
+    const driverArgs = ['--port', DRIVER_PORT];
+    if (nativeDriver) driverArgs.push('--native-driver', nativeDriver);
+    start('tauri-driver', driverArgs, { HIVETEX_TEST_PICK_DIR: pickDir });
+    await waitFor(`http://127.0.0.1:${DRIVER_PORT}/status`, 30_000);
+    const r = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...process.argv.slice(2), join(here, process.env.HIVETEX_E2E_FILE ?? 'desktop.test.mjs')], {
+      stdio: 'inherit', cwd: root,
+      env: { ...process.env, HIVETEX_APP: exe, HIVETEX_TEST_PICK_DIR: pickDir, HIVETEX_DRIVER_PORT: DRIVER_PORT },
+    });
+    code = r.status ?? 1;
+  }
   // Close-to-background, second launch, pairing, restart and login start without WebDriver (the driver ends the
   // app when its only window closes). Same build, with the web dev server and API still running.
   if (code === 0 && win && !process.env.HIVETEX_E2E_FILE && !process.argv.some((x) => x.startsWith('--test-name-pattern'))) {
