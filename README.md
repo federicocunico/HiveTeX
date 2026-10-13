@@ -163,6 +163,28 @@ is back. Rings themselves are limited to one per 20 s and 60 per hour per device
 its one peer-to-peer UDP port with a 30-minute lease, and removes it when sync stops or the app quits. It is an extra
 address for co-authors, never shown as a connection; see [router port mapping](docs/port-mapping.md).
 
+**Network ports.** Nothing needs to be opened by hand. Everything except the peer-to-peer port is an outgoing
+connection that firewalls allow by default.
+
+| What | Port | Direction |
+|---|---|---|
+| Server: accounts, tickets and introductions (signaling WebSocket, only while devices are being introduced) | TCP 443 (HTTPS) | outgoing |
+| Doorbell: dormant seeds wait for rings on the push service (`ntfy.sh` by default) | TCP 443 (HTTPS) | outgoing |
+| Updates, TinyTeX and the quick compiler (GitHub releases), TeX packages (CTAN mirrors) | TCP 443 (HTTPS) | outgoing |
+| STUN: discovering the public address (`stun.cloudflare.com`, `stun.l.google.com`) | UDP 3478, UDP 19302 | outgoing |
+| TURN relay, when a direct connection is impossible (Cloudflare) | UDP/TCP 3478, TLS 443 or 5349 | outgoing |
+| **Peer-to-peer sync** (WebRTC, desktop app): one UDP port for every connection | UDP, random, chosen by the system at start | both |
+| Router port mapping (UPnP): router discovery, then the router's control URL | UDP 1900 (multicast, local network only), router's HTTP port | local network |
+| Local compile helper: the web app compiling on this computer | TCP 47812 (else 47813–47815), `127.0.0.1` only | this computer |
+
+The peer-to-peer port changes each time the app starts, so it cannot be forwarded by hand: UPnP forwards it when the
+router allows, otherwise STUN and, as a last resort, TURN connect co-authors. On first launch Windows may ask whether
+HiveTeX can communicate on networks; allowing private networks is enough for direct connections at home. Browsers use
+their own WebRTC ports and need nothing on this list but HTTPS, STUN and TURN.
+
+Local development uses 1420 (web), 3000 (local server) and the ports in `docker-compose.yml` (Postgres, Redis, Upstash
+proxy, Mailpit).
+
 **Closing the window keeps syncing** in the tray; Quit stops it. Starting with the computer (optionally without a
 window) is opt-in. See [the desktop app in the background](docs/desktop-app.md).
 

@@ -27,6 +27,9 @@ export interface SeedData {
   /** Server rollout switches last received with a ticket (12.3); absent fields mean on. */
   rollout?: { background?: boolean; upnp?: boolean };
 }
+/// Exactly the fields the native catalog accepts (src-tauri/src/catalog.rs rejects unknown ones): never a caller's extras.
+const retainedProject = (p: ProjectOpen): ProjectOpen =>
+  ({ server: p.server, account: p.account, project: p.project, scope: p.scope, role: p.role, isLocal: p.isLocal, createdHere: p.createdHere });
 export const emptySeedData = (): SeedData => ({ v: 1, active: null, background: true, paused: false, projects: [] });
 const profileKey = (p: SeedProfile) => JSON.stringify([new URL(p.server).origin.toLowerCase(), p.account]);
 
@@ -104,7 +107,7 @@ export class SeedCatalog {
     this.credentialsAvailable = true;
     let record = this.record(p);
     if (!record) {
-      record = { project: { ...p }, seedEnabled: p.role !== 'viewer', paused: false, doorbell: null, epoch: 0, trusted: [] };
+      record = { project: retainedProject(p), seedEnabled: p.role !== 'viewer', paused: false, doorbell: null, epoch: 0, trusted: [] };
       this.data.projects.push(record);
     }
     if (runtime.paused !== (this.data.paused || record.paused)) runtime.setPaused(this.data.paused || record.paused);
@@ -117,7 +120,7 @@ export class SeedCatalog {
     record.project.role = runtime.role;
     record.trusted = structuredClone(runtime.trusted);
     record.epoch = Math.max(record.epoch, answer.epoch ?? 0);
-    if (answer.doorbell) record.doorbell = { ...answer.doorbell };
+    if (answer.doorbell) record.doorbell = { url: answer.doorbell.url, topic: answer.doorbell.topic };
     // Rollout switches apply to every project of this server/account; foreground sync is unaffected.
     if (answer.features) this.data.rollout = { background: answer.features.background !== false, upnp: answer.features.upnp !== false };
     if (runtime.revoked || runtime.role === 'viewer') record.seedEnabled = false;
@@ -211,7 +214,7 @@ export class SeedCatalog {
     let r = this.record(p);
     if (!r && !download) throw new Error('Download and seed is required for an undownloaded membership');
     if (!r) {
-      r = { project: { ...p }, seedEnabled: true, paused: false, doorbell: null, epoch: 0, trusted: [] };
+      r = { project: retainedProject(p), seedEnabled: true, paused: false, doorbell: null, epoch: 0, trusted: [] };
       this.data.projects.push(r);
     }
     r.seedEnabled = enabled;

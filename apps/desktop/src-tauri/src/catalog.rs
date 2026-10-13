@@ -29,9 +29,23 @@ pub struct Retained {
 pub struct Catalog {
     pub v: u32, pub active: Option<Profile>, pub background: bool, pub paused: bool,
     pub projects: Vec<Retained>,
+    /// Automatic router port mapping (UPnP); absent means on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upnp: Option<bool>,
+    /// Server rollout switches last received with a ticket; absent fields mean on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<Rollout>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Rollout {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upnp: Option<bool>,
 }
 impl Default for Catalog {
-    fn default() -> Self { Self { v: 1, active: None, background: true, paused: false, projects: Vec::new() } }
+    fn default() -> Self { Self { v: 1, active: None, background: true, paused: false, projects: Vec::new(), upnp: None, rollout: None } }
 }
 fn server(s: &str) -> bool {
     let Ok(u) = reqwest::Url::parse(s) else { return false };
@@ -94,6 +108,25 @@ mod tests {
         value["token"] = "never persist this".into();
         assert!(save(&root, value).is_err());
         assert_eq!(load(&root).unwrap().active.unwrap().account, "ann");
+        let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn accepts_every_field_the_worker_catalog_writes() {
+        // The shape SeedCatalog saves (packages/sync/src/worker/catalog.ts) after a production ticket: UPnP setting,
+        // rollout switches, a ring and trusted keys. Rejecting any of it made opening a project fail.
+        let root = std::env::temp_dir().join(format!("hivetex-catalog-w-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let value = serde_json::json!({
+            "v": 1, "active": {"server": "https://hivetex.vercel.app", "account": "a1"}, "background": true, "paused": false,
+            "upnp": false, "rollout": {"background": true, "upnp": false},
+            "projects": [{
+                "project": {"server": "https://hivetex.vercel.app", "account": "a1", "project": "p1", "scope": "ab".repeat(32),
+                    "role": "editor", "isLocal": false, "createdHere": false},
+                "seedEnabled": true, "paused": false, "doorbell": {"url": "https://ntfy.sh", "topic": "t1"}, "epoch": 2,
+                "trusted": [{"kid": "k1", "jwk": {"kty": "OKP", "crv": "Ed25519", "x": "AA", "alg": "EdDSA", "use": "sig", "kid": "k1"}}]
+            }]
+        });
+        save(&root, value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(load(&root).unwrap()).unwrap(), value);
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -85,12 +85,19 @@ impl WorkerService {
                     let a = frames_app.clone();
                     tauri::async_runtime::spawn(async move {
                         let params = &frame["params"];
+                        let cmd = params["cmd"].as_str().unwrap_or("");
                         let result = if frame["method"] == "native.call" {
-                            dispatch(&a, gen, params["cmd"].as_str().unwrap_or(""), params["args"].clone(), params["project"].as_str().unwrap_or("")).await
+                            dispatch(&a, gen, cmd, params["args"].clone(), params["project"].as_str().unwrap_or("")).await
                         } else { Err("unknown native method".into()) };
                         let response = match result {
                             Ok(v) => json!({"v":PROTOCOL,"gen":gen,"kind":"res","id":frame["id"],"ok":true,"result":v}),
-                            Err(_) => json!({"v":PROTOCOL,"gen":gen,"kind":"res","id":frame["id"],"ok":false,"error":{"code":"native_error","message":"native operation failed"}}),
+                            Err(e) => {
+                                // The worker shows this to the user: name the operation and its reason (native messages
+                                // carry no secrets), and keep it in the diagnostics log.
+                                let message = native_failure(cmd, &e);
+                                log_native_failure(&a, &message);
+                                json!({"v":PROTOCOL,"gen":gen,"kind":"res","id":frame["id"],"ok":false,"error":{"code":"native_error","message":message}})
+                            }
                         };
                         let _ = a.state::<WorkerService>().send(gen, &response);
                     });
@@ -362,6 +369,26 @@ pub fn event_frame(gen: u64, event: &str, data: Value) -> Value {
     json!({ "v": PROTOCOL, "gen": gen, "kind": "evt", "event": event, "data": data })
 }
 
+/// "<operation>: <reason>", bounded, for a native call the worker made that failed.
+fn native_failure(cmd: &str, reason: &str) -> String {
+    let cmd: String = cmd.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(48).collect();
+    let reason: String = reason.chars().map(|c| if c.is_control() { ' ' } else { c }).take(300).collect();
+    format!("{} failed: {reason}", if cmd.is_empty() { "native operation" } else { &cmd })
+}
+
+/// Appends a failure to `<app data>/logs/native.log` (restarted past 1 MB), so a report can say what failed.
+fn log_native_failure(app: &tauri::AppHandle, message: &str) {
+    use std::io::Write;
+    let Ok(dir) = app.path().app_data_dir().map(|d| d.join("logs")) else { return };
+    if std::fs::create_dir_all(&dir).is_err() { return; }
+    let path = dir.join("native.log");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) { let _ = std::fs::remove_file(&path); }
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{at} {message}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,6 +399,13 @@ mod tests {
         let f = event_frame(3, "native.resume", json!({"generation": 2, "resumed": false, "online": true}));
         assert_eq!(f["kind"], "evt");
         assert_eq!((f["v"].as_u64(), f["gen"].as_u64(), f["event"].as_str()), (Some(PROTOCOL as u64), Some(3), Some("native.resume")));
+    }
+    #[test]
+    fn native_failures_name_the_operation_and_stay_bounded() {
+        assert_eq!(native_failure("store_open", "store already open"), "store_open failed: store already open");
+        assert_eq!(native_failure("", "x"), "native operation failed: x");
+        let long = native_failure("a\nb", &"y\n".repeat(1000));
+        assert!(long.starts_with("ab failed: y y") && long.len() < 400 && !long.contains('\n'));
     }
     #[test]
     fn renderer_cannot_dispatch_native_or_unknown_calls() {
