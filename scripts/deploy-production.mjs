@@ -193,11 +193,14 @@ function dependencies(options, env) {
           if (isProtected(response)) {
             if (bypass) throw new Error('Health check is protected and VERCEL_AUTOMATION_BYPASS_SECRET was rejected.');
             // Without a bypass secret, the Vercel CLI authenticates with the deploy token; protection stays enabled.
-            const { stdout } = await exec('npx', ['--yes', 'vercel@latest', 'curl', url + '/api/health', ...(options.token ? ['--token', options.token] : []), '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
+            const { stdout } = await exec('npx', ['--yes', 'vercel@latest', 'curl', url + '/api/health', '--yes', ...(options.token ? ['--token', options.token] : []), '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
               { timeout: 120_000, signal: abort.signal, windowsHide: true });
             if (JSON.parse(stdout.trim().split('\n').at(-1)).ok === true) return;
           } else if (response.ok && (await response.json()).ok === true) return;
-        } catch (error) { if (abort.signal.aborted || error.message.includes('Health check is protected')) throw error; }
+        } catch (error) {
+          if (abort.signal.aborted || error.message.includes('Health check is protected')) throw error;
+          if (i % 6 === 0 || i === 23) console.error(redact(`Health attempt ${i + 1} for ${url}: ${(error.stderr || error.message || String(error)).slice(-1500)}`));
+        }
         if (i !== 23) await new Promise((resolve, reject) => {
           const timer = setTimeout(() => { abort.signal.removeEventListener('abort', stop); resolve(); }, 5_000);
           const stop = () => { clearTimeout(timer); reject(abort.signal.reason); };
