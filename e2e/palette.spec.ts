@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { type Page, expect, test } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, replaceEditorText, uniq } from './helpers.js';
 
 type Cmd = { id: string; title: string; keys: string[]; editor: boolean; available: boolean };

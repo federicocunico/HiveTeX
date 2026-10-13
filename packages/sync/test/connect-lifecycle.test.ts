@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FakeRtcNetwork } from '../src/testing.js';
+import { attemptCause } from '../src/connect.js';
+import { FakePc, FakeRtcNetwork } from '../src/testing.js';
 import { TestAuthority } from '../src/testkit.js';
 import { type FakeWs, Relay, deferred, flush, flushMicro, makeDev, managerFor } from './connect-helpers.js';
 
@@ -53,6 +54,77 @@ describe('connection lifecycle ownership (F10)', () => {
     ice.resolve([]);
     await flush();
     expect(factories.calls).toBe(1);
+  });
+
+  it('candidates sent while the answering side still loads its configuration are applied, not dropped', async () => {
+    const { auth, lo, hi } = await pair();
+    const rtc = new FakeRtcNetwork();
+    const relay = new Relay();
+    const sa: FakeWs[] = [];
+    const sb: FakeWs[] = [];
+    const slow = deferred<unknown[]>();
+    const a = managerFor(lo, auth, PID, rtc, { wsFactory: relay.attach(lo, sa) });
+    const b = managerFor(hi, auth, PID, rtc, { wsFactory: relay.attach(hi, sb), getIceServers: () => slow.promise });
+    cleanup.push(() => {
+      a.mgr.stop();
+      b.mgr.stop();
+    });
+    const applied: string[] = [];
+    const real = FakePc.prototype.addIceCandidate;
+    FakePc.prototype.addIceCandidate = async function (this: FakePc, c?: unknown) {
+      if (this.remoteDescription?.type === 'offer') applied.push(String((c as { candidate: string }).candidate));
+      return real.call(this);
+    } as typeof real;
+    cleanup.push(() => {
+      FakePc.prototype.addIceCandidate = real;
+    });
+    a.mgr.start();
+    b.mgr.start();
+    await flush(200); // the offer and the offerer's candidates reach the answerer before its configuration
+    expect(applied).toEqual([]);
+    slow.resolve([]);
+    await vi.waitFor(() => expect(applied.length).toBeGreaterThan(0), { timeout: 2000 });
+  });
+
+  it('names the stage a failed attempt stopped at', async () => {
+    const empty = { state: 'new', offerReceived: false, offerSent: false, answerReceived: false, localCandidates: [], remoteCandidates: [] };
+    expect(attemptCause({ ...empty, offerSent: true }, true)).toBe('no-setup-reply');
+    expect(attemptCause({ ...empty, offerSent: true, answerReceived: true }, true)).toBe('no-candidates');
+    expect(attemptCause({ ...empty, offerReceived: true }, false)).toBe('no-candidates');
+    expect(attemptCause({ ...empty, answerReceived: true, remoteCandidates: ['host'] }, true)).toBe('checks-failed');
+  });
+
+  it('a timed-out attempt whose offer was never answered reports no setup reply', async () => {
+    const { auth, lo, hi } = await pair();
+    const { mgr, sockets } = managerFor(lo, auth, PID, new FakeRtcNetwork(), { linkTimeoutMs: 80, maxBackoffMs: 5000 });
+    cleanup.push(() => mgr.stop());
+    mgr.start();
+    await flush();
+    const ws = sockets[0] as FakeWs;
+    ws.say({ t: 'ready', tickets: [hi.ticket] });
+    ws.say({ t: 'join', ticket: hi.ticket, sid: 's1' });
+    await vi.waitFor(() => expect(mgr.candidates()[0]?.cause).toBe('no-setup-reply'), { timeout: 3000 });
+    const c = mgr.candidates()[0];
+    expect(c?.lastError).toBe('connection attempt timed out');
+    expect(c?.link?.offerSent).toBe(true);
+  });
+
+  it('a pair that exchanged candidates but never connected reports failed checks', async () => {
+    const { auth, lo, hi } = await pair();
+    const rtc = new FakeRtcNetwork();
+    rtc.stallNext = 1;
+    const relay = new Relay();
+    const sa: FakeWs[] = [];
+    const sb: FakeWs[] = [];
+    const a = managerFor(lo, auth, PID, rtc, { linkTimeoutMs: 150, maxBackoffMs: 5000, wsFactory: relay.attach(lo, sa) });
+    const b = managerFor(hi, auth, PID, rtc, { linkTimeoutMs: 150, maxBackoffMs: 5000, wsFactory: relay.attach(hi, sb) });
+    cleanup.push(() => {
+      a.mgr.stop();
+      b.mgr.stop();
+    });
+    a.mgr.start();
+    b.mgr.start();
+    await vi.waitFor(() => expect(a.mgr.candidates()[0]?.cause).toBe('checks-failed'), { timeout: 3000 });
   });
 
   it('stop before configuration resolves creates no transport and sends no signaling', async () => {

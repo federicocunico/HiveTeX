@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { createProject, newUser, PW, signOut, uniq } from './helpers.js';
 
 test('signed-out visitors see the landing page; its main action opens registration', async ({ page }) => {

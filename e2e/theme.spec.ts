@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, newUser, uniq } from './helpers.js';
 
 test('the editor uses the chosen font size and the token syntax colors', async ({ browser }) => {

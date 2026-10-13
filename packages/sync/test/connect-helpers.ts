@@ -5,6 +5,7 @@ import { ProjectModel } from '../src/model.js';
 import { MemoryPersistence } from '../src/persistence.js';
 import { FakeRtcNetwork } from '../src/testing.js';
 import { TestAuthority } from '../src/testkit.js';
+import { traceLog } from './trace.js';
 
 /** A scripted signaling socket: the test decides what the relay "says" and sees everything the client sends. */
 export class FakeWs implements WebSocketLike {
@@ -92,6 +93,7 @@ export function managerFor(
     getIceServers: async () => [],
     now: auth.now,
     idleCloseMs: 50,
+    trace: traceLog().sink,
     ...rest,
   });
   return { mgr, factories, sockets };

@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, uniq } from './helpers.js';
 
 // A WebRTC offer that takes a few seconds, like a slow network: the guest sees the owner on the relay long before

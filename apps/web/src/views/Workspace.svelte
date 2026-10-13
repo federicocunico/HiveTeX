@@ -14,6 +14,7 @@
   import HistoryPanel from '../components/workspace/HistoryPanel.svelte';
   import OutlinePanel from '../components/workspace/OutlinePanel.svelte';
   import SyncPanel from '../components/workspace/SyncPanel.svelte';
+  import NetworkDiagnostics from '../components/NetworkDiagnostics.svelte';
   import PeoplePanel from '../components/workspace/PeoplePanel.svelte';
   import FormatToolbar, { type FormatAction } from '../components/workspace/FormatToolbar.svelte';
   import PickerDialog from '../components/workspace/PickerDialog.svelte';
@@ -90,7 +91,9 @@
     Share,
     Users,
     RefreshCw,
+    Wifi,
   } from '../ui/icons.js';
+  import Dialog from '../ui/Dialog.svelte';
   import AvatarStack from '../ui/AvatarStack.svelte';
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
@@ -112,6 +115,7 @@
   let texts = $state.raw(new Map<string, string>());
   let showSettings = $state(false);
   let showShare = $state(false);
+  let showNetwork = $state(false);
   /** Resolve dialog for offline-merge conflicts (id of the conflict to show first). */
   let showConflicts = $state<{ initial: string | null } | null>(null);
   let showTour = $state(false);
@@ -737,6 +741,7 @@
       { id: 'import', title: 'Import…', group: 'Files', icon: FolderOpen, aliases: ['upload', 'overleaf', 'zip', 'arxiv'], when: writable, run: () => (importRequest = { kind: 'pick' }) },
       { id: 'download-zip', title: 'Download project (.zip)', group: 'Files', icon: Download, aliases: ['export'], when: has, run: () => void downloadZip() },
       { id: 'download-pdf', title: 'Download PDF', group: 'Files', icon: Download, when: () => !!session?.pdf, run: () => void downloadPdf() },
+      { id: 'network-diagnostics', title: 'Network diagnostics', group: 'Project', icon: Wifi, aliases: ['network', 'connection', 'webrtc', 'ports', 'stun', 'turn', 'sync problem'], when: has, run: () => (showNetwork = true) },
       { id: 'share', title: 'Share project', group: 'Project', icon: Share, aliases: ['share id', 'invite', 'copy id', 'project id'], when: has, run: () => (showShare = true) },
       { id: 'insert-bold', title: 'Bold', group: 'Insert', keys: ['Mod+B'], editor: true, icon: Bold, aliases: ['textbf', 'strong'], when: () => canFormat && isTex, run: () => format({ kind: 'bold' }) },
       { id: 'insert-italic', title: 'Italic', group: 'Insert', keys: ['Mod+I'], editor: true, icon: Italic, aliases: ['textit', 'emphasis'], when: () => canFormat && isTex, run: () => format({ kind: 'italic' }) },
@@ -974,7 +979,7 @@
                 {/snippet}
               </PeoplePanel>
             {:else if layout.panel === 'sync'}
-              <SyncPanel session={s} onConflicts={() => (showConflicts = { initial: null })} onOpenFile={(path) => { const f = s.files.find((x) => x.path === path); if (f) openFile(f); }} />
+              <SyncPanel session={s} onNetwork={() => (showNetwork = true)} onConflicts={() => (showConflicts = { initial: null })} onOpenFile={(path) => { const f = s.files.find((x) => x.path === path); if (f) openFile(f); }} />
             {:else if layout.panel === 'backup'}
               <BackupPanel session={s} />
             {/if}
@@ -1132,6 +1137,11 @@
   {/if}
   {#if showShare}
     <ShareDialog session={s} onClose={() => (showShare = false)} />
+  {/if}
+  {#if showNetwork}
+    <Dialog title="Network diagnostics" size="lg" onClose={() => (showNetwork = false)} testid="network-dialog">
+      <NetworkDiagnostics session={s} projectId={s.project.id} />
+    </Dialog>
   {/if}
 
   {#if showSettings}

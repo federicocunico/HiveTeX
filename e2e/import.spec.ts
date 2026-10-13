@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
-import { type Page, expect, test } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { strToU8, zipSync } from 'fflate';
 import { PROJECT_PW, addFile, createProject, joinProject, newUser, openNewProject, uniq } from './helpers.js';
 

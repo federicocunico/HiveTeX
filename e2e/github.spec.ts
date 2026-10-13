@@ -1,4 +1,5 @@
-import { type BrowserContext, type Page, expect, test } from '@playwright/test';
+import { type BrowserContext, type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { FakeGitHub } from '../packages/github/src/testing.js';
 import { PROJECT_PW, addFile, createProject, joinProject, newUser, onStack, replaceEditorText, showFiles, uniq } from './helpers.js';
 

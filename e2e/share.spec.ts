@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { PROJECT_PW, createProject, joinProject, newUser, uniq } from './helpers.js';
 
 test('share: the invitation has the ID but never the password; roles change from here; editors only copy', async ({ browser }) => {

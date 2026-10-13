@@ -1,7 +1,8 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { chromium, expect, test } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { newUser, signOut } from './helpers.js';
 
 test('persistent web cookie restores after browser restart and sign-out clears it', async ({ baseURL }) => {

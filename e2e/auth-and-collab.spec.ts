@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { PW, addFile, createProject, editorText, joinProject, newUser, signOut, typeInEditor, uniq, waitForMail } from './helpers.js';
 
 test('account flow: register, verify, sign out, reset password, sign in (3.8)', async ({ browser }) => {

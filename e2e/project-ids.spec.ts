@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, typeInEditor } from './helpers.js';
 
 test('same project name creates separate share IDs that can both be joined', async ({ browser }) => {

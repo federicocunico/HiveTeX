@@ -1,4 +1,4 @@
-import type { WebSocketLike } from './connect.js';
+import type { TraceEvent, WebSocketLike } from './connect.js';
 import type { RtcFactory, RtcPeerLike } from './rtc.js';
 import { FakeDataChannel } from './transport.js';
 
@@ -124,4 +124,42 @@ export function inProcessSocket(
     ws.onopen?.();
   });
   return ws;
+}
+
+type TraceEntry = TraceEvent & { at: number; seq: number };
+
+/**
+ * The connection trace of every participant of one test, in the order the events happened. Tests print it when they
+ * fail, so a failure shows which step towards which peer was the last one taken.
+ */
+export class TraceLog {
+  readonly events: TraceEntry[] = [];
+  private start = Date.now();
+  private seq = 0;
+
+  /** Pass as a manager's `trace` option. */
+  sink = (e: TraceEvent) => {
+    this.events.push({ ...e, at: Date.now(), seq: this.seq++ });
+  };
+
+  /** `+  123 ms  a-device -> z-device  sig.send  k=offer via=server`, one line per event. */
+  format(): string {
+    if (this.events.length === 0) return 'connection trace: no events were recorded (no connection manager started)';
+    const lines = this.events.map((e) => {
+      const data = e.data ? ` ${Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}` : '';
+      const who = e.dev ? `${e.self} -> ${e.dev}` : e.self;
+      return `+${String(e.at - this.start).padStart(5)} ms  ${who.padEnd(24)} ${e.ev}${data}`;
+    });
+    return ['connection trace (all participants, in order):', ...lines].join('\n');
+  }
+
+  /** The events of one kind, optionally of one participant. */
+  of(ev: string, self?: string): TraceEntry[] {
+    return this.events.filter((e) => e.ev === ev && (self === undefined || e.self === self));
+  }
+
+  /** The event names in order, optionally of one participant. */
+  names(self?: string): string[] {
+    return this.events.filter((e) => self === undefined || e.self === self).map((e) => e.ev);
+  }
 }

@@ -7,7 +7,7 @@
   import PanelHead from './PanelHead.svelte';
 
   /** How far the sync is, per file, who is editing what, and a way to force a sync. */
-  let { session, onOpenFile, onConflicts }: { session: ProjectSession; onOpenFile?: (path: string) => void; onConflicts?: () => void } = $props();
+  let { session, onOpenFile, onConflicts, onNetwork }: { session: ProjectSession; onOpenFile?: (path: string) => void; onConflicts?: () => void; onNetwork?: () => void } = $props();
 
   const status = $derived(session.syncStatus);
   const editors = $derived(editorsByFile(session.presence));
@@ -58,6 +58,7 @@
       <Icon icon={RefreshCw} />{session.syncingNow ? 'Syncing…' : 'Sync now'}
     </button>
     {#if session.syncNowResult}<p class="result" role="status" data-testid="sync-now-result">{session.syncNowResult}</p>{/if}
+    {#if onNetwork}<button type="button" class="small" onclick={onNetwork} data-testid="open-network">Network diagnostics</button>{/if}
   </div>
 
   {#if status && status.files.length > 0}

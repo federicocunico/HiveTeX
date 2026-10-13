@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, uniq } from './helpers.js';
 
 test('Files context menu: rename through the menu, keyboard access, and the web folder action', async ({ browser }) => {

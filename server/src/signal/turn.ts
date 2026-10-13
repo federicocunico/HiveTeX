@@ -19,6 +19,12 @@ export interface TurnProvider {
   mint(ttlSec: number): Promise<{ iceServers: IceServer[] }>;
 }
 
+/** Whether relay (TURN) credentials were issued, and if not why: reported so a silent STUN-only fallback is visible. */
+export interface RelayStatus {
+  available: boolean;
+  reason: 'ok' | 'not_configured' | 'mint_failed';
+}
+
 export const DEFAULT_STUN: IceServer[] = [
   { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] },
 ];
@@ -57,12 +63,15 @@ turnRoutes.post('/', rateLimit('turn', 60, 3600), async (c) => {
   const perUser = await deps.limiter.hit(`turn-user:${u.id}`, 20, 3600);
   if (!perUser.ok) throw new AppError(429, 'rate_limited', 'Too many requests', { 'Retry-After': String(perUser.retryAfter) });
   let relay: IceServer[] = [];
+  let status: RelayStatus = { available: false, reason: 'not_configured' };
   if (deps.turn) {
     try {
       relay = (await deps.turn.mint(TURN_TTL)).iceServers;
+      status = relay.length ? { available: true, reason: 'ok' } : { available: false, reason: 'mint_failed' };
     } catch {
       relay = []; // STUN-only still works for most networks; do not fail the request
+      status = { available: false, reason: 'mint_failed' };
     }
   }
-  return c.json({ iceServers: [...DEFAULT_STUN, ...relay], expiresAt: deps.now().getTime() + TURN_TTL * 1000 });
+  return c.json({ iceServers: [...DEFAULT_STUN, ...relay], expiresAt: deps.now().getTime() + TURN_TTL * 1000, relay: status });
 });

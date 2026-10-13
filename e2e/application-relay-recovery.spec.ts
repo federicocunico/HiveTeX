@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { createProject, joinProject, newUser, uniq } from './helpers.js';
 
 // 13.7: run against server/scripts/relay-acceptance-server.ts, not a production deployment.

@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
 
 type P2P = { folderEdit(path: string, text: string): Promise<void> };

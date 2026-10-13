@@ -2,7 +2,9 @@ import type { StoredDeviceKeys } from '@hivetex/crypto';
 import { type DoorbellInfo, ROOT_DOC_ID, type Role, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import { BlobManager } from './blobs.js';
 import { ChangeLog } from './changelog.js';
-import { type Candidate, ConnectionManager, type IceConfig, type ManagerOptions, type PeerRoute, type WebSocketLike } from './connect.js';
+import { type Candidate, ConnectionManager, type IceConfig, type ManagerOptions, type PeerRoute, type TraceEvent, type WebSocketLike } from './connect.js';
+
+const TRACE_RING_MAX = 500;
 import { Doorbell, ntfyChannel, type PushChannel, type PushState } from './doorbell.js';
 import { forkMeshOptions, listenForkStatus, type MergeConflict, type MergeReport, OfflineFork } from './fork.js';
 import { Mesh, type MeshOptions } from './mesh.js';
@@ -165,7 +167,14 @@ export class ProjectRuntime {
     return this.ticket;
   }
   get managerDiagnostics() {
-    return { candidates: this.manager?.candidates() ?? [], stages: this.manager?.diagnostics() ?? {}, socketOpen:this.manager?.socketOpen ?? false, doorbellMode:this.manager?.doorbellMode ?? false, answers:this.manager?.stats?.answers ?? 0 };
+    return { candidates: this.manager?.candidates() ?? [], stages: this.manager?.diagnostics() ?? {}, socketOpen:this.manager?.socketOpen ?? false, doorbellMode:this.manager?.doorbellMode ?? false, answers:this.manager?.stats?.answers ?? 0, ice: this.manager?.iceInfo() ?? null, routes: this.manager?.routes() ?? {}, trace: [...this.traceRing] };
+  }
+
+  /** The latest connection steps, kept so a failing test (or a bug report) can show where connecting stopped. */
+  private traceRing: TraceEvent[] = [];
+  private recordTrace(e: TraceEvent) {
+    this.traceRing.push(e);
+    if (this.traceRing.length > TRACE_RING_MAX) this.traceRing.splice(0, this.traceRing.length - TRACE_RING_MAX);
   }
 
   private extra = new Set<RuntimeEvents>();
@@ -491,6 +500,7 @@ export class ProjectRuntime {
       rtcFactory: a.rtcFactory(),
       // The answer carries the relay credentials' expiry: the manager refreshes them before they run out.
       getIceServers: () => a.iceServers(),
+      trace: (e) => this.recordTrace(e),
       ...(this.doorbellInfo ? { doorbell: { ring: () => this.ringProject() }, ensureTicket: () => this.ensureTicket() } : {}),
     };
     const manager = (a.createManager ?? ((o) => new ConnectionManager(o)))(options);

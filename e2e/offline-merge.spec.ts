@@ -1,4 +1,5 @@
-import { type Browser, type Page, expect, test } from '@playwright/test';
+import { type Browser, type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, replaceEditorText, uniq } from './helpers.js';
 
 const BASE = 'line one\nline two\nline three\nline four\nline five\nline six\n';

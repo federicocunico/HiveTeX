@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/client.js';
 import { MemorySignalBackend, createSignalSession } from '../src/signal/hub.js';
 import { Client, type TestEnv, makeEnv, register } from './helpers.js';
+import { traceLog } from './trace.js';
 
 let env: TestEnv;
 let backend: MemorySignalBackend;
@@ -72,6 +73,7 @@ async function makeDevice(client: Client, pid: string, name: string, extra: { li
     getIceServers: async () => [],
     now: env.deps.now,
     idleCloseMs: 50,
+    trace: traceLog().sink,
     ...extra,
   });
   cleanup.push(() => {

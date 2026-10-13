@@ -1,4 +1,5 @@
-import { type Page, expect, test } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { PROJECT_PW, addFile, newUser, openNewProject, typeInEditor, uniq } from './helpers.js';
 
 /**

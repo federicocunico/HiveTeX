@@ -175,6 +175,7 @@ describe('TURN credentials (5.2)', () => {
     expect(JSON.stringify(ok.json.iceServers)).toContain('stun:');
     expect(JSON.stringify(ok.json.iceServers)).toContain('turn:turn.example.org');
     expect(ok.json.expiresAt).toBeGreaterThan(env.deps.now().getTime());
+    expect(ok.json.relay).toEqual({ available: true, reason: 'ok' });
 
     const outsider = await register(env, 'otto');
     expect((await outsider.post('/turn', { projectId: pid })).status).toBe(403);
@@ -191,6 +192,15 @@ describe('TURN credentials (5.2)', () => {
     const r = await owner.post('/turn', { projectId: pid });
     expect(r.status).toBe(200);
     expect(JSON.stringify(r.json.iceServers)).not.toContain('turn:');
+    expect(r.json.relay).toEqual({ available: false, reason: 'mint_failed' });
+  });
+
+  it('reports that no relay is configured instead of silently returning STUN only', async () => {
+    const { owner, pid } = await setup();
+    delete env.deps.turn;
+    const r = await owner.post('/turn', { projectId: pid });
+    expect(r.status).toBe(200);
+    expect(r.json.relay).toEqual({ available: false, reason: 'not_configured' });
   });
 
   it('cloudflare provider calls the documented endpoint with a bearer token and ttl', async () => {

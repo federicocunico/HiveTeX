@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { strToU8, zipSync } from 'fflate';
 import { addFile, createProject, newUser, replaceEditorText, uniq } from './helpers.js';
 

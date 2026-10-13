@@ -48,7 +48,8 @@ async function until(fn, msg, ms = 15_000) {
   }
   // what the user would see (notices, errors) makes CI failures readable
   const page = await b.execute(() => document.body.innerText).catch(() => '');
-  throw new Error(`timed out: ${msg} (last: ${last})\n--- page ---\n${String(page).slice(0, 2000)}`);
+  const trace = await b.connectionTrace();
+  throw new Error(`timed out: ${msg} (last: ${last})\n--- page ---\n${String(page).slice(0, 2000)}${trace ? `\n${trace}` : ''}`);
 }
 /**
  * The tree item labelled `name`, or null. Matched inside the page on the item's own text (without nested items):

@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 
 test('web: the in-browser compiler downloads each TeX file once; missing files are remembered (5.1)', async ({ page }) => {
   // stand-in TeX file server

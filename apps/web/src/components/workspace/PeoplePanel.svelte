@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { ProjectSession } from '../../lib/session.svelte.js';
+  import { causeText } from '../../lib/netdiag.js';
   import { routeText } from '../../lib/sync-view.js';
   import { Share } from '../../ui/icons.js';
   import Avatar from '../../ui/Avatar.svelte';
@@ -43,7 +44,7 @@
     {#each session.connecting as c (c.dev)}
       <li data-testid="connecting-{c.uname}">
         <Avatar name={c.uname} size={28} />
-        <span class="who"><strong>{c.uname}</strong><span class="meta">connecting{c.attempts ? ` · attempt ${c.attempts + 1}` : ''}{c.lastError ? ` · ${c.lastError}` : ''}</span></span>
+        <span class="who"><strong>{c.uname}</strong><span class="meta">connecting{c.attempts ? ` · attempt ${c.attempts + 1}` : ''}{c.lastError ? ` · ${c.lastError}` : ''}</span>{#if c.cause}<span class="meta" data-testid="cause-{c.uname}" data-cause={c.cause}>{causeText(c.cause, c.link, c.lastError)}</span>{/if}</span>
       </li>
     {/each}
   </ul>

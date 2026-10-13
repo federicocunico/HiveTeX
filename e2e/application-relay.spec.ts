@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { PROJECT_PW, addFile, createProject, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
 
 // 3.7: two browsers that cannot open any WebRTC path (no host/STUN candidates, no TURN) still collaborate through the

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, newUser, replaceEditorText, uniq } from './helpers.js';
 
 const fixture = (n: string) => readFileSync(resolve(process.cwd(), 'e2e', n)).toString('base64');

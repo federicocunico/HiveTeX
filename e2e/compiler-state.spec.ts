@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, newUser, replaceEditorText, uniq } from './helpers.js';
 
 test('compiler state: shown in the status bar, missing packages explained, Account > Compiler on the web (5.2)', async ({ browser }) => {

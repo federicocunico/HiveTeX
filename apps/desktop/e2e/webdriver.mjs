@@ -80,7 +80,26 @@ export class Session {
       await new Promise((r) => setTimeout(r, 150));
     }
     const page = await this.execute(() => document.body.innerText).catch(() => '');
-    throw new Error(`no visible element for ${sel}${last ? ` (${last.message})` : ''}\n${String(page).slice(0, 2000)}`);
+    const trace = await this.connectionTrace();
+    throw new Error(`no visible element for ${sel}${last ? ` (${last.message})` : ''}\n${String(page).slice(0, 2000)}${trace ? `\n${trace}` : ''}`);
+  }
+  /**
+   * The connection trace of the open project (every step towards each co-author: configuration, setup messages,
+   * candidates, link state, failure cause), one line per step. Empty text when no project is open. Failure messages
+   * include it so a stuck sync shows where connecting stopped.
+   */
+  async connectionTrace(max = 120) {
+    const steps = await this.execute(() => {
+      const s = window.__p2p?.session;
+      return s?.syncDiagnostics?.().trace ?? [];
+    }).catch(() => []);
+    if (!Array.isArray(steps) || steps.length === 0) return '';
+    const start = steps[0].t;
+    const lines = steps.slice(-max).map((e) => {
+      const data = e.data ? ` ${Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}` : '';
+      return `+${String(e.t - start).padStart(6)} ms  ${(e.dev ? `${e.self} -> ${e.dev}` : e.self).padEnd(24)} ${e.ev}${data}`;
+    });
+    return `--- connection trace (last ${lines.length} steps) ---\n${lines.join('\n')}`;
   }
   close() {
     return call(this.base, 'DELETE', `/session/${this.id}`);

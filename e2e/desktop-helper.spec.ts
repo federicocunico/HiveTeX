@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, newUser, replaceEditorText, uniq } from './helpers.js';
 
 const WEB_ORIGIN = new URL(process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:1420').origin;

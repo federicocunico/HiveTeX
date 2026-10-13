@@ -1,4 +1,5 @@
-import { type Page, expect, test } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { addFile, createProject, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
 
 const leaderText = (p: Page) => p.getByTestId('leader').innerText();

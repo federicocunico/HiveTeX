@@ -3,7 +3,7 @@ import { APPLICATION_RELAY_CAPABILITY, RELAY_SESSION_PREFIX, type TicketClaims, 
 import { fromUtf8, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
 import { decodeRelayWire, encodeRelayHandshake, RelayTransport, type RelayTransportOptions } from './relay-transport.js';
-import { type LinkSignal, RtcLink, type RtcFactory } from './rtc.js';
+import { type LinkDiag, type LinkSignal, RtcLink, type RtcFactory } from './rtc.js';
 
 export interface WebSocketLike {
   readyState: number;
@@ -34,6 +34,8 @@ export interface ManagerOptions {
   iceTimeoutMs?: number;
   /** Jitter source for the credential retry backoff (tests). */
   random?: () => number;
+  /** Receives every connection step (see TraceEvent). Never gets credentials, keys, addresses or content. */
+  trace?: (e: TraceEvent) => void;
   now?: () => Date;
   /** The relay closes sockets after ~300 s; reconnect slightly earlier. */
   reconnectAfterMs?: number;
@@ -82,6 +84,8 @@ export interface RouteState {
   route: PeerRoute;
   /** Relay only: the server refused forwarding (budget, accounting, rate); queued traffic waits with this reason. */
   limited: string | null;
+  /** Direct/TURN links: candidate types of the selected pair, once the RTC implementation reports them. */
+  pair?: { local: string; remote: string } | null;
 }
 
 interface RelayAttempt {
@@ -107,6 +111,28 @@ export interface IceConfig {
   iceServers: unknown[];
   /** Epoch ms after which the relay credentials in `iceServers` no longer work. */
   expiresAt?: number;
+  /** Whether relay credentials were issued and, if not, why (older services omit it). */
+  relay?: { available: boolean; reason: string };
+}
+
+/** One step of the connection layer, for tests and the diagnostics report. `dev` is the other device, when there is one. */
+export interface TraceEvent {
+  /** Epoch ms from the manager's clock. */
+  t: number;
+  /** This device. */
+  self: string;
+  ev: string;
+  dev?: string;
+  data?: Record<string, string | number | boolean>;
+}
+
+/** What the last credential request told us, for the diagnostics page. */
+export interface IceInfo {
+  /** Never asked yet, answered, or failed/timed out (then only STUN servers are used). */
+  state: 'unknown' | 'ok' | 'failed';
+  relay: { available: boolean; reason: string } | null;
+  /** Number of servers offered, STUN and relay together. */
+  servers: number;
 }
 
 /** Credentials are refreshed this long before they expire, and when the expiry is unknown they are kept this long. */
@@ -122,8 +148,30 @@ export interface Candidate {
   /** A link attempt is in progress right now. */
   linking: boolean;
   lastError: string | null;
+  /** Why the last attempt failed, in terms the diagnostics page can explain. */
+  cause: AttemptCause | null;
+  /** What the last attempt (or the one in progress) had seen: candidate types and setup messages, never addresses. */
+  link: LinkDiag | null;
   /** Visible on the signaling relay (as opposed to only announced by a peer). */
   onRelay: boolean;
+}
+
+/** The stage at which a connection attempt stopped. */
+export type AttemptCause =
+  /** The other device never answered our offer. */
+  | 'no-setup-reply'
+  /** Setup was exchanged but no candidates came from the other device. */
+  | 'no-candidates'
+  /** Candidates were exchanged but no working path was found. */
+  | 'checks-failed'
+  /** The link failed for another reason (the error text says which). */
+  | 'link-error';
+
+/** Names the stage an unsuccessful link stopped at from what it saw. */
+export function attemptCause(d: LinkDiag, initiator: boolean): AttemptCause {
+  if (initiator && !d.answerReceived) return 'no-setup-reply';
+  if (d.remoteCandidates.length === 0) return 'no-candidates';
+  return 'checks-failed';
 }
 
 /** When each stage of reaching a device happened (epoch ms), for diagnosing slow joins. */
@@ -153,6 +201,9 @@ interface Known {
  *    so SDP/ICE for most connections never touches the server.
  * All signaling payloads are end-to-end encrypted between the two devices.
  */
+/** Most candidates kept for one device while its link is being created. */
+const EARLY_SIGNALS_MAX = 64;
+
 export class ConnectionManager {
   private ws: WebSocketLike | null = null;
   private known = new Map<string, Known>();
@@ -170,6 +221,10 @@ export class ConnectionManager {
   /** Failed or stalled link attempts per device, for retry backoff (reset when the peer connects). */
   private attempts = new Map<string, number>();
   private lastErrors = new Map<string, string>();
+  private iceInfoValue: IceInfo = { state: 'unknown', relay: null, servers: 0 };
+  private lastCauses = new Map<string, { cause: AttemptCause; link: LinkDiag }>();
+  /** Candidates that reached us before the link they belong to exists (its configuration is still loading). */
+  private earlySignals = new Map<string, LinkSignal[]>();
   /** Devices that left the relay (and are not linked): not retried until they are announced again. */
   private gone = new Set<string>();
   private stages = new Map<string, DeviceStages>();
@@ -258,10 +313,17 @@ export class ConnectionManager {
         attempts: this.attempts.get(dev) ?? 0,
         linking: this.links.has(dev),
         lastError: this.lastErrors.get(dev) ?? null,
+        cause: this.lastCauses.get(dev)?.cause ?? null,
+        link: this.links.get(dev)?.diag() ?? this.lastCauses.get(dev)?.link ?? null,
         onRelay: this.onRelay.has(dev),
       });
     }
     return out;
+  }
+
+  /** What the last ICE configuration request returned (STUN/relay availability), for diagnostics. */
+  iceInfo(): IceInfo {
+    return { ...this.iceInfoValue };
   }
 
   /** Timestamps of the stages reached per device (relay seen, first attempt, link up), for diagnostics. */
@@ -278,6 +340,7 @@ export class ConnectionManager {
     if (this.stopped) return;
     this.attempts.clear();
     this.lastErrors.clear();
+    this.lastCauses.clear();
     for (const [dev, l] of this.links) {
       l.close();
       this.links.delete(dev);
@@ -411,6 +474,16 @@ export class ConnectionManager {
     this.opening.clear();
     this.authenticating.clear();
     this.iceFetch = null;
+    this.earlySignals.clear();
+  }
+
+  private tr(ev: string, dev?: string, data?: Record<string, string | number | boolean>) {
+    if (!this.o.trace) return;
+    try {
+      this.o.trace({ t: this.nowMs(), self: this.selfDev, ev, ...(dev !== undefined ? { dev } : {}), ...(data ? { data } : {}) });
+    } catch {
+      /* a broken trace sink must never affect connecting */
+    }
   }
 
   private nowMs() {
@@ -441,8 +514,11 @@ export class ConnectionManager {
         this.cancel(timer);
         resolve(servers);
       };
+      this.tr('ice.request');
       const timer = this.later(this.o.iceTimeoutMs ?? 5000, () => {
+        this.tr('ice.timeout');
         this.iceFailed();
+        if (!this.ice) this.iceInfoValue = { state: 'failed', relay: { available: false, reason: 'config_unavailable' }, servers: this.stunOnly().length };
         done(this.stunOnly());
       });
       this.o.getIceServers().then(
@@ -451,13 +527,19 @@ export class ConnectionManager {
           // Credentials that arrive after the deadline are still good for the next attempt.
           if (gen === this.gen) {
             this.ice = { servers: cfg.iceServers, expiresAt: cfg.expiresAt ?? this.nowMs() + ICE_DEFAULT_TTL_MS };
+            this.iceInfoValue = { state: 'ok', relay: cfg.relay ?? null, servers: cfg.iceServers.length };
+            this.tr('ice.ok', undefined, { servers: cfg.iceServers.length, relay: cfg.relay ? `${cfg.relay.available ? 'available' : 'unavailable'}:${cfg.relay.reason}` : 'unknown' });
             this.iceFailures = 0;
             this.iceRetryAt = 0;
           }
           done(cfg.iceServers);
         },
         (e: unknown) => {
-          if (gen === this.gen) this.iceFailed(e);
+          if (gen === this.gen) {
+            this.tr('ice.error', undefined, { status: String((e as { status?: unknown } | null)?.status ?? 'n/a') });
+            this.iceFailed(e);
+            this.iceInfoValue = { state: 'failed', relay: { available: false, reason: 'config_unavailable' }, servers: this.stunOnly().length };
+          }
           done(this.stunOnly());
         },
       );
@@ -613,6 +695,7 @@ export class ConnectionManager {
     } else if (m.t === 'join' && m.ticket) {
       const k = await this.learn(m.ticket, true);
       if (k) {
+        this.tr('peer.join', k.claims.dev);
         this.onRelay.add(k.claims.dev);
         if (m.sid) {
           // A new signaling session of the peer: a relay generation bound to its old session is dead.
@@ -626,6 +709,7 @@ export class ConnectionManager {
       // The leave of an older session of a device that already reconnected (quick reload): not a departure.
       const latest = this.sessions.get(m.dev);
       if (latest && m.sid && m.sid !== latest) return;
+      this.tr('peer.leave', m.dev);
       this.sessions.delete(m.dev);
       this.onRelay.delete(m.dev);
       const relay = this.relays.get(m.dev);
@@ -636,6 +720,7 @@ export class ConnectionManager {
         this.gone.add(m.dev);
         this.attempts.delete(m.dev);
         this.lastErrors.delete(m.dev);
+        this.lastCauses.delete(m.dev);
         this.emitState();
       }
     }
@@ -698,7 +783,7 @@ export class ConnectionManager {
       const t = p.conn.transport;
       out[p.deviceId] = t instanceof RelayTransport
         ? { route: 'relay', limited: t.limited ? (t.stats.limitedReason ?? 'relay_limited') : null }
-        : { route: (t as { path?: string }).path === 'turn' ? 'turn' : 'direct', limited: null };
+        : { route: (t as { path?: string }).path === 'turn' ? 'turn' : 'direct', limited: null, pair: (t as { pair?: { local: string; remote: string } | null }).pair ?? null };
     }
     return out;
   }
@@ -708,6 +793,7 @@ export class ConnectionManager {
     const dev = k.claims.dev;
     if (this.stopped || this.busy(dev)) return;
     if (this.selfDev < dev) {
+      this.tr('attempt.start', dev, { role: 'offerer' });
       void this.attempt(dev, true)
         .then((l) => l?.start())
         .catch(() => this.retryLater(dev));
@@ -737,6 +823,8 @@ export class ConnectionManager {
       link.close();
       this.links.delete(dev);
       this.lastErrors.set(dev, 'connection attempt timed out');
+      this.recordCause(dev, link, initiator, 'timeout');
+      this.tr('link.timeout', dev, { cause: this.lastCauses.get(dev)?.cause ?? 'n/a' });
       this.retryLater(dev);
     });
     this.stage(dev).firstAttemptAt ??= Date.now();
@@ -744,9 +832,11 @@ export class ConnectionManager {
       factory: this.o.rtcFactory,
       iceServers: ice,
       initiator,
+      trace: (ev, data) => this.tr(`link.${ev}`, dev, data),
       send: (s) => void this.sendSignal(dev, s),
       onTransport: (t) => {
         this.cancel(timer);
+        this.tr('link.up', dev);
         if (this.links.get(dev) === link) this.links.delete(dev);
         if (this.stopped || gen !== this.gen) return void t.close();
         // The attempt keeps owning the device until the mesh has authenticated (or refused) the transport.
@@ -762,12 +852,22 @@ export class ConnectionManager {
         this.cancel(timer);
         if (this.links.get(dev) === link) this.links.delete(dev);
         this.lastErrors.set(dev, why);
+        this.recordCause(dev, link, initiator, why);
+        this.tr('link.failed', dev, { why: why.slice(0, 120), cause: this.lastCauses.get(dev)?.cause ?? 'n/a' });
         this.retryLater(dev);
       },
     });
     this.links.set(dev, link);
+    this.tr('link.created', dev, { role: initiator ? 'offerer' : 'answerer' });
     this.emitState();
     return link;
+  }
+
+  /** Remembers where a failed attempt stopped; a thrown setup error keeps its own text instead of a stage. */
+  private recordCause(dev: string, link: RtcLink, initiator: boolean, why: string) {
+    const d = link.diag();
+    const signalError = !/^(timeout|connection (failed|closed|disconnected))$/.test(why);
+    this.lastCauses.set(dev, { cause: signalError ? 'link-error' : attemptCause(d, initiator), link: d });
   }
 
   /**
@@ -779,6 +879,7 @@ export class ConnectionManager {
     if (this.stopped) return;
     const n = (this.attempts.get(dev) ?? 0) + 1;
     this.attempts.set(dev, n);
+    this.earlySignals.delete(dev);
     this.stage(dev).attempts = n;
     this.emitState();
     // Reached through the relay already: direct attempts continue, but rarely (each one costs signaling).
@@ -786,6 +887,7 @@ export class ConnectionManager {
     const cap = viaRelay ? Math.max(this.o.maxBackoffMs ?? 30_000, this.o.directRetryMs ?? 60_000) : this.o.maxBackoffMs ?? 30_000;
     if (!viaRelay) this.scheduleRelay(dev, 0);
     const base = Math.min(cap, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** Math.min(n, 20) : 1000 * 2 ** Math.min(n - 1, 20));
+    this.tr('retry.scheduled', dev, { attempt: n, inMs: base, viaRelay });
     this.later(base, () => {
       const k = this.known.get(dev);
       if (k && !this.gone.has(dev)) this.maybeConnect(k);
@@ -804,6 +906,7 @@ export class ConnectionManager {
     const gen = this.gen;
     const env = await seal(this.o.keys, peer.claims.devX, utf8(JSON.stringify(sig)), this.aad(this.selfDev, to));
     if (this.stopped || gen !== this.gen) return; // stopped while sealing: transmit nothing
+    this.tr('sig.send', to, { k: sig.k, via: this.socketOpen && (this.onRelay.has(to) || this.o.mesh.peers.length === 0) ? 'server' : 'mesh' });
     if (this.socketOpen && (this.onRelay.has(to) || this.o.mesh.peers.length === 0)) {
       this.stats.signalsViaServer++;
       this.ws?.send(JSON.stringify({ t: 'sig', to, env: b64(env) }));
@@ -828,11 +931,27 @@ export class ConnectionManager {
       return; // not for us / tampered
     }
     if (this.stopped || gen !== this.gen) return;
+    this.tr('sig.recv', k.claims.dev, { k: sig.k });
     let link: RtcLink | null | undefined = this.links.get(k.claims.dev);
     // An offer from a device we still think is connected means it restarted: answer it; the mesh replaces the old link.
     // (An attempt already in setup is shared, not duplicated.)
     if (!link && sig.k === 'offer') link = await this.attempt(k.claims.dev, false);
-    await link?.handle(sig);
+    if (!link) {
+      // The offerer trickles candidates right after its offer; the answering link may not exist yet. Keep them (bounded).
+      if (sig.k === 'ice') {
+        const early = this.earlySignals.get(k.claims.dev) ?? [];
+        if (early.length < EARLY_SIGNALS_MAX) early.push(sig);
+        this.tr('sig.held', k.claims.dev, { k: sig.k, held: early.length });
+        this.earlySignals.set(k.claims.dev, early);
+      }
+      return;
+    }
+    await link.handle(sig);
+    if (sig.k === 'offer') {
+      const held = this.earlySignals.get(k.claims.dev)?.splice(0) ?? [];
+      if (held.length) this.tr('sig.applied-held', k.claims.dev, { count: held.length });
+      for (const e of held) await link.handle(e);
+    }
   }
 
   private async onRtcViaMesh(_from: PeerInfo, body: RtcEnvelope) {
@@ -913,6 +1032,7 @@ export class ConnectionManager {
   private async startRelay(dev: string) {
     const peerSid = this.sessions.get(dev);
     if (!peerSid) return;
+    this.tr('relay.start', dev);
     const a: RelayAttempt = { gen: this.gen, id: '', role: 'initiator', peerSid, handshake: null, transport: null, timer: null };
     this.relays.set(dev, a); // reserved before any await
     try {
@@ -1044,6 +1164,7 @@ export class ConnectionManager {
     const viaRelay = p.conn.transportKind === 'relay';
     if (!viaRelay) this.attempts.delete(p.deviceId);
     this.lastErrors.delete(p.deviceId);
+    this.lastCauses.delete(p.deviceId);
     this.gone.delete(p.deviceId);
     this.stage(p.deviceId).linkUpAt = Date.now();
     this.emitState();

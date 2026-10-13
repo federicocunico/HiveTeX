@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { PW, createProject, newUser, uniq } from './helpers.js';
 
 test('account recents: the projects list follows the order projects were opened, across devices', async ({ browser }) => {

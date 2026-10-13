@@ -98,6 +98,8 @@
   {/if}
   {#if error}<div class="error" role="alert">{error}</div>{/if}
   {#if info}<div class="notice" role="status">{info}</div>{/if}
+  <p class="card" data-testid="network-link">Can't connect to a co-author? <button type="button" class="linkish" onclick={() => go('/network')}>Network diagnostics</button></p>
+
   <section class="card" data-testid="preferences" aria-labelledby="prefs-title">
     <h2 id="prefs-title">Preferences</h2>
     <p class="muted" style="margin-top: 0">For this device only. They are never sent to the server or to co-authors.</p>

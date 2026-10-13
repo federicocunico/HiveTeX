@@ -17,6 +17,7 @@ import type { Deps } from "../src/deps.js";
 import { createApplicationRelayRouter, type RelayDebit } from "../src/signal/application-relay.js";
 import { MemorySignalBackend, createSignalSession } from "../src/signal/hub.js";
 import { Client, type TestEnv, makeEnv, register } from "./helpers.js";
+import { traceLog } from "./trace.js";
 
 /**
  * Phase-1 acceptance on the current clients (3.1-3.5, 3.7): real ConnectionManager/Mesh/BlobManager, the real signal hub
@@ -112,6 +113,7 @@ async function makeDevice(
     getIceServers: async () => [],
     now: env.deps.now,
     idleCloseMs: 50,
+    trace: traceLog().sink,
     linkTimeoutMs: 300,
     maxBackoffMs: 300,
     relayAfterMs: 200,

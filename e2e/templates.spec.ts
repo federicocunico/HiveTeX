@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { PROJECT_PW, newUser, openNewProject, uniq } from './helpers.js';
 
 test('a project created from the Article template has its files, its main file set, and compiles', async ({ browser }) => {

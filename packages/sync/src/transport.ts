@@ -234,6 +234,8 @@ export class DataChannelTransport implements PeerTransport {
   private dcs: DataChannelLike[];
   /** The selected ICE path once known: a TURN server, a direct pair, or not reported by the RTC implementation. */
   path: 'direct' | 'turn' | 'unknown' = 'unknown';
+  /** Candidate types of the selected pair (host, srflx, prflx, relay), once known. */
+  pair: { local: string; remote: string } | null = null;
 
   constructor(
     syncDc: DataChannelLike,

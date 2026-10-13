@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type Page, expect, test } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
+import { test } from './trace-fixture.js';
 import { joinProject, newUser, openNewProject, PROJECT_PW, uniq } from './helpers.js';
 
 /**

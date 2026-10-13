@@ -13,6 +13,7 @@
   import { SOURCE_URL } from './lib/links.js';
   import { go, route } from './lib/router.svelte.js';
   import Account from './views/Account.svelte';
+  import Network from './views/Network.svelte';
   import Admin from './views/Admin.svelte';
   import Auth from './views/Auth.svelte';
   import GithubContinue from './views/GithubContinue.svelte';
@@ -64,6 +65,7 @@
     { id: 'palette', title: 'Command palette', group: 'Help', keys: ['Mod+K'], hidden: true, when: () => !!auth.user, run: () => openPalette() },
     { id: 'shortcuts', title: 'Keyboard shortcuts', group: 'Help', keys: ['Mod+Shift+/'], icon: Keyboard, aliases: ['help', 'keys', 'hotkeys'], run: openShortcuts },
     { id: 'go-projects', title: 'Go to your projects', group: 'Navigate', icon: ArrowLeft, aliases: ['home', 'dashboard'], when: () => !!auth.user, run: () => go('/') },
+    { id: 'network', title: 'Network diagnostics', group: 'Account', icon: User, aliases: ['connection', 'webrtc', 'ports', 'stun', 'turn'], when: () => !!auth.user, run: () => go('/network') },
     { id: 'account', title: 'Account and preferences', group: 'Account', icon: User, aliases: ['settings', 'password', 'preferences'], when: () => !!auth.user, run: () => go('/account') },
     { id: 'theme-light', title: 'Theme: light', group: 'Account', icon: Sun, aliases: ['appearance'], run: () => setPref('theme', 'light') },
     { id: 'theme-dark', title: 'Theme: dark', group: 'Account', icon: Moon, aliases: ['appearance', 'night'], run: () => setPref('theme', 'dark') },
@@ -135,6 +137,7 @@
       {:else if projectId}{#await import('./views/Workspace.svelte')}<div class="center"><p class="muted">Loading editor…</p></div>{:then m}{#key projectId}<m.default {projectId} />{/key}{/await}
       {:else if route.path === '/github-continue' || route.path === '/github-done'}<GithubContinue />
       {:else if route.path === '/account'}<Account />
+      {:else if route.path === '/network'}<Network />
       {:else if route.path === '/admin' && auth.user.isAdmin}<Admin />
       {:else}<Projects />
       {/if}

@@ -7,6 +7,7 @@ import { schema } from '../src/db/client.js';
 import { createDevPush } from '../src/dev-push.js';
 import { MemorySignalBackend, createSignalSession } from '../src/signal/hub.js';
 import { Client, type TestEnv, makeEnv, register } from './helpers.js';
+import { traceLog } from './trace.js';
 
 /**
  * 3B.3: doorbell mode end to end with the real hub, the real ring endpoint and an ntfy-compatible push service. Nobody
@@ -62,7 +63,7 @@ async function makeDevice(client: Client, pid: string, name: string, o: { bell?:
       sockets.push(ws);
       return ws;
     },
-    rtcFactory: rtc.factory, getIceServers: async () => [], now: env.deps.now, idleCloseMs: 20,
+    rtcFactory: rtc.factory, getIceServers: async () => [], now: env.deps.now, idleCloseMs: 20, trace: traceLog().sink,
     introductionWindowMs: 2000, introductionMinMs: 300, answerJitterMs: 50,
     ...(bell
       ? {
