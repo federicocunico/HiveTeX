@@ -1,7 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- HiveTeX app icon: a honey hive cell holding a LaTeX backslash. Regenerate the bundle icons with
-       "pnpm (filter @hivetex/desktop) tauri icon src-tauri/icons/source.svg". -->
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="#16181d"/>
-  <path d="M512 196 L786 354 L786 670 L512 828 L238 670 L238 354 Z" fill="#33270d" stroke="#eba724" stroke-width="56" stroke-linejoin="round"/>
-  <path d="M432 392 L592 632" stroke="#f5bf55" stroke-width="64" stroke-linecap="round"/>
+<rect x="32" y="32" width="960" height="960" rx="192" fill="#16181D"/>
+<g fill="#EBA724"><path d="M256 145H384L448 256 384 367V401L448 512 384 623V657L448 768 384 879H256L192 768 256 657V623L192 512 256 401V367L192 256Z"/><path d="M640 145H768L832 256 768 367V401L832 512 768 623V657L832 768 768 879H640L576 768 640 657V623L576 512 640 401V367L576 256Z"/></g>
+<path id="bridge" fill="#FFF4D6" fill-rule="evenodd" d="M640 512 576 623H448L384 512 448 401H576ZM468 452 510 434 560 572 518 590Z"/>
 </svg>

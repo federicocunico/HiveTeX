@@ -82,7 +82,11 @@ export class ProjectAdmin {
   }
 
   saveSlug() {
-    return this.act(() => api('PATCH', `/projects/${this.pid}`, { slug: this.slug }), 'Project ID changed. Share the new ID with collaborators.');
+    return this.act(async () => {
+      const r = await api<{ project: { slug: string } }>('PATCH', `/projects/${this.pid}`, { slug: this.slug });
+      this.slug = r.project.slug;
+      await this.session.updateShareId(r.project.slug);
+    }, 'Project ID changed. Copy the full new ID from Share.');
   }
 
   savePassword() {

@@ -24,8 +24,8 @@ they become the project's files). Then **Create project**.
 
 **Your projects** → **Open folder…** and pick a directory:
 
-- **A folder of LaTeX sources (e.g. a `git clone`)**: you get *New project from "…"* with an ID suggested from the folder
-  name. Create it and the project gets exactly that tree. The main document (`% !TEX root`, `main.tex`, or the file with
+- **A folder of LaTeX sources (e.g. a `git clone`)**: you get *New project from "…"* with a name suggested from the folder
+  name. The server adds a unique suffix to its share ID; copy the full ID from Share. Create it and the project gets exactly that tree. The main document (`% !TEX root`, `main.tex`, or the file with
   `\documentclass` + `\begin{document}`) and the engine (`% !TEX program`, or XeLaTeX for `fontspec`/`unicode-math`) are
   detected automatically; change them later in *Project settings*.
 - **A folder that already belongs to one of your projects**: it opens that project and uses the folder on this device.
@@ -162,3 +162,10 @@ exactly: the first run downloads that version from Microsoft into `apps/desktop/
 reuses it afterwards (a new one is fetched when WebView2 updates). Offline, or to use your own copy, set
 `MSEDGEDRIVER=C:\path\msedgedriver.exe`. These are developer test tools: the app itself never needs them, and release
 builds never include `test-picker`.
+
+New shared projects always receive suffixed share IDs, including when created from a folder or published from local
+mode. Existing unsuffixed folder markers continue opening their original projects. Changing a share ID refreshes the
+marker without moving the folder or changing its internal project identity.
+
+Desktop UI tests use the separate `app.hivetex.desktop.e2e` application/profile and credential-store service.
+Production builds retain `app.hivetex.desktop`; test restarts do not replace a user’s normal remembered account.

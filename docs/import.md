@@ -79,3 +79,10 @@ decompressed.
 
 Large imports show a progress bar. All new files reach your collaborators as **one** change, so they never see a
 half-imported tree.
+
+## Naming a new imported project
+
+In New project, choose a readable project name before selecting the archive or folder. The server adds a random suffix
+to the share ID, so the same name can be used again. Copy the full ID from Share for collaborators; importing into an
+existing project keeps its identity. A local-only project keeps its name and UUID until you publish it, when it receives
+a new suffixed share ID without losing its files or history. Existing plain-name IDs still work.

@@ -5,14 +5,14 @@ const leaderText = (p: Page) => p.getByTestId('leader').innerText();
 
 test('three clients: concurrent edits, leader failover, read-only viewer and member removal (11.1, web part)', async ({ browser }) => {
   test.setTimeout(240_000);
-  const slug = uniq('flow-');
+  let slug = uniq('flow-');
   const [ctxO, ctxE, ctxV] = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()]);
   const O = await newUser(ctxO, 'olga');
   const E = await newUser(ctxE, 'edie');
   const V = await newUser(ctxV, 'vera');
 
   // owner creates the project; newcomers start as editors, then the owner demotes vera
-  await createProject(O.page, slug);
+  slug = await createProject(O.page, slug);
   await O.page.getByTestId('settings-btn').click();
   await O.page.getByLabel('Default role').selectOption('editor');
   await O.page.getByRole('button', { name: 'Save', exact: true }).first().click();

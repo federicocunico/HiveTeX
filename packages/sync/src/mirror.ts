@@ -195,14 +195,21 @@ export class MirrorSync {
   }
 
   /** Writes (or updates) the folder marker, keeping fields we do not own such as the backup's `paths`. */
-  private async writeMarker() {
+  /** Updates sharing metadata without rebinding the folder or touching project contents. */
+  async updateProjectSlug(slug: string) {
+    if (!this.o.marker) return;
+    this.o.marker.slug = slug;
+    await this.writeMarker(true);
+  }
+
+  private async writeMarker(reportFailure = false) {
     if (!this.o.marker || this.o.getRole() === 'viewer') return;
     const current = parseMarker(await this.o.fs.read(MARKER_FILE).catch(() => null));
     const cur = current ?? { version: 2 };
     if (current && cur.project?.id === this.o.marker.id && cur.project.slug === this.o.marker.slug && cur.version >= 2) return;
     const next: FolderMarker = { ...cur, version: 2, project: { id: this.o.marker.id, slug: this.o.marker.slug } };
     await this.o.fs.write(MARKER_FILE, new TextEncoder().encode(`${JSON.stringify(next, null, 2)}
-`)).catch(() => {});
+`)).catch((e) => { if (reportFailure) throw e; });
   }
 
   private rememberBase(path: string, text: string) {

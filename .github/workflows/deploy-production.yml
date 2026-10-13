@@ -1,0 +1,49 @@
+name: Production deployment
+on:
+  workflow_call:
+    inputs:
+      source_sha: { type: string, default: "" }
+      release_tag: { type: string, default: "" }
+      trigger_kind: { type: string, default: manual }
+    secrets:
+      VERCEL_TOKEN: { required: true }
+      VERCEL_AUTOMATION_BYPASS_SECRET: { required: false }
+permissions:
+  contents: read
+  actions: read
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      HIVETEX_PRODUCTION_BASELINE_ID: ${{ vars.HIVETEX_PRODUCTION_BASELINE_ID }}
+      HIVETEX_PRODUCTION_BASELINE_SHA: ${{ vars.HIVETEX_PRODUCTION_BASELINE_SHA }}
+      SITE: ${{ vars.HIVETEX_API_BASE }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      TRIGGER_KIND: ${{ inputs.trigger_kind }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, package-manager-cache: false }
+      - name: Verify the immutable source and successful CI
+        id: source
+        run: |
+          node scripts/deploy-production.mjs prepare
+          cp scripts/deploy-production.mjs "$RUNNER_TEMP/hivetex-deploy.mjs"
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 0
+      - name: Stage, verify and promote the checked source
+        env:
+          EXPECTED_SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: node "$RUNNER_TEMP/hivetex-deploy.mjs" deploy

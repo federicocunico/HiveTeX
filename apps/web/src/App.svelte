@@ -4,6 +4,7 @@
   import AppHeader from './components/AppHeader.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import ShortcutsDialog from './components/ShortcutsDialog.svelte';
+  import { sessionNotice, retryRememberedSession } from './lib/session-notice.svelte.js';
   import { auth, loadMe, logout } from './lib/auth.svelte.js';
   import { allCommands, commandForKey, registerCommands, registerSource } from './lib/commands.svelte.js';
   import { openPalette, openShortcuts, palette } from './lib/palette.svelte.js';
@@ -108,12 +109,20 @@
   <div class="center"><p class="muted">Loading…</p></div>
 {:else}
   <div class="shell">
+    <div class="shell-top">
+    {#if sessionNotice.message}
+      <div class="notice" role="status" data-testid="session-notice">
+        {sessionNotice.message}
+        {#if sessionNotice.retry}<button type="button" onclick={retryRememberedSession} disabled={sessionNotice.busy} data-testid="session-retry">{sessionNotice.busy ? 'Retrying…' : 'Retry saved sign-in'}</button>{/if}
+      </div>
+    {/if}
     {#if auth.user && !projectId}
       <AppHeader />
     {:else}
       <div></div>
     {/if}
 
+    </div>
     <main style="min-height: 0; overflow: auto">
       {#if route.path === '/login'}<Auth mode="login" />
       {:else if route.path === '/register'}<Auth mode="register" />

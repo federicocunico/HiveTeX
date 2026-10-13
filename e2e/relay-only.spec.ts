@@ -46,14 +46,14 @@ test.skip(!process.env.RELAY_ONLY, 'needs a local TURN server and RELAY_ONLY=1')
 
 test('relay-only: two browsers connect through TURN only, edit, drop the link and reconnect through TURN again', async ({ browser }) => {
   test.setTimeout(240_000);
-  const slug = uniq('relay-');
+  let slug = uniq('relay-');
   const aCtx = await browser.newContext();
   const bCtx = await browser.newContext();
   await aCtx.addInitScript(FORCE_RELAY);
   await bCtx.addInitScript(FORCE_RELAY);
   const a = await newUser(aCtx, 'rla');
   const b = await newUser(bCtx, 'rlb');
-  await createProject(a.page, slug);
+  slug = await createProject(a.page, slug);
   await a.page.getByTestId('settings-btn').click();
   await a.page.getByLabel('Default role').selectOption('editor');
   await a.page.getByRole('button', { name: 'Save', exact: true }).first().click();

@@ -19,7 +19,7 @@
   function open(m: 'publish' | 'link') {
     mode = m;
     error = '';
-    slug = m === 'publish' ? project.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) : '';
+    slug = m === 'publish' ? project.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 31) : '';
     password = '';
     unprotected = false;
   }
@@ -61,9 +61,9 @@
     {#if mode === 'publish'}
       <p class="muted">It becomes a shared project with exactly these files. Co-authors join with its ID and password.</p>
       <div class="field">
-        <label for="lp-slug">Project ID</label>
-        <input id="lp-slug" type="text" bind:value={slug} placeholder="my-paper-2026" data-testid="local-slug" />
-        <p class="hint">6–48 characters (a–z, 0–9, -); leave empty for a random one.</p>
+        <label for="lp-slug">Project name</label>
+        <input id="lp-slug" type="text" bind:value={slug} placeholder="my-paper-2026" maxlength="31" data-testid="local-slug" />
+        <p class="hint">1–31 characters (a–z, 0–9, -). A unique suffix is added automatically; copy the full ID from Share.</p>
       </div>
       <div class="field">
         <label for="lp-pw">Join password</label>

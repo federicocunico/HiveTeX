@@ -3,6 +3,7 @@
 
   /** How people join: their starting role, the project ID and the password. Owners only. */
   let { admin, showId = true }: { admin: ProjectAdmin; showId?: boolean } = $props();
+  let slugInput = $state<HTMLInputElement>();
   const id = `join-${Math.random().toString(36).slice(2, 7)}`;
 </script>
 
@@ -18,10 +19,11 @@
   </div>
   {#if showId}
     <div class="row">
-      <label for="{id}-slug">Project ID</label>
-      <input id="{id}-slug" type="text" bind:value={admin.slug} />
-      <button type="button" onclick={() => admin.saveSlug()} disabled={admin.slug === admin.session.project.slug}>Change ID</button>
+      <label for="{id}-slug">Project name or current ID</label>
+      <input id="{id}-slug" type="text" bind:this={slugInput} bind:value={admin.slug} maxlength="48" aria-describedby="{id}-hint" />
+      <button type="button" onclick={async () => { if (await admin.saveSlug()) slugInput?.focus(); }} disabled={admin.slug === admin.session.project.slug}>Change ID</button>
     </div>
+    <p class="hint" id="{id}-hint">Enter a new name to change it. A unique suffix is added automatically; co-authors need the full new ID.</p>
   {/if}
   <div class="row">
     <label for="{id}-pw">{admin.session.project.passwordProtected ? 'Change password' : 'Set a password'}</label>

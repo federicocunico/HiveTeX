@@ -37,6 +37,9 @@ export async function createProject(page: Page, slug: string, password = PROJECT
   await page.locator('form:has(h2:text("New project")) input[type=password]').fill(password);
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByTestId('workspace')).toBeVisible();
+  const assigned = await page.getByTestId('project-slug').innerText();
+  expect(assigned).toMatch(/-[a-z2-7]{16}$/);
+  return assigned;
 }
 
 export async function joinProject(page: Page, slug: string, password = PROJECT_PW) {

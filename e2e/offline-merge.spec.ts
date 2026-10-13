@@ -12,8 +12,8 @@ async function pair(browser: Browser) {
   const [oc, ec] = [await browser.newContext(), await browser.newContext()];
   const o = await newUser(oc, 'mo');
   const e = await newUser(ec, 'me');
-  const slug = uniq('merge-');
-  await createProject(o.page, slug);
+  let slug = uniq('merge-');
+  slug = await createProject(o.page, slug);
   await o.page.getByTestId('settings-btn').click();
   await o.page.getByLabel('Default role').selectOption('editor');
   await o.page.getByRole('button', { name: 'Save', exact: true }).first().click();

@@ -32,6 +32,8 @@ jobs:
           make help
           make -n check up test-stack deploy-preview >/dev/null
           if make deploy-prod 2>/dev/null; then echo "deploy-prod must refuse without CONFIRM=1"; exit 1; fi
+      - name: Production deployment policy
+        run: node --test scripts/deploy-production.test.mjs
       - name: Docker stack config
         run: docker compose config -q
       - name: Lint, type-check and unit tests

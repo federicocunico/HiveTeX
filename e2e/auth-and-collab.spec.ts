@@ -39,13 +39,13 @@ test('account flow: register, verify, sign out, reset password, sign in (3.8)', 
 });
 
 test('collaboration: join as viewer, promote to editor, live sync and presence (4.6, 7.1, 7.3)', async ({ browser }) => {
-  const slug = uniq('collab-');
+  let slug = uniq('collab-');
   const ownerCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const owner = await newUser(ownerCtx, 'olga');
   const guest = await newUser(guestCtx, 'gus');
 
-  await createProject(owner.page, slug);
+  slug = await createProject(owner.page, slug);
   await addFile(owner.page, 'main.tex');
   await owner.page.getByRole('treeitem', { name: 'main.tex' }).click();
   await typeInEditor(owner.page, '\\section{Hello} from the owner');

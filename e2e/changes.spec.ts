@@ -4,11 +4,11 @@ import { addFile, createProject, joinProject, newUser, typeInEditor, uniq } from
 type P2P = { folderEdit(path: string, text: string): Promise<void> };
 
 test('changes view: a folder edit (e.g. Claude Code) is listed with its diff and can be undone for everyone', async ({ browser }) => {
-  const slug = uniq('chg-');
+  let slug = uniq('chg-');
   const [oc, gc] = [await browser.newContext(), await browser.newContext()];
   const owner = await newUser(oc, 'cho');
   const guest = await newUser(gc, 'chg');
-  await createProject(owner.page, slug);
+  slug = await createProject(owner.page, slug);
   await addFile(owner.page, 'main.tex');
   await owner.page.getByRole('treeitem', { name: 'main.tex' }).click();
   await typeInEditor(owner.page, '\nFirst paragraph by hand.');

@@ -30,8 +30,8 @@ test('signed-in users go straight to their projects and never load the landing p
 test('a project link opened while signed out continues to the project after sign-in', async ({ browser }) => {
   const ctx = await browser.newContext();
   const u = await newUser(ctx, 'deep');
-  const slug = uniq('deep-');
-  await createProject(u.page, slug);
+  let slug = uniq('deep-');
+  slug = await createProject(u.page, slug);
   const projectUrl = u.page.url();
   await u.page.goto('/#/');
   await signOut(u.page);

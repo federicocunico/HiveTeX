@@ -173,11 +173,29 @@ export class ProjectSession {
   private snapTimer: ReturnType<typeof setTimeout> | null = null;
   private keys!: Awaited<ReturnType<typeof localKeys>>['keys'];
 
+  project = $state({} as ProjectInfo);
+
   constructor(
-    readonly project: ProjectInfo,
+    project: ProjectInfo,
     readonly user: { id: string; username: string },
   ) {
+    this.project = project;
     this.role = project.role;
+  }
+
+  /** Apply the authoritative share ID without changing internal routes or persistence identities. */
+  async updateShareId(slug: string) {
+    this.project.slug = slug;
+    try {
+      localStorage.setItem(`hivetex.proj.${this.project.id}`, JSON.stringify(this.project));
+      const list = JSON.parse(localStorage.getItem('hivetex.projects') ?? '[]') as ProjectInfo[];
+      localStorage.setItem('hivetex.projects', JSON.stringify(list.map(p => p.id === this.project.id ? { ...p, slug } : p)));
+    } catch { /* current metadata remains available if local storage is unavailable */ }
+    try {
+      await this.mirror?.updateProjectSlug(slug);
+    } catch {
+      this.mirrorNotice = 'Project ID changed, but the folder marker could not be updated. Reopen the folder to retry.';
+    }
   }
 
   async open() {

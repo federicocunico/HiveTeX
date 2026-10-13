@@ -17,8 +17,8 @@ test('sync status: a slow join shows connecting, then progress, then up to date;
   const ownerCtx = await browser.newContext();
   await ownerCtx.addInitScript(SLOW_OFFER);
   const o = await newUser(ownerCtx, 'syo');
-  const slug = uniq('syn-');
-  await createProject(o.page, slug);
+  let slug = uniq('syn-');
+  slug = await createProject(o.page, slug);
   for (const f of ['main.tex', 'intro.tex', 'method.tex', 'results.tex']) await addFile(o.page, f);
 
   const guestCtx = await browser.newContext();
@@ -55,8 +55,8 @@ test('sync status: a slow join shows connecting, then progress, then up to date;
 test('sync status: files being edited are marked with who is in them', async ({ browser }) => {
   const ownerCtx = await browser.newContext();
   const o = await newUser(ownerCtx, 'sye');
-  const slug = uniq('sye-');
-  await createProject(o.page, slug);
+  let slug = uniq('sye-');
+  slug = await createProject(o.page, slug);
   await addFile(o.page, 'main.tex');
   await addFile(o.page, 'intro.tex');
   await o.page.getByRole('treeitem', { name: 'intro.tex' }).click();

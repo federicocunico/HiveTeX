@@ -56,17 +56,10 @@ export function rememberFolder(projectId: string, f: PickedFolder) {
   return setLocation(projectId, loc);
 }
 
-/** Slug suggestion from a folder name (6–48 chars of a–z, 0–9 and -). */
+/** Readable prefix suggestion; only the server assigns a share-ID suffix. */
 export function slugFromFolder(name: string): string {
-  let s = name
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  if (s.length < 6) s = `${s || 'paper'}-${Math.random().toString(36).slice(2, 8)}`.slice(0, 48);
-  return s;
+  return name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 31).replace(/-$/, '') || 'paper';
 }
 
 /** Project created from a folder: the workspace detects main/engine once the folder content is imported. */

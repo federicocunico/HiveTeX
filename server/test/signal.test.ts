@@ -47,7 +47,7 @@ async function setup() {
   const pid = pr.json.project.id as string;
   PID.value = pid;
   const joiner = await register(env, 'jim');
-  await joiner.post('/projects/join', { slug: 'signal-proj-1', password: 'project-secret-1' });
+  await joiner.post('/projects/join', { slug: pr.json.project.slug, password: 'project-secret-1' });
   const mk = async (c: Client) => {
     const keys = await generateDeviceKeys();
     const dev = (await c.post('/devices', { ed25519Pub: keys.edPub, x25519Pub: keys.xPub })).json.deviceId as string;

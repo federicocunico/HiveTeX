@@ -57,11 +57,34 @@ make deploy-prod CONFIRM=1                   # runs `make check`, then vercel de
   `make seed-admin` only work when you have readable credentials (self-hosting, or a database URL copied from the Neon
   console).
 
-- **Later deploys run in GitHub Actions, after CI passes** (`.github/workflows/deploy.yml`). The workflow uploads the
-  newest `master` commit with the Vercel CLI, retries a failed upload (4 attempts), then checks `/api/health`. Vercel's
-  own Git deploys are off (`"git": { "deploymentEnabled": false }` in `vercel.json`): a broken commit never goes
-  live, and a GitHub rate limit on Vercel's side cannot fail a deploy. It needs the `VERCEL_TOKEN` secret and the
-  `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` variables; `make setup` sets them (token from `.env.setup` or a prompt).
+- **Production deploys follow successful CI and stable releases.** Master push CI uses Deploy as before. Automated
+  Release publication calls the shared production workflow directly; manual stable publication uses Deploy’s
+  `release: published` entry point. Drafts and prereleases do not deploy. Releases resolve their actual tag commit
+  (including annotated tags), require trusted push CI for that exact SHA and never substitute the master tip.
+- **One production job controls ordering.** It skips duplicate verified commits, superseded master commits, older stable
+  versions and releases whose commit is an ancestor of newer production. Divergent or unknown provenance fails clearly.
+  When an older deployment has no source metadata, establish its source from the existing deployment/build records and
+  set `HIVETEX_PRODUCTION_BASELINE_ID` (that exact Vercel deployment ID) and `HIVETEX_PRODUCTION_BASELINE_SHA`
+  (its full verified Git commit). This baseline cannot apply to a different deployment. New deploys write their own
+  `hivetexSha`, `hivetexTag` when applicable and trigger metadata.
+- **A deploy is checked before promotion.** The workflow uploads sources with production settings and `--skip-domain`,
+  waits for the unique deployment to be READY, checks its health, rechecks release/CI/ordering and promotes it. It then
+  verifies that the stable production alias points at the new deployment ID and checks its health. A healthy old
+  endpoint cannot make a failed release deploy look green. Migrations still run during the build and must remain
+  compatible with the currently serving version.
+- **Settings and recovery.** Reuse `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`; `make setup` configures
+  them. `HIVETEX_API_BASE` names the stable production domain. If unique deployment URLs require authentication, set
+  the repository’s `VERCEL_AUTOMATION_BYPASS_SECRET` from that Vercel project’s automation bypass setting; checks send
+  it in a header and protection stays enabled. The run summary reports source, tag, deployment URL and terminal state.
+  Upload/promotion failures have bounded retries and a deployment budget. A deploy failure keeps published installers.
+  Retry without republishing them: `gh workflow run deploy.yml -f release_tag=v1.2.3`. For a checked branch commit, use
+  `gh workflow run deploy.yml`. Vercel’s own Git deploys remain disabled in `vercel.json`.
+
+GitHub suppresses follow-on release events from its built-in token, so the direct reusable call is required for
+automated publication ([trigger behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
+The checks use Vercel’s [deployment lookup](https://vercel.com/docs/rest-api/deployments/get-a-deployment-by-id-or-url),
+[alias lookup](https://vercel.com/docs/rest-api/aliases/get-an-alias) and optional
+[automation bypass header](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
 
 The Make targets need no global Vercel CLI (they use `npx vercel@latest`). `make up` runs the same server code locally
 against emulators ([local-stack.md](local-stack.md)).

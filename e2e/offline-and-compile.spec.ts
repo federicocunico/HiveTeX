@@ -2,14 +2,14 @@ import { expect, test } from '@playwright/test';
 import { PROJECT_PW, addFile, createProject, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
 
 test('offline edits on both sides merge automatically after reconnecting (6.8)', async ({ browser }) => {
-  const slug = uniq('offline-');
+  let slug = uniq('offline-');
   const aCtx = await browser.newContext();
   const bCtx = await browser.newContext();
   const a = await newUser(aCtx, 'ann');
   const b = await newUser(bCtx, 'ben');
 
   // owner creates the project and makes new members editors by default
-  await createProject(a.page, slug);
+  slug = await createProject(a.page, slug);
   await a.page.getByTestId('settings-btn').click();
   await a.page.getByLabel('Default role').selectOption('editor');
   await a.page.getByRole('button', { name: 'Save', exact: true }).first().click();
@@ -92,12 +92,12 @@ test('reconnect with a binary transfer in flight: the exact bytes arrive and the
   test.setTimeout(180_000);
   type Blobs = { has(h: string): Promise<boolean>; get(h: string): Promise<Uint8Array | undefined>; chunkProgress(h: string): number };
   type S = { addBinary(p: string, b: Uint8Array): Promise<void>; blobs: Blobs; model: { find(p: string): { hash?: string; size?: number } | undefined } };
-  const slug = uniq('binfl-');
+  let slug = uniq('binfl-');
   const aCtx = await browser.newContext();
   const bCtx = await browser.newContext();
   const a = await newUser(aCtx, 'bia');
   const b = await newUser(bCtx, 'bib');
-  await createProject(a.page, slug);
+  slug = await createProject(a.page, slug);
   await addFile(a.page, 'main.tex');
   // 24 MB of incompressible bytes, so the transfer takes long enough to interrupt on a loopback link
   const hash = await a.page.evaluate(async () => {

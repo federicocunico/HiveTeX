@@ -203,3 +203,24 @@ hide/close. Local history snapshots (every ~10 min of activity) can be restored 
 
 Up to 6 connections every update is sent directly by its author; above that, updates are relayed (gossip) – Yjs updates are
 idempotent, so duplicates are harmless.
+
+## Shareable project IDs
+
+`POST /api/projects` retains its optional `slug` field as a name-prefix input. The server trims/lowercases it,
+accepts 1–48 characters of a–z, 0–9 and hyphen, collapses repeated/edge hyphens and uses up to 31 prefix characters.
+Omit it to use `project`. Each new share ID is `<prefix>-<16 random base32 characters>`, within 48 characters.
+A caller-provided suffix does not replace server randomness. Read the canonical ID from `project.slug` in the response;
+`project.id` is the separate immutable identity used in routes, local persistence and membership tickets.
+
+Creation uses a unique database constraint and up to five fresh allocation attempts. Project and owner membership are
+inserted atomically in one SQL statement on both PGlite and Neon HTTP. Exhaustion returns `id_generation_failed`
+with a retry instruction; unrelated database failures remain internal failures rather than naming conflicts.
+
+`PATCH /api/projects/:id` treats a changed `slug` as a new prefix and returns a fresh suffixed share ID. Submitting
+the existing full ID is a no-op. Existing unsuffixed IDs remain valid for joining, listing, folder bindings and peers.
+Older clients can create with their existing request field, but must use the returned slug when inviting or joining.
+
+Production-driver allocation regression (isolated local services, not a hosted database): start the Compose project
+`hivetex-identity-check` with `PG_PORT=55439 NEON_PROXY_PORT=4449` and the `postgres neon-proxy` services, then run
+`HIVETEX_ALLOCATION_HTTP_TEST=1 pnpm --filter @hivetex/server exec vitest run test/project-allocation-http.test.ts`.
+Stop that Compose project after testing; keep normal development containers and volumes separate.

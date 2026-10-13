@@ -53,7 +53,7 @@ test('web folders: create in a folder, external edits sync, reopen re-binds, sto
   const dir = uniq('dir-');
   await pickNext(page, dir);
 
-  const slug = uniq('fold-');
+  let slug = uniq('fold-');
   await openNewProject(page);
   await page.getByPlaceholder('my-paper-2026').fill(slug);
   await page.locator('form:has(h2:text("New project")) input[type=password]').fill(PROJECT_PW);
@@ -61,6 +61,7 @@ test('web folders: create in a folder, external edits sync, reopen re-binds, sto
   await expect(page.getByText(`In the folder “${dir}”`)).toBeVisible();
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByTestId('workspace')).toBeVisible();
+  slug = await page.getByTestId('project-slug').innerText();
   await expect(page.getByTestId('location-btn')).toContainText(dir);
 
   // project -> folder
@@ -106,11 +107,12 @@ test('web folders: "Open folder…" creates a project with the folder tree, and 
   await pickNext(page, dir);
   await page.getByTestId('open-folder').click();
   await expect(page.getByTestId('from-folder')).toBeVisible();
-  const slug = uniq('from-');
+  let slug = uniq('from-');
   await page.getByTestId('from-folder-slug').fill(slug);
   await page.getByTestId('from-folder-password').fill(PROJECT_PW);
   await page.getByTestId('from-folder-create').click();
   await expect(page.getByTestId('workspace')).toBeVisible();
+  slug = await page.getByTestId('project-slug').innerText();
   await expect(page.getByRole('treeitem', { name: 'paper.tex' })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('treeitem', { name: 'intro.tex' })).toBeVisible();
   await expect(page.getByRole('treeitem', { name: 'HEAD' })).toHaveCount(0); // tool folders stay out
@@ -141,12 +143,14 @@ test('web folders: a project created from a template in a folder writes the temp
   await pickNext(page, dir);
   await openNewProject(page);
   await page.getByTestId('template-report').click();
-  await page.getByPlaceholder('my-paper-2026').fill(uniq('foldt-'));
+  let slug = uniq('foldt-');
+  await page.getByPlaceholder('my-paper-2026').fill(slug);
   await page.locator('form:has(h2:text("New project")) input[type=password]').fill(PROJECT_PW);
   await page.getByTestId('create-in-folder').click();
   await expect(page.getByText(`In the folder “${dir}”`)).toBeVisible();
   await page.getByRole('button', { name: 'Create project' }).click();
   await expect(page.getByTestId('workspace')).toBeVisible();
+  slug = await page.getByTestId('project-slug').innerText();
   await expect.poll(() => readExternal(page, dir, 'main.tex'), { timeout: 10_000 }).toContain('\\documentclass');
   await expect.poll(() => readExternal(page, dir, 'chapters/introduction.tex'), { timeout: 10_000 }).toContain('\\chapter{Introduction}');
   await ctx.close();

@@ -56,13 +56,13 @@ test('connect GitHub, link a new private repo, back up now, and see status (10.3
 
 test('a member with repo access loads the project from GitHub when nobody is online, then merges with peers (10.6)', async ({ browser }) => {
   const gh = new FakeGitHub();
-  const slug = uniq('boot-');
+  let slug = uniq('boot-');
   const ownerCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   await mockGithub(ownerCtx, gh);
   await mockGithub(guestCtx, gh);
   const owner = await newUser(ownerCtx, 'olga');
-  await createProject(owner.page, slug);
+  slug = await createProject(owner.page, slug);
   // members start as editors so a guest can bootstrap from GitHub and later merge
   await owner.page.getByTestId('settings-btn').click();
   await owner.page.getByLabel('Default role').selectOption('editor');

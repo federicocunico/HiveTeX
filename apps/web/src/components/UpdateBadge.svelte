@@ -48,7 +48,7 @@
     position: fixed;
     right: max(16px, env(safe-area-inset-right, 0px));
     bottom: max(16px, env(safe-area-inset-bottom, 0px));
-    z-index: 60;
+    z-index: 50;
     display: flex;
     align-items: center;
     gap: 10px;

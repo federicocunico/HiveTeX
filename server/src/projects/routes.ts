@@ -1,6 +1,5 @@
 import { and, count, eq, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { randomBytes } from 'node:crypto';
 import * as v from 'valibot';
 import { hashPassword, verifyPassword } from '../accounts/password.js';
 import { requireAuth } from '../accounts/sessions.js';
@@ -10,6 +9,8 @@ import { AppError } from '../errors.js';
 import { rateLimit } from '../middleware.js';
 import { parseBody, randomId } from '../util.js';
 import { signTicket } from './tickets.js';
+import { ALLOCATION_ATTEMPTS, allocationFailed, createProjectWithOwner, isSlugConflict } from './allocation.js';
+import { ProjectPrefix, projectShareId } from './identity.js';
 
 const SLUG_RE = /^[a-z0-9-]{6,48}$/;
 const ROLES = ['owner', 'editor', 'viewer'] as const;
@@ -21,24 +22,6 @@ const JOIN_FAILS_ANY = 20;
 const SlugSchema = v.pipe(v.string(), v.trim(), v.toLowerCase(), v.regex(SLUG_RE, 'ID must be 6-48 chars of a-z 0-9 -'));
 const ProjectPw = v.pipe(v.string(), v.minLength(8, 'Project password must be at least 8 characters'), v.maxLength(256));
 const B64 = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/, 'Expected 32 bytes base64url'));
-
-// base32 alphabet, lowercase: 10 random bytes -> 16 chars (80 bits)
-function randomSlug() {
-  const A = 'abcdefghijklmnopqrstuvwxyz234567';
-  const b = randomBytes(10);
-  let bits = 0;
-  let val = 0;
-  let out = '';
-  for (const byte of b) {
-    val = (val << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      out += A[(val >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  return out;
-}
 
 let dummyHash: Promise<string> | undefined;
 
@@ -105,7 +88,7 @@ projectRoutes.post('/', rateLimit('proj-create', 20, 3600), async (c) => {
   const body = await parseBody(
     c,
     v.object({
-      slug: v.optional(SlugSchema),
+      slug: v.optional(ProjectPrefix),
       password: v.optional(ProjectPw),
       passwordProtected: v.optional(v.boolean(), true),
     }),
@@ -113,26 +96,14 @@ projectRoutes.post('/', rateLimit('proj-create', 20, 3600), async (c) => {
   if (body.passwordProtected && !body.password) {
     throw new AppError(422, 'password_required', 'Set a project password or explicitly disable protection');
   }
-  const slug = body.slug ?? randomSlug();
-  const [taken] = await deps.db.select({ id: schema.projects.id }).from(schema.projects).where(eq(schema.projects.slug, slug)).limit(1);
-  if (taken) {
-    throw new AppError(409, 'slug_unavailable', `ID unavailable. Try "${slug}-${randomBytes(2).toString('hex')}"`);
-  }
-  const id = randomId();
-  try {
-    await deps.db.insert(schema.projects).values({
-      id,
-      slug,
-      pwHash: body.passwordProtected && body.password ? await hashPassword(body.password, deps.config.argon) : null,
-      defaultRole: 'viewer',
-      createdAt: deps.now(),
-    });
-  } catch {
-    throw new AppError(409, 'slug_unavailable', 'ID unavailable');
-  }
-  await deps.db.insert(schema.memberships).values({ projectId: id, userId: u.id, role: 'owner', joinedAt: deps.now() });
-  const [p] = await deps.db.select().from(schema.projects).where(eq(schema.projects.id, id));
-  return c.json({ project: view(p as typeof schema.projects.$inferSelect, 'owner') }, 201);
+  const created = await createProjectWithOwner(deps.db, {
+    prefix: body.slug,
+    userId: u.id,
+    pwHash: body.passwordProtected && body.password ? await hashPassword(body.password, deps.config.argon) : null,
+    now: deps.now(),
+  });
+  const p = await loadProject(deps, created.id);
+  return c.json({ project: view(p, 'owner') }, 201);
 });
 
 projectRoutes.get('/', async (c) => {
@@ -243,29 +214,32 @@ projectRoutes.patch('/:id', async (c) => {
   const body = await parseBody(
     c,
     v.object({
-      slug: v.optional(SlugSchema),
+      slug: v.optional(v.pipe(v.string(), v.trim(), v.toLowerCase(), v.regex(/^[a-z0-9-]{1,48}$/, 'Name must be 1–48 characters of a–z, 0–9 or -'))),
       defaultRole: v.optional(v.picklist(['editor', 'viewer'])),
       password: v.optional(v.nullable(ProjectPw)), // string = set/change, null = disable protection
       githubRepo: v.optional(v.nullable(v.pipe(v.string(), v.regex(/^[\w.-]+\/[\w.-]+@[\w./-]+$/, 'Use owner/repo@branch')))),
     }),
   );
   const patch: Partial<typeof schema.projects.$inferInsert> = {};
-  if (body.slug && body.slug !== p.slug) {
-    const [taken] = await deps.db.select({ id: schema.projects.id }).from(schema.projects).where(eq(schema.projects.slug, body.slug)).limit(1);
-    if (taken) throw new AppError(409, 'slug_unavailable', 'ID unavailable');
-    patch.slug = body.slug;
-  }
   if (body.defaultRole) patch.defaultRole = body.defaultRole;
   if (body.githubRepo !== undefined) patch.githubRepo = body.githubRepo;
   if (body.password !== undefined) {
     patch.pwHash = body.password === null ? null : await hashPassword(body.password, deps.config.argon);
   }
-  if (Object.keys(patch).length) {
-    try {
-      await deps.db.update(schema.projects).set(patch).where(eq(schema.projects.id, p.id));
-    } catch {
-      throw new AppError(409, 'slug_unavailable', 'ID unavailable');
+  const rename = body.slug !== undefined && body.slug !== p.slug;
+  if (rename || Object.keys(patch).length) {
+    let saved = false;
+    for (let attempt = 0; attempt < (rename ? ALLOCATION_ATTEMPTS : 1); attempt++) {
+      if (rename) patch.slug = projectShareId(body.slug);
+      try {
+        await deps.db.update(schema.projects).set(patch).where(eq(schema.projects.id, p.id));
+        saved = true;
+        break;
+      } catch (error) {
+        if (!rename || !isSlugConflict(error)) throw error;
+      }
     }
+    if (!saved) throw allocationFailed();
   }
   const np = await loadProject(deps, p.id);
   return c.json({ project: view(np, 'owner') });

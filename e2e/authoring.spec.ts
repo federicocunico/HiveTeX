@@ -16,8 +16,8 @@ async function selectWord(p: Page, word: string) {
 test('toolbar: Bold wraps the selection and syncs; Ctrl+I italicises; viewers get no toolbar', async ({ browser }) => {
   const ownerCtx = await browser.newContext();
   const o = await newUser(ownerCtx, 'fmt');
-  const slug = uniq('fmt-');
-  await createProject(o.page, slug);
+  let slug = uniq('fmt-');
+  slug = await createProject(o.page, slug);
   await addFile(o.page, 'main.tex');
   await o.page.getByRole('treeitem', { name: 'main.tex' }).click();
   await replaceEditorText(o.page, 'a graph model');
@@ -48,8 +48,8 @@ test('toolbar: Bold wraps the selection and syncs; Ctrl+I italicises; viewers ge
 test('outline: follows the document, updates live when a co-author adds a section, and jumps on click', async ({ browser }) => {
   const ownerCtx = await browser.newContext();
   const o = await newUser(ownerCtx, 'out');
-  const slug = uniq('out-');
-  await createProject(o.page, slug);
+  let slug = uniq('out-');
+  slug = await createProject(o.page, slug);
   await o.page.getByTestId('settings-btn').click();
   await o.page.getByLabel('Default role').selectOption('editor');
   await o.page.getByRole('button', { name: 'Save', exact: true }).first().click();

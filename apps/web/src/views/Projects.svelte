@@ -396,14 +396,14 @@
       <div class="field">
         <label for="np-slug">Name</label>
         <input id="np-slug" type="text" bind:value={slug} placeholder="my-paper-2026" />
-        <p class="hint">Kept on this computer. When you share it later, you choose its project ID and password.</p>
+        <p class="hint">Kept on this computer. When you share it later, you choose a name and password; its full ID is assigned automatically.</p>
       </div>
     {:else}
     <div class="two">
       <div class="field">
-        <label for="np-slug">Project ID</label>
-        <input id="np-slug" type="text" bind:value={slug} placeholder="my-paper-2026" aria-describedby="np-slug-hint" />
-        <p class="hint" id="np-slug-hint">Co-authors type this to join. 6–48 characters (a–z, 0–9, -); leave empty for a random one.</p>
+        <label for="np-slug">Project name</label>
+        <input id="np-slug" type="text" bind:value={slug} placeholder="my-paper-2026" maxlength="31" aria-describedby="np-slug-hint" />
+        <p class="hint" id="np-slug-hint">1–31 characters (a–z, 0–9, -). A unique suffix is added automatically; copy the full ID from Share. Leave empty to use “project”.</p>
       </div>
       <div class="field">
         <label for="np-pw">Join password</label>
@@ -475,9 +475,9 @@
       </div>
     {:else}
     <div class="field">
-      <label for="ff-slug">Project ID</label>
-      <input id="ff-slug" type="text" bind:value={fromSlug} required pattern="[a-z0-9-]{'{'}6,48{'}'}" data-testid="from-folder-slug" aria-describedby="ff-slug-hint" />
-      <p class="hint" id="ff-slug-hint">6–48 characters (a–z, 0–9, -)</p>
+      <label for="ff-slug">Project name</label>
+      <input id="ff-slug" type="text" bind:value={fromSlug} required maxlength="31" pattern="[a-z0-9-]{'{'}1,31{'}'}" data-testid="from-folder-slug" aria-describedby="ff-slug-hint" />
+      <p class="hint" id="ff-slug-hint">1–31 characters (a–z, 0–9, -). A unique suffix is added automatically.</p>
     </div>
     <div class="field">
       <label for="ff-pw">Project password</label>

@@ -34,6 +34,10 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-24.04
+    outputs:
+      stable: ${{ steps.publication.outputs.stable }}
+      tag: ${{ steps.publication.outputs.tag }}
+      sha: ${{ steps.source.outputs.sha }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -43,8 +47,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          sparse-checkout: scripts/release-notes.sh
+          sparse-checkout: |
+            scripts/release-notes.sh
+            scripts/deploy-production.mjs
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, package-manager-cache: false }
 
       - name: Installers built on all three systems
         if: github.event_name == 'workflow_run'
@@ -81,6 +90,7 @@ jobs:
         run: bash scripts/release-notes.sh "$TAG" assets.txt > notes.md && cat notes.md
 
       - name: Publish
+        id: publication
         if: env.retrying != 'true'
         run: |
           pre=false; latest=true
@@ -88,3 +98,30 @@ jobs:
           gh release edit "$TAG" --draft=false --prerelease="$pre" --latest="$latest" --title "HiveTeX $TAG" --notes-file notes.md
           url=$(gh release view "$TAG" --json url --jq .url)
           echo "Published $TAG: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$pre" = false ]; then echo "stable=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Validate published release source and CI
+        id: source
+        if: steps.publication.outputs.stable == 'true'
+        env:
+          RELEASE_TAG: ${{ env.TAG }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          TRIGGER_KIND: release
+        run: node scripts/deploy-production.mjs prepare
+
+  deploy:
+    needs: publish
+    if: needs.publish.outputs.stable == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/deploy-production.yml
+    with:
+      source_sha: ${{ needs.publish.outputs.sha }}
+      release_tag: ${{ needs.publish.outputs.tag }}
+      trigger_kind: release
+    secrets:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}

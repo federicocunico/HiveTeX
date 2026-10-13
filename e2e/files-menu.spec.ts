@@ -50,8 +50,8 @@ test('Files context menu for a viewer offers only what does not change the proje
   const [oc, vc] = [await browser.newContext(), await browser.newContext()];
   const { page: o } = await newUser(oc, 'fmo');
   const { page: v } = await newUser(vc, 'fmv');
-  const slug = uniq('fmv-');
-  await createProject(o, slug);
+  let slug = uniq('fmv-');
+  slug = await createProject(o, slug);
   await addFile(o, 'main.tex');
   await v.goto('/#/');
   await joinProject(v, slug);

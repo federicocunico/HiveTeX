@@ -103,6 +103,14 @@ async function showPdf() {
 }
 const PROJECTS_H1 = "//h1[normalize-space()='Your projects']";
 
+async function clickCreateProject() {
+  // Retry a real pointer click while the creation form finishes mounting.
+  await until(async () => {
+    await (await b.$("//button[normalize-space()='Create project']")).click();
+    return true;
+  }, 'Create project button accepts a pointer click');
+}
+
 async function home() {
   await b.execute(() => {
     location.hash = '#/';
@@ -142,6 +150,43 @@ after(async () => {
   await b?.close().catch(() => {});
 });
 
+async function relaunch() {
+  await b.close();
+  b = await Session.create(`http://127.0.0.1:${process.env.HIVETEX_DRIVER_PORT ?? 4446}`, {
+    browserName: 'wry',
+    'tauri:options': { application: process.env.HIVETEX_APP, args: ['--test-pick-dir', pickBase, '--ignore-system-tex'] },
+  });
+}
+
+test('remembered sign-in survives closing and relaunching the real desktop app', async () => {
+  assert.equal(await present('[data-testid="session-notice"]'), false, 'native session storage must succeed; a skipped/failed keychain is not persistence verification');
+  await relaunch();
+  await b.$(PROJECTS_H1, 30_000);
+  assert.match(await b.execute(() => document.body.innerText), new RegExp(deskUser));
+  assert.equal(await present('#login-id'), false);
+  assert.equal(await present('[data-testid="session-notice"]'), false);
+});
+
+test('sign-out survives a real desktop relaunch', async () => {
+  await (await b.$('[aria-label="Account menu"]')).click();
+  await (await b.$("//button[@role='menuitem'][contains(., 'Sign out')]" )).click();
+  await b.$('#login-id');
+  await relaunch();
+  await b.$('#login-id', 30_000);
+  assert.equal(await b.execute(() => !![...document.querySelectorAll('h1')].find(h => h.textContent.trim() === 'Your projects')), false);
+  // WebDriver may use a fresh WebView profile per launch; restore test hooks after the persistence assertions.
+  await b.execute(() => {
+    localStorage.setItem('hivetex.test', '1');
+    localStorage.setItem('hivetex.fakeEngine', '1');
+    location.reload();
+  });
+  await b.$('#login-id', 30_000);
+  await (await b.$('#login-id')).setValue(deskUser);
+  await (await b.$('#login-pw')).setValue(PW);
+  await (await b.$("//button[normalize-space()='Sign in']")).click();
+  await b.$(PROJECTS_H1);
+});
+
 test('create a project from a cloned folder: the tree comes from disk and edits flow both ways', async () => {
   const dir = uniq('clone-');
   writeDisk(dir, 'paper.tex', '\\documentclass{article}\n\\begin{document}\n\\input{sections/intro}\n\\end{document}\n');
@@ -150,7 +195,7 @@ test('create a project from a cloned folder: the tree comes from disk and edits 
   pickNext(dir);
   await (await byTestId('open-folder')).click();
   await byTestId('from-folder');
-  const slug = uniq('desk-');
+  let slug = uniq('desk-');
   await (await byTestId('from-folder-slug')).setValue(slug);
   await (await byTestId('from-folder-password')).setValue(PROJECT_PW);
   await (await byTestId('from-folder-create')).click();
@@ -179,11 +224,14 @@ test('create a project from a cloned folder: the tree comes from disk and edits 
 
 test('link a folder to a project, then open that folder again from the projects page', async () => {
   await home();
-  const slug = uniq('link-');
+  let slug = uniq('link-');
   await (await byTestId('new-project-btn')).click();
   await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
   await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
-  await (await b.$("//button[normalize-space()='Create project']")).click();
+  await clickCreateProject();
+  await byTestId('workspace');
+  slug = await fullText('project-slug');
+  assert.match(slug, /-[a-z2-7]{16}$/);
   await byTestId('workspace');
 
   const dir = uniq('linked-');
@@ -226,11 +274,14 @@ test('link a folder to a project, then open that folder again from the projects 
 
 test('without any TeX installed, the first compile sets up the quick compiler and builds on this device', { timeout: 600_000 }, async () => {
   await home();
-  const slug = uniq('quick-');
+  let slug = uniq('quick-');
   await (await byTestId('new-project-btn')).click();
   await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
   await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
-  await (await b.$("//button[normalize-space()='Create project']")).click();
+  await clickCreateProject();
+  await byTestId('workspace');
+  slug = await fullText('project-slug');
+  assert.match(slug, /-[a-z2-7]{16}$/);
   await byTestId('workspace');
   // the compiler is set up (download with progress) without any installation step
   await until(async () => /quick compiler/.test(await textOf('compiler-state')), 'quick compiler ready', 300_000);
@@ -307,11 +358,14 @@ test('the web app pairs with the desktop app (confirmed here), compiles through 
 
 test('right-click Files > Open folder puts a project kept in the app in Documents/HiveTeX, and disk changes show up live', { timeout: 300_000 }, async () => {
   await home();
-  const slug = uniq('ctx-');
+  let slug = uniq('ctx-');
   await (await byTestId('new-project-btn')).click();
   await (await b.$('input[placeholder="my-paper-2026"]')).setValue(slug);
   await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
-  await (await b.$("//button[normalize-space()='Create project']")).click();
+  await clickCreateProject();
+  await byTestId('workspace');
+  slug = await fullText('project-slug');
+  assert.match(slug, /-[a-z2-7]{16}$/);
   await byTestId('workspace');
   await filesPanel();
   await (await b.$('button[aria-label="New file"]')).click();
@@ -437,14 +491,15 @@ test('local mode: no account, nothing sent anywhere; later sign in, share one lo
   await until(async () => (await b.findAll('[data-testid="local-project"]')).length === 2, 'two local projects listed');
 
   // share A: a shared project with its files
-  const slug = uniq('shared-');
+  let slug = uniq('shared-');
   const action = (name, testid) => b.$(`//div[@data-testid='local-project'][.//strong[normalize-space()='${name}']]//button[@data-testid='${testid}']`);
   await click(`//div[@data-testid='local-project'][.//strong[normalize-space()='${'Local A'}']]//button[@data-testid='${'publish-local'}']`);
   await (await byTestId('local-slug')).setValue(slug);
   await (await byTestId('local-password')).setValue(PROJECT_PW);
   await click('[data-testid="local-action-submit"]');
   await byTestId('workspace');
-  await until(async () => (await fullText('project-slug')) === slug, 'shared project opened');
+  await until(async () => (await fullText('project-slug')).startsWith(slug + '-'), 'shared project opened');
+  slug = await fullText('project-slug');
   await until(async () => (await mainText())?.includes('Version A.'), 'files of A in the shared project');
 
   // merge B into it: main.tex differs, so it is a conflict; keep mine (B)

@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+import { RememberedSession, type CredentialResult } from './remembered-session.js';
+import { sessionNotice } from './session-notice.svelte.js';
+
 export const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 /** The server desktop builds use unless the build or the user chooses another one. */
@@ -30,6 +33,8 @@ export function apiBase(): string {
 /** Desktop: forgets the user's choice, so the build's default server is used again (after a reload). */
 export function useDefaultServer() {
   safeStorage('serverUrl', null);
+  bearer = null;
+  bearerRevision++;
 }
 
 /** Human-readable server for the settings ('' means the dev proxy or the page's own origin). */
@@ -63,6 +68,7 @@ export function parseServerUrl(input: string): string {
 /** Desktop: remembers the server this device talks to (takes effect after a reload). */
 export function setServerUrl(input: string): string {
   const origin = parseServerUrl(input);
+  if (origin !== apiBase()) { bearer = null; bearerRevision++; }
   safeStorage('serverUrl', origin);
   return origin;
 }
@@ -78,20 +84,56 @@ export function safeStorage(key: string, value?: string | null): string | null {
   }
 }
 
-let bearer: string | null = null;
-
-/** Desktop: loads the session token from the OS credential store before the app starts. */
-export async function initBearer() {
-  if (!isDesktop) return;
-  const { secure } = await import('./secure.js');
-  bearer = await secure.get('session-token').catch(() => null);
+/** The actual server origin, including the target hidden behind the desktop dev proxy. */
+export function sessionOrigin(): string {
+  const base = apiBase();
+  return new URL(base || (isDesktop && import.meta.env.DEV ? import.meta.env.VITE_DEV_PROXY_TARGET : location.origin)).origin;
+}
+let bearer: { origin: string; token: string } | null = null;
+let bearerRevision = 0;
+let remembered: RememberedSession | null = null;
+function persistence() {
+  remembered ??= new RememberedSession({
+    get: async key => (await import('./secure.js')).secure.get(key),
+    set: async (key, token) => (await import('./secure.js')).secure.set(key, token),
+    delete: async key => (await import('./secure.js')).secure.delete(key),
+  }, {
+    getItem: key => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+    removeItem: key => localStorage.removeItem(key),
+  });
+  return remembered;
+}
+function reportCredential(result: CredentialResult, retry: () => Promise<unknown>) {
+  sessionNotice.message = result.ok ? (result.legacy ? 'Please sign in once to remember your account for this server.' : '') : result.message;
+  sessionNotice.retry = result.ok ? null : retry;
 }
 
-export function setBearer(token: string | null) {
-  bearer = token;
-  if (isDesktop) {
-    void import('./secure.js').then(({ secure }) => (token ? secure.set('session-token', token) : secure.delete('session-token'))).catch(() => {});
-  }
+/** Restore before account routing; unavailable storage is distinct from an absent credential. */
+export async function initBearer() {
+  if (!isDesktop) return;
+  const origin = sessionOrigin();
+  const revision = ++bearerRevision;
+  const result = await persistence().load(origin);
+  if (revision !== bearerRevision || origin !== sessionOrigin()) return;
+  bearer = result.ok && result.token ? { origin, token: result.token } : null;
+  reportCredential(result, async () => {
+    await initBearer();
+    await (await import('./auth.svelte.js')).loadMe();
+  });
+}
+
+export async function setBearer(token: string | null) {
+  const origin = sessionOrigin();
+  const revision = ++bearerRevision;
+  bearer = token ? { origin, token } : null;
+  if (!isDesktop) return;
+  const result = await (token ? persistence().save(origin, token) : persistence().forget(origin));
+  if (revision !== bearerRevision || origin !== sessionOrigin()) return;
+  reportCredential(result, async () => {
+    if (origin !== sessionOrigin() || revision !== bearerRevision) return;
+    await setBearer(token);
+  });
 }
 
 export class ApiError extends Error {
@@ -117,7 +159,9 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   if (localMode) throw new ApiError(0, 'local_mode', 'Not signed in: this computer works in local mode.');
   const headers: Record<string, string> = { 'X-Requested-With': 'hivetex' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  const origin = sessionOrigin();
+  const sentBearer = bearer?.origin === origin ? bearer : null;
+  if (sentBearer) headers.Authorization = `Bearer ${sentBearer.token}`;
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/api${path}`, {
@@ -135,7 +179,12 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   } catch {
     /* empty body */
   }
+  if (origin !== sessionOrigin()) throw new ApiError(0, 'server_changed', 'The server changed. Please try again.');
   if (!res.ok) {
+    if (res.status === 401 && sentBearer && bearer === sentBearer && path !== '/auth/login') {
+      await setBearer(null);
+      (await import('./auth.svelte.js')).invalidateSession();
+    }
     const retry = Number(res.headers.get('Retry-After'));
     throw new ApiError(res.status, json.error?.code ?? 'error', json.error?.message ?? res.statusText, Number.isFinite(retry) && retry > 0 ? retry * 1000 : undefined);
   }

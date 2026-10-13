@@ -4,11 +4,12 @@ import { PW, createProject, newUser, uniq } from './helpers.js';
 test('account recents: the projects list follows the order projects were opened, across devices', async ({ browser }) => {
   const c1 = await browser.newContext();
   const { page, username } = await newUser(c1, 'rec');
-  const [a, b] = [uniq('reca-'), uniq('recb-')];
-  for (const slug of [a, b]) {
-    await createProject(page, slug);
+  const ids: string[] = [];
+  for (const prefix of [uniq('reca-'), uniq('recb-')]) {
+    ids.push(await createProject(page, prefix));
     await page.goto('/#/');
   }
+  const [a, b] = ids as [string, string];
   // open B, then A
   for (const slug of [b, a]) {
     await page.locator('.item', { hasText: slug }).click();

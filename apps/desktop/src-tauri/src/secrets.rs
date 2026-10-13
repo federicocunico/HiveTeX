@@ -1,7 +1,11 @@
 //! Secrets (session token, device private keys) live in the OS credential store — Windows Credential
 //! Manager, macOS Keychain or the Secret Service on Linux — never in plain files under the app data dir.
 
+// The feature is CI-only: real close/relaunch tests must not touch a person's saved credentials.
+#[cfg(not(feature = "test-picker"))]
 const SERVICE: &str = "app.hivetex.desktop";
+#[cfg(feature = "test-picker")]
+const SERVICE: &str = "app.hivetex.desktop.e2e";
 
 fn entry(key: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(SERVICE, key).map_err(|e| e.to_string())

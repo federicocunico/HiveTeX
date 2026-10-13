@@ -47,7 +47,7 @@ const textOf = (page: Page, path: string) =>
   }, path);
 
 test('create a project from an Overleaf zip; co-author sees the files; viewers cannot import', async ({ browser }) => {
-  const slug = uniq('imp-');
+  let slug = uniq('imp-');
   const ownerCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const owner = await newUser(ownerCtx, 'ima');
@@ -63,7 +63,7 @@ test('create a project from an Overleaf zip; co-author sees the files; viewers c
       'paper.log': 'junk',
     }),
   );
-  await createProject(page, slug);
+  slug = await createProject(page, slug);
   await expect(page.getByTestId('import-summary')).toContainText('Imported 3 new files');
   await page.getByTestId('skipped-summary').click();
   await expect(page.getByTestId('import-dialog')).toContainText('LaTeX build artifact');

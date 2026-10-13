@@ -49,3 +49,18 @@ Non-admins calling the endpoint get `403`.
 
 `users`, `sessions`, `email_tokens`, `audit_log` … are in Postgres (Neon). Passwords, reset tokens and session tokens are
 stored only as hashes. See `design.md` (D9/D10) for the full schema.
+
+## Remembered sign-in on this computer
+
+The desktop app remembers successful sign-in and registration automatically in the OS credential store. Reopening the
+app restores a valid session before showing your projects. Your password is never saved. Browser sessions remain in
+HttpOnly cookies. Sessions still expire after 30 days of inactivity and can be revoked by sign-out everywhere or recovery.
+
+Each desktop server has its own saved token and cached account. Switching servers never sends one server’s token to
+another. An upgrade from the old unscoped credential format may ask you to sign in once when its issuing server cannot
+be established; subsequent launches remember that server’s account. Device keys and local projects are preserved.
+
+If the credential store is locked or unavailable, a notice explains whether saved sign-in could not be read, remembered
+or removed. Unlock it and choose **Retry saved sign-in**. A save failure still allows the current signed-in run.
+Sign-out prevents restoration even when deletion needs retry. A network outage keeps the token and permits existing
+offline work; an authoritative expiry or revocation clears the remembered session.

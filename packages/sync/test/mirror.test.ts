@@ -234,3 +234,18 @@ describe('project folders (local-folder-projects)', () => {
     expect(a.model.find('huge.bin')).toBeUndefined();
   }, 20_000);
 });
+
+it('updates a legacy folder marker after share-ID rename without touching files or backup metadata', async () => {
+  net = await Net.create();
+  const a = await net.add('alice', 'owner');
+  const dir = await tmp();
+  await a.model.createTextNow('main.tex', 'existing paper');
+  await writeFile(join(dir, '.hivetex.json'), JSON.stringify({ version: 2, paths: ['main.tex'], project: { id: 'immutable', slug: 'legacy-paper' } }));
+  const mirror = new MirrorSync({ model: a.model, mesh: a.mesh, blobs: new BlobManager(a.mesh, a.store), fs: nodeFs(dir), getRole: () => a.role, marker: { id: 'immutable', slug: 'legacy-paper' } });
+  mirrors.push(mirror);
+  await mirror.start();
+  await mirror.updateProjectSlug('new-paper-abcdefghijklmnop');
+  const marker = JSON.parse((await read(dir, '.hivetex.json')) ?? '{}');
+  expect(marker).toMatchObject({ paths: ['main.tex'], project: { id: 'immutable', slug: 'new-paper-abcdefghijklmnop' } });
+  expect(await read(dir, 'main.tex')).toBe('existing paper');
+});

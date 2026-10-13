@@ -50,6 +50,10 @@ First launch:
   with nothing sent anywhere. Sign in later to share a project, or to merge it into one you join
   ([details](docs/offline.md)).
 
+Sign-in is remembered automatically on this computer using the OS credential store; your password is never saved.
+If it is unavailable, use the retry notice after unlocking it. Sessions expire after 30 days of inactivity; an upgrade
+from an unattributed legacy credential may ask for sign-in once ([accounts](docs/accounts.md)).
+
 Installed apps check GitHub when they start. If a newer release exists, a badge says "Version X is available" with a
 **Download** button that opens the release page (dismiss it and it stays away until a newer version appears). Running the
 new Windows installer removes the old version first (setup or MSI), keeping your projects and settings. *Account →
@@ -69,11 +73,11 @@ details.
 
 ### Writing with others
 
-1. Create a project: *New project*, pick a template, and choose a project ID and password.
+1. Create a project: *New project*, pick a template, and choose a project name and password. A unique suffix is added to its share ID automatically, so repeated names are allowed.
 
-   ![New project: templates and the project ID](docs/images/new-project.png)
+   ![New project: templates and the project name](docs/images/new-project.png)
 
-2. Click **Share** and send co-authors the invitation (the project ID). Send the password separately. Choose the
+2. Click **Share** and send co-authors the invitation (the full project ID, including its suffix). Send the password separately. Choose the
    role new members get (viewer or editor), and manage members later in the same dialog.
 
    ![The Share dialog: invitation, default role for new members, and the members](docs/images/share.png)
@@ -172,12 +176,14 @@ Run the commands from the repository root (Git Bash on Windows).
 The web app and the server are deployed together. Database migrations run in the Vercel build, so every deploy also
 brings the schema up to date, and a failing migration fails the deploy. Pick one of these:
 
-- **Automatically, after CI, on every push to `master`:** the *Deploy* GitHub workflow deploys a commit once its CI
+- **Automatically, after CI on pushes to `master` and after stable release publication:** the *Deploy* GitHub workflow deploys a commit once its CI
   run has passed, retries a failed upload, and checks `/api/health`. Vercel never has to fetch the code from GitHub:
   the workflow uploads it. Vercel's own Git deploys are switched off in `vercel.json`. This needs a Vercel token
   (create one at [vercel.com/account/tokens](https://vercel.com/account/tokens)): `make setup` stores it as the
   `VERCEL_TOKEN` secret, with the project ids as variables. This is how https://hivetex.vercel.app is kept current.
-  To deploy again by hand: *Actions → Deploy → Run workflow*.
+  Stable releases also deploy their exact checked tag through the shared workflow. Drafts and prereleases stay out of
+  production, and stale releases cannot replace newer code. To retry: *Actions → Deploy → Run workflow*, with the
+  optional `release_tag` input, or `gh workflow run deploy.yml -f release_tag=v1.2.3`.
 - **By hand, after checks:** `make deploy-prod CONFIRM=1` runs everything CI runs (`make check`), then deploys to
   production.
 - **By hand, with the setup:** re-run `make setup`. It redeploys and checks `/api/health`, and changes nothing that's
@@ -239,3 +245,10 @@ Behavior specs are in `openspec/specs/`; proposals, designs and tasks are in `op
 
 AGPL-3.0-or-later. If you run a modified public deployment, you must offer its source to its users (the web app links to
 this repository). Vercel Hobby is for non-commercial use only.
+
+### Icon artwork
+
+The canonical vector icon is `apps/desktop/src-tauri/icons/source.svg`. Regenerate web/native renditions with
+`node scripts/generate-icons.mjs`; the small-size rendition omits the LaTeX cut. Inspect actual-size light/dark previews
+with `node scripts/preview-icon.mjs` ([preview](docs/images/hivetex-icon-preview.png)). The generator updates the shared
+Logo, favicon, native ICO/ICNS/PNG assets and desktop source PNG without changing the application identifier.

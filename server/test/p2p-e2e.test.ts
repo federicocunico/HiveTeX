@@ -83,10 +83,11 @@ async function makeDevice(client: Client, pid: string, name: string, extra: { li
 
 async function setupProject(slug = 'e2e-project-1') {
   const owner = await register(env, 'olga');
-  const pid = (await owner.post('/projects', { slug, password: 'project-secret-1' })).json.project.id as string;
+  const project = (await owner.post('/projects', { slug, password: 'project-secret-1' })).json.project;
+  const pid = project.id as string;
   const join = async (name: string) => {
     const c = await register(env, name);
-    await c.post('/projects/join', { slug, password: 'project-secret-1' });
+    await c.post('/projects/join', { slug: project.slug, password: 'project-secret-1' });
     return c;
   };
   return { owner, pid, join };

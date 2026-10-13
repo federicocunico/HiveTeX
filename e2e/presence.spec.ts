@@ -12,8 +12,8 @@ async function editorRoleByDefault(p: Page) {
 test('presence: avatars say where co-authors are, files show who is in them', async ({ browser }) => {
   const ownerCtx = await browser.newContext();
   const o = await newUser(ownerCtx, 'pres');
-  const slug = uniq('pres-');
-  await createProject(o.page, slug);
+  let slug = uniq('pres-');
+  slug = await createProject(o.page, slug);
   await addFile(o.page, 'main.tex');
   await addFile(o.page, 'intro.tex');
   await o.page.getByRole('treeitem', { name: 'intro.tex' }).click();
@@ -38,8 +38,8 @@ test('presence: avatars say where co-authors are, files show who is in them', as
 test('follow: the follower goes where the co-author goes, and stops on scroll', async ({ browser }) => {
   const ownerCtx = await browser.newContext();
   const o = await newUser(ownerCtx, 'lead');
-  const slug = uniq('fol-');
-  await createProject(o.page, slug);
+  let slug = uniq('fol-');
+  slug = await createProject(o.page, slug);
   await editorRoleByDefault(o.page);
   await addFile(o.page, 'main.tex');
   await o.page.getByRole('treeitem', { name: 'main.tex' }).click();

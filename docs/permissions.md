@@ -2,8 +2,9 @@
 
 ## Joining
 
-Every project has a unique **project ID** (owner-customizable, 6–48 chars of `a-z 0-9 -`; otherwise a random 16-char
-base32 string = 80 bits). Joining needs the ID and, by default, the **project password**. Anyone who joins is a member
+Every new shared project has a unique **project ID**: a readable name prefix plus a hyphen and a server-generated
+16-character base32 suffix (80 random bits), such as `paper-abcdefghijklmnop`. Repeated names are allowed. Copy the
+complete ID from Share. Existing plain-name IDs still work; they are never renamed automatically. Joining needs the ID and, by default, the **project password**. Anyone who joins is a member
 immediately with the project's **default role** (initially `viewer`). Failed joins are rate-limited (5 per 15 minutes per
 account and per IP); wrong ID and wrong password give the same error.
 
@@ -16,7 +17,7 @@ account and per IP); wrong ID and wrong password give the same error.
 | `viewer` | ✔ | – (enforced by every peer) | ✔ (asks the compile leader) | – |
 
 Owners can: change roles, remove or **ban** members, set the default role, change/disable the project password, change the
-project ID (the old one stops resolving immediately), link GitHub, and delete the project.
+project name prefix (the server returns a newly suffixed ID; the old one stops resolving immediately), link GitHub, and delete the project.
 
 ## How access is enforced without a content server
 
@@ -35,7 +36,7 @@ control-plane public key and prove possession of the device key bound to the spe
 
 | Spec scenario | Where it is verified |
 |---|---|
-| Custom ID available / taken / generated | `server/test/projects.test.ts` › project creation |
+| Name prefix / duplicate names / generated suffix / legacy IDs | `server/test/projects.test.ts` › project creation |
 | Join with correct ID+password, generic errors, rate limit, banned user | › joining |
 | Owner-only management, last-owner protection, slug change, password rotation | › owner management |
 | Ticket claims, expiry, forged ticket, removed member | › devices and tickets; `packages/crypto/test` |

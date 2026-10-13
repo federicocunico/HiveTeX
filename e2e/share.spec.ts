@@ -5,8 +5,8 @@ import { PROJECT_PW, createProject, joinProject, newUser, uniq } from './helpers
 test('share: the invitation has the ID but never the password; roles change from here; editors only copy', async ({ browser }) => {
   const ownerCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const o = await newUser(ownerCtx, 'shr');
-  const slug = uniq('shr-');
-  await createProject(o.page, slug);
+  let slug = uniq('shr-');
+  slug = await createProject(o.page, slug);
 
   const guestCtx = await browser.newContext();
   const g = await newUser(guestCtx, 'shrg');

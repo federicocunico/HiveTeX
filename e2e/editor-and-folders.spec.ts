@@ -121,10 +121,10 @@ test('editor: a file that loads late never takes over the editor, and closing th
 });
 
 test('folders: a folder that matched at bind time merges a co-author edit and a tool edit that arrive together', async ({ browser }) => {
-  const slug = uniq('fmrg-');
+  let slug = uniq('fmrg-');
   const o = await newUser(await browser.newContext(), 'fmo');
   await stubPicker(o.page);
-  await createProject(o.page, slug);
+  slug = await createProject(o.page, slug);
   await o.page.getByTestId('settings-btn').click();
   await o.page.getByLabel('Default role').selectOption('editor');
   await o.page.getByRole('button', { name: 'Save', exact: true }).first().click();
@@ -161,9 +161,9 @@ test('folders: a folder that matched at bind time merges a co-author edit and a 
 });
 
 test('folders: a viewer binding a different copy changes nothing in the project and is told what happened', async ({ browser }) => {
-  const slug = uniq('fvw-');
+  let slug = uniq('fvw-');
   const o = await newUser(await browser.newContext(), 'fvo');
-  await createProject(o.page, slug);
+  slug = await createProject(o.page, slug);
   await addFile(o.page, 'main.tex');
   await o.page.getByRole('treeitem', { name: 'main.tex' }).click();
   await replaceEditorText(o.page, 'project text');

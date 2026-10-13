@@ -57,6 +57,7 @@ typecheck: require-pnpm ## Svelte type-check of the web app
 	$(PNPM) --filter @hivetex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
 
 test: require-pnpm ## Unit and integration tests of every package (turbo test)
+	node --test scripts/deploy-production.test.mjs
 	$(PNPM) turbo run test
 
 size: require-pnpm ## Check the web bundle budget

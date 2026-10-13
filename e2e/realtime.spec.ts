@@ -34,13 +34,13 @@ const docText = (page: Page) =>
 test('seven users: edits reach everyone in real time and concurrent typing converges', async ({ browser }) => {
   test.setTimeout(300_000);
   const N = 7;
-  const slug = uniq('rt-');
+  let slug = uniq('rt-');
   const ctxs = await Promise.all(Array.from({ length: N }, () => browser.newContext()));
   const users = [];
   for (let i = 0; i < N; i++) users.push(await newUser(ctxs[i]!, `rt${i}`));
   const [owner, ...others] = users as [(typeof users)[number], ...typeof users];
 
-  await createProject(owner.page, slug);
+  slug = await createProject(owner.page, slug);
   await owner.page.getByTestId('settings-btn').click();
   await owner.page.getByLabel('Default role').selectOption('editor');
   await owner.page.getByRole('button', { name: 'Save', exact: true }).first().click();

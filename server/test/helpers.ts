@@ -4,6 +4,8 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { exportJWK, generateKeyPair } from 'jose';
 import { buildApp } from '../src/app.js';
+import { hashPassword } from '../src/accounts/password.js';
+import { randomId } from '../src/util.js';
 import { type Config, DESKTOP_ORIGINS } from '../src/config.js';
 import { type Db, schema } from '../src/db/client.js';
 import type { Deps } from '../src/deps.js';
@@ -110,4 +112,16 @@ export async function register(env: TestEnv, username: string, opts: { verify?: 
     await c.post('/auth/verify-email', { token });
   }
   return c;
+}
+
+/** A pre-existing registry row, deliberately bypassing the new creation policy. */
+export async function seedLegacyProject(env: TestEnv, owner: Client, slug: string, password?: string) {
+  const userId = (await owner.get('/auth/me')).json.user.id;
+  const id = randomId();
+  await env.db.insert(schema.projects).values({
+    id, slug, pwHash: password ? await hashPassword(password, env.deps.config.argon) : null,
+    createdAt: env.deps.now(),
+  });
+  await env.db.insert(schema.memberships).values({ projectId: id, userId, role: 'owner', joinedAt: env.deps.now() });
+  return { id, slug };
 }

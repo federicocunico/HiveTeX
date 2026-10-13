@@ -4,8 +4,8 @@ import { addFile, createProject, joinProject, newUser, replaceEditorText, showFi
 async function owner(browser: import('@playwright/test').Browser, viewport = { width: 1440, height: 900 }) {
   const ctx = await browser.newContext({ viewport });
   const u = await newUser(ctx, 'ws');
-  const slug = uniq('ws-');
-  await createProject(u.page, slug);
+  let slug = uniq('ws-');
+  slug = await createProject(u.page, slug);
   return { ctx, ...u, slug };
 }
 

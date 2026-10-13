@@ -6,11 +6,11 @@ const setMode = (p: Page, mode: 'auto' | 'peers' | 'local') => p.getByTestId('co
 
 test('compiler preference: hand-off when the leader chooses "Use peers", peers never compile, "This device only" stays local', async ({ browser }) => {
   test.setTimeout(180_000);
-  const slug = uniq('cm-');
+  let slug = uniq('cm-');
   const [co, ce] = [await browser.newContext(), await browser.newContext()];
   const O = await newUser(co, 'cmo');
   const E = await newUser(ce, 'cme');
-  await createProject(O.page, slug);
+  slug = await createProject(O.page, slug);
   await O.page.getByTestId('settings-btn').click();
   await O.page.getByLabel('Default role').selectOption('editor');
   await O.page.getByRole('button', { name: 'Save', exact: true }).first().click();

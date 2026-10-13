@@ -54,8 +54,8 @@ test('palette: run an action, open a file, go to a line; accessible', async ({ b
 test('registry: unique ids, no colliding shortcuts, and no editing actions for viewers', async ({ browser }) => {
   const ownerCtx = await browser.newContext();
   const o = await newUser(ownerCtx, 'reg');
-  const slug = uniq('reg-');
-  await createProject(o.page, slug);
+  let slug = uniq('reg-');
+  slug = await createProject(o.page, slug);
   await addFile(o.page, 'main.tex');
   await o.page.getByRole('treeitem', { name: 'main.tex' }).click();
   const all = await commands(o.page);

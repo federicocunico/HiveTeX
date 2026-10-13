@@ -1,4 +1,6 @@
-import { ApiError, api, isDesktop, setBearer, setLocalMode } from './api.js';
+import { ApiError, api, isDesktop, sessionOrigin, setBearer, setLocalMode } from './api.js';
+
+import { userCacheKey } from './remembered-session.js';
 
 export interface User {
   id: string;
@@ -11,6 +13,7 @@ export interface User {
 /** `local`: the desktop app is used without an account (local mode): nothing is sent to any server. */
 export const auth = $state<{ user: User | null; ready: boolean; offline: boolean; local: boolean }>({ user: null, ready: false, offline: false, local: false });
 
+let authRevision = 0;
 const LOCAL_KEY = 'hivetex.localMode';
 /** The person using the desktop app without an account. */
 export const LOCAL_USER: User = { id: 'local', username: 'You', email: '', emailVerified: false, isAdmin: false };
@@ -26,6 +29,7 @@ function storeLocal(on: boolean) {
 
 /** Desktop: continue without an account. Remembered, so the app opens in local mode next time. */
 export function enterLocalMode() {
+  authRevision++;
   storeLocal(true);
   setLocalMode(true);
   auth.user = LOCAL_USER;
@@ -36,18 +40,19 @@ export function enterLocalMode() {
 
 /** Leaves local mode (before signing in or registering): requests to the server are allowed again. */
 export function leaveLocalMode() {
+  authRevision++;
   storeLocal(false);
   setLocalMode(false);
   auth.local = false;
   if (auth.user?.id === LOCAL_USER.id) auth.user = null;
 }
 
-const CACHE_KEY = 'hivetex.user';
+const cacheKey = () => isDesktop ? userCacheKey(sessionOrigin()) : 'hivetex.user';
 
 function cacheUser(u: User | null) {
   try {
-    if (u) localStorage.setItem(CACHE_KEY, JSON.stringify(u));
-    else localStorage.removeItem(CACHE_KEY);
+    if (u) localStorage.setItem(cacheKey(), JSON.stringify(u));
+    else localStorage.removeItem(cacheKey());
   } catch {
     /* storage unavailable */
   }
@@ -55,6 +60,8 @@ function cacheUser(u: User | null) {
 
 /** Loads the session. When the server is unreachable, falls back to the cached user so local projects still open. */
 export async function loadMe() {
+  const origin = sessionOrigin();
+  const revision = authRevision;
   let local = false;
   try {
     local = isDesktop && localStorage.getItem(LOCAL_KEY) === '1';
@@ -64,13 +71,15 @@ export async function loadMe() {
   if (local) return enterLocalMode();
   try {
     const r = await api<{ user: User }>('GET', '/auth/me');
+    if (origin !== sessionOrigin() || revision !== authRevision) return;
     auth.user = r.user;
     auth.offline = false;
     cacheUser(r.user);
   } catch (e) {
+    if (origin !== sessionOrigin() || revision !== authRevision) return;
     if (e instanceof ApiError && e.status === 0) {
       try {
-        const raw = localStorage.getItem(CACHE_KEY);
+        const raw = localStorage.getItem(cacheKey());
         auth.user = raw ? (JSON.parse(raw) as User) : null;
       } catch {
         auth.user = null;
@@ -79,17 +88,19 @@ export async function loadMe() {
     } else {
       auth.user = null;
       auth.offline = false;
+      if (e instanceof ApiError && e.status === 401) cacheUser(null);
     }
   } finally {
     auth.ready = true;
   }
 }
 
-async function finish(r: { user: User; token?: string }) {
+async function finish(r: { user: User; token?: string }, revision: number, origin: string) {
   storeLocal(false);
   setLocalMode(false);
   auth.local = false;
-  if (r.token) setBearer(r.token);
+  if (r.token) await setBearer(r.token);
+  if (revision !== authRevision || origin !== sessionOrigin()) throw new ApiError(0, 'session_changed', 'Sign-in was cancelled. Please try again.');
   auth.user = r.user;
   auth.offline = false;
   cacheUser(r.user);
@@ -99,8 +110,12 @@ async function finish(r: { user: User; token?: string }) {
 /** Signing in from local mode: the server may be contacted for this request; if it fails, local mode stays locked down. */
 async function fromLocal(req: () => Promise<{ user: User; token?: string }>) {
   setLocalMode(false);
+  const origin = sessionOrigin();
+  const revision = ++authRevision;
   try {
-    return await finish(await req());
+    const result = await req();
+    if (origin !== sessionOrigin() || revision !== authRevision) throw new ApiError(0, 'server_changed', 'The server changed. Please try again.');
+    return await finish(result, revision, origin);
   } catch (e) {
     if (auth.local) setLocalMode(true);
     throw e;
@@ -118,19 +133,27 @@ export async function register(username: string, email: string, password: string
 }
 
 export async function logout() {
-  try {
-    await api('POST', '/auth/logout');
-  } catch {
-    /* ignore */
-  }
-  setBearer(null);
+  authRevision++;
+  // Capture the request's credential, then clear local authorization before waiting for the network.
+  const revoking = api('POST', '/auth/logout').catch(() => {});
+  auth.user = null;
+  cacheUser(null);
+  await setBearer(null);
+  await revoking;
+}
+
+export async function logoutAll() {
+  authRevision++;
+  await api('POST', '/auth/logout-all');
+  await setBearer(null);
   auth.user = null;
   cacheUser(null);
 }
 
-export async function logoutAll() {
-  await api('POST', '/auth/logout-all');
-  setBearer(null);
+/** An authoritative server rejection ends online authorization and its cached identity. */
+export function invalidateSession() {
+  authRevision++;
   auth.user = null;
+  auth.offline = false;
   cacheUser(null);
 }
