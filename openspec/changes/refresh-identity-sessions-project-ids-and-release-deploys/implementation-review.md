@@ -32,4 +32,14 @@ The existing user edits in TODO.md were preserved.
 
 ## Integration with incoming work
 
-The user requested integration with the 15 incoming master commits (through 615c351). Post-merge checks are pending; the results above describe the implementation before integration and will be supplemented with observed combined-tree results.
+The user requested integration with the 15 incoming master commits (through 615c351). The results above describe the implementation before integration; the combined-tree results follow.
+
+### Post-merge verification (2026-10-13, combined tree with 615c351)
+
+- Conflicts in Release workflow, api.ts, auth.svelte.ts and the realtime browser spec were resolved by keeping both sides: the release-to-production deployment chain with the Windows-only installer checks; origin-scoped remembered sessions with the background worker/seed runtimes. The worker now reads origin-scoped `session-token:<origin>` credentials, and the native secret allowlist accepts only that form.
+- Incoming tests written before suffixed IDs joined with the requested prefix. They now use the returned share ID: server doorbell, doorbell-e2e and application-relay-e2e; browser doorbell, application-relay and application-relay-recovery; desktop application-relay, relay 13.7 and doorbell scenarios.
+- turbo build (9/9), turbo lint (9/9), svelte-check (0 errors, 11 existing warnings), bundle budget (163.4 KB of 250 KB gz), deploy-production controller tests (14/14) and turbo test (14/14 tasks: sync 396, web 295, server 161 + 14 opt-in skipped, compile 58, github 29, crypto 7, protocol 3) passed.
+- The first parallel test run failed blobs range and compile debounce timing assertions under load; both passed in isolation and in the full rerun. tauri-rtc failed against a stale pre-merge rtc_cli binary and passed 3/3 after `cargo build --examples`.
+- Rust shell: cargo test --lib 113 passed, 5 opt-in ignored; examples build.
+- Browser suite: 84 passed after fixes (doorbell rerun individually; application-relay passed with APPLICATION_RELAY=1). Environment limitation: application-relay-recovery needs the two-instance Redis loss/rotation fixture (RELAY_ACCEPTANCE=1) and was not run here.
+- Windows desktop WebDriver: 11 of 12 pass (relay/doorbell after the slug fixes). Environment limitation: "launch at login is opt-in" fails its precondition because the installed production HiveTeX on this machine is registered in HKCU Run under the same entry name. This is not a regression; the user's startup setting was left unchanged and this test is not counted as passed.

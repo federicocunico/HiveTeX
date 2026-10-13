@@ -3,6 +3,7 @@
 //!   in : {"rid": 1, "cmd": "rtc_create", "args": {...}}
 //!   out: {"rid": 1, "result": ...} | {"rid": 1, "error": "..."} | {"event": "rtc://x", "payload": {...}}
 
+use hivetex_desktop_lib::portmap::{real_discover, Mapper};
 use hivetex_desktop_lib::rtc::{Emit, IceServer, RtcState};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -12,6 +13,8 @@ use tokio::sync::mpsc;
 #[tokio::main]
 async fn main() {
     let state = Arc::new(RtcState::default());
+    // Router port mapping for the shared listener (netlab router matrix): the real IGD client and mapping manager.
+    let mapper = Mapper::new(state.transport.clone(), real_discover(), "netlab0000000000".into());
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     // Single writer task keeps lines intact.
     tokio::spawn(async move {
@@ -33,7 +36,7 @@ async fn main() {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let Ok(req) = serde_json::from_str::<Value>(&line) else { continue };
-        let (state, emit, tx) = (state.clone(), emit.clone(), tx.clone());
+        let (state, emit, tx, mapper) = (state.clone(), emit.clone(), tx.clone(), mapper.clone());
         tokio::spawn(async move {
             let rid = req["rid"].clone();
             let a = &req["args"];
@@ -41,7 +44,7 @@ async fn main() {
             let res: Result<Value, String> = match req["cmd"].as_str().unwrap_or_default() {
                 "rtc_create" => {
                     let ice: Vec<IceServer> = serde_json::from_value(a["ice"].clone()).unwrap_or_default();
-                    state.create(&s("id"), ice, emit).await.map(|_| Value::Null)
+                    state.create_with(&s("id"), ice, emit, a["muxed"].as_bool().unwrap_or(false)).await.map(|_| Value::Null)
                 }
                 "rtc_create_data_channel" => state.create_data_channel(&s("id"), &s("label"), emit).await.map(|_| Value::Null),
                 "rtc_create_offer" => state.create_offer(&s("id")).await.map(Value::from),
@@ -50,6 +53,20 @@ async fn main() {
                 "rtc_set_remote" => state.set_remote(&s("id"), &s("kind"), s("sdp")).await.map(|_| Value::Null),
                 "rtc_add_ice" => state.add_ice(&s("id"), a["candidate"].clone()).await.map(|_| Value::Null),
                 "rtc_send" => state.send(&s("id"), &s("label"), &s("b64")).await.map(Value::from),
+                "rtc_stats" => state.stats(&s("id")).await,
+                "upnp_enable" => {
+                    // Bind the listener first: the mapping targets the socket connections will share.
+                    let lease = state.transport.acquire().await;
+                    std::mem::forget(lease);
+                    mapper.enable();
+                    Ok(Value::Null)
+                }
+                "upnp_disable" => {
+                    mapper.disable().await;
+                    Ok(Value::Null)
+                }
+                "upnp_status" => serde_json::to_value(mapper.status()).map_err(|e| e.to_string()),
+                "listener" => Ok(json!(state.transport.current_local().map(|(g, a)| json!({"generation": g, "local": a.to_string()})))),
                 "rtc_close" => {
                     state.close(&s("id")).await;
                     Ok(Value::Null)

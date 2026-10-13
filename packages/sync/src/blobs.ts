@@ -187,11 +187,18 @@ export class BlobManager {
   }
 
   /** Stores bytes locally, announces them, returns the content hash. */
-  async add(bytes: Uint8Array): Promise<string> {
+  async add(bytes: Uint8Array, canPublish: () => boolean = () => true): Promise<string> {
+    if (!canPublish()) throw new BlobError('denied');
     const hash = await sha256Hex(bytes);
     if (!(await this.has(hash))) await this.store.putBlob(hash, bytes);
-    this.mesh.broadcast(MsgType.BLOB_HAVE, jsonBytes({ hashes: [hash] }), true);
+    await this.announceStored(hash, canPublish);
     return hash;
+  }
+
+  /** Announce a hash only after the authoritative store has verified and committed its bytes. */
+  async announceStored(hash: string, canPublish: () => boolean = () => true) {
+    if (!canPublish() || !(await this.store.listBlobs()).includes(hash) || !canPublish()) throw new BlobError('denied');
+    this.mesh.broadcast(MsgType.BLOB_HAVE, jsonBytes({ hashes: [hash] }), true);
   }
 
   private async serve(from: PeerInfo, req: { hash: string; from: number; to: number }) {

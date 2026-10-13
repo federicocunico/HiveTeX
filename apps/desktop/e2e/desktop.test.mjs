@@ -356,6 +356,286 @@ test('the web app pairs with the desktop app (confirmed here), compiles through 
   assert.equal(after.status, 401);
 });
 
+test('application relay: the desktop app and a browser without any WebRTC path edit together through the server', { timeout: 300_000 }, async (t) => {
+  const web = 'http://localhost:1420';
+  if (!(await fetch(web).then((r) => r.ok).catch(() => false))) return t.skip('web dev server not running');
+  const { chromium } = await import('@playwright/test');
+  const click = async (sel) => {
+    await b.$(sel);
+    await b.execute((q) => {
+      const el = /^[/(]/.test(q) ? document.evaluate(q, document, null, 9, null).singleNodeValue : document.querySelector(q);
+      el.click();
+    }, sel);
+  };
+  // No WebRTC path on either side: the desktop test build honours this flag (VITE_E2E=1), the browser gets an init script.
+  await b.execute(() => localStorage.setItem('hivetex.e2e.noWebrtc', '1'));
+  let slug = uniq('deskrelay-');
+  await home();
+  await click('[data-testid="new-project-btn"]');
+  await (await b.$("//input[@placeholder='my-paper-2026']")).setValue(slug);
+  await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
+  await click("//button[normalize-space()='Create project']");
+  await byTestId('workspace');
+  slug = await fullText('project-slug');
+  await click('[data-testid="settings-btn"]');
+  await b.execute(() => {
+    const sel = [...document.querySelectorAll('select')].find((s) => s.closest('label')?.textContent?.includes('Default role') || document.querySelector(`label[for="${s.id}"]`)?.textContent?.includes('Default role'));
+    sel.value = 'editor';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click("(//button[normalize-space()='Save'])[1]");
+  await until(async () => (await fullText('settings-dialog')).includes('Saved'), 'role saved');
+  await click("//div[@data-testid='settings-dialog']//button[@aria-label='Close' or normalize-space()='Close']");
+  const id = await b.execute(async () => {
+    const s = window.__p2p.session;
+    const fid = await s.model.createTextNow('main.tex', 'typed on the desktop');
+    await s.model.flush();
+    return fid;
+  });
+
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ baseURL: web });
+    await ctx.addInitScript(() => {
+      const Orig = window.RTCPeerConnection;
+      window.__pcs = [];
+      window.RTCPeerConnection = class extends Orig {
+        constructor(cfg) {
+          super({ ...cfg, iceServers: [], iceTransportPolicy: 'relay' });
+          window.__pcs.push(this);
+        }
+      };
+    });
+    const page = await ctx.newPage();
+    const user = uniq('webrel');
+    await page.goto('/#/register');
+    await page.getByLabel('Username').fill(user);
+    await page.getByLabel('Email').fill(`${user}@example.com`);
+    await page.locator('input[type=password]').nth(0).fill(PW);
+    await page.locator('input[type=password]').nth(1).fill(PW);
+    await page.getByRole('button', { name: 'Create account' }).click();
+    await page.getByRole('heading', { name: 'Your projects' }).waitFor();
+    await page.getByTestId('join-btn').click();
+    await page.locator('form:has(h2:text("Join a project")) input[type=text]').fill(slug);
+    await page.locator('form:has(h2:text("Join a project")) input[type=password]').fill(PROJECT_PW);
+    await page.getByRole('button', { name: 'Join', exact: true }).click();
+    await page.getByTestId('workspace').waitFor();
+    await page.getByRole('treeitem', { name: 'main.tex' }).click({ timeout: 60_000 });
+    await page.locator('.cm-content', { hasText: 'typed on the desktop' }).waitFor({ timeout: 60_000 });
+    // edits back to the desktop, still without any connected RTCPeerConnection
+    await page.locator('.cm-content').click();
+    await page.keyboard.type(' and in the browser');
+    await until(() => b.execute(async (f) => (await window.__p2p.session.model.openText(f)).toString().includes('and in the browser'), id), 'browser edit on the desktop', 60_000);
+    assert.equal(await page.evaluate(() => window.__pcs.filter((pc) => pc.connectionState === 'connected').length), 0);
+    assert.equal(await b.execute(() => window.__p2p.session.peers.map((p) => p.route).join(',')), 'relay');
+  } finally {
+    await browser.close();
+    await b.execute(() => localStorage.removeItem('hivetex.e2e.noWebrtc'));
+  }
+});
+
+test('application relay only (13.7): payload loss, socket rotation and instance replacement between the desktop app and a browser', { timeout: 400_000 }, async (t) => {
+  const web = 'http://localhost:1420';
+  const api = 'http://localhost:3000';
+  if (!(await fetch(web).then((r) => r.ok).catch(() => false))) return t.skip('web dev server not running');
+  if (!(await fetch(`${api}/api/__dev/faults`).then((r) => r.ok).catch(() => false))) return t.skip('local server without fault injection');
+  const { chromium } = await import('@playwright/test');
+  const fault = (q) => fetch(`${api}/api/__dev/faults?${q}`).then((r) => r.json());
+  const terminate = () => fetch(`${api}/api/__dev/signal/terminate`).then((r) => r.json());
+  const click = async (sel) => {
+    await b.$(sel);
+    await b.execute((q) => {
+      const el = /^[/(]/.test(q) ? document.evaluate(q, document, null, 9, null).singleNodeValue : document.querySelector(q);
+      el.click();
+    }, sel);
+  };
+  await b.execute(() => localStorage.setItem('hivetex.e2e.noWebrtc', '1'));
+  let slug = uniq('desk137-');
+  await home();
+  await click('[data-testid="new-project-btn"]');
+  await (await b.$("//input[@placeholder='my-paper-2026']")).setValue(slug);
+  await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
+  await click("//button[normalize-space()='Create project']");
+  await byTestId('workspace');
+  slug = await fullText('project-slug');
+  await click('[data-testid="settings-btn"]');
+  await b.execute(() => {
+    const sel = [...document.querySelectorAll('select')].find((s) => s.closest('label')?.textContent?.includes('Default role') || document.querySelector(`label[for="${s.id}"]`)?.textContent?.includes('Default role'));
+    sel.value = 'editor';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click("(//button[normalize-space()='Save'])[1]");
+  await until(async () => (await fullText('settings-dialog')).includes('Saved'), 'role saved');
+  await click("//div[@data-testid='settings-dialog']//button[@aria-label='Close' or normalize-space()='Close']");
+  const id = await b.execute(async () => {
+    const s = window.__p2p.session;
+    const fid = await s.model.createTextNow('main.tex', 'relay137');
+    await s.model.flush();
+    return fid;
+  });
+  const deskText = () => b.execute(async (f) => (await window.__p2p.session.model.openText(f)).toString(), id);
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ baseURL: web });
+    await ctx.addInitScript(() => localStorage.setItem('hivetex.test', '1'));
+    await ctx.addInitScript(() => {
+      const Orig = window.RTCPeerConnection;
+      window.__pcs = [];
+      window.RTCPeerConnection = class extends Orig {
+        constructor(cfg) {
+          super({ ...cfg, iceServers: [], iceTransportPolicy: 'relay' });
+          window.__pcs.push(this);
+        }
+      };
+    });
+    const page = await ctx.newPage();
+    const user = uniq('web137');
+    await page.goto('/#/register');
+    await page.getByLabel('Username').fill(user);
+    await page.getByLabel('Email').fill(`${user}@example.com`);
+    await page.locator('input[type=password]').nth(0).fill(PW);
+    await page.locator('input[type=password]').nth(1).fill(PW);
+    await page.getByRole('button', { name: 'Create account' }).click();
+    await page.getByRole('heading', { name: 'Your projects' }).waitFor();
+    await page.getByTestId('join-btn').click();
+    await page.locator('form:has(h2:text("Join a project")) input[type=text]').fill(slug);
+    await page.locator('form:has(h2:text("Join a project")) input[type=password]').fill(PROJECT_PW);
+    await page.getByRole('button', { name: 'Join', exact: true }).click();
+    await page.getByTestId('workspace').waitFor();
+    await page.getByRole('treeitem', { name: 'main.tex' }).click({ timeout: 60_000 });
+    await page.locator('.cm-content', { hasText: 'relay137' }).waitFor({ timeout: 60_000 });
+    const webText = () => page.evaluate(async () => { const s = window.__p2p.session; return (await s.model.openText(s.model.find('main.tex').id)).toString(); });
+    const webInsert = (txt) => page.evaluate(async (x) => { const s = window.__p2p.session; const t = await s.model.openText(s.model.find('main.tex').id); t.insert(t.length, x); }, txt);
+    const deskInsert = (txt) => b.execute(async (f, x) => { const t = await window.__p2p.session.model.openText(f); t.insert(t.length, x); }, id, txt);
+    assert.equal(await b.execute(() => window.__p2p.session.peers.map((p) => p.route).join(',')), 'relay');
+    const peerUser = await b.execute(() => window.__p2p.session.peers.map((p) => p.uname).join(','));
+    assert.equal(peerUser, user, 'the relayed peer is the authenticated browser member');
+
+    // 1. Payload loss: a fifth of relayed ciphertext frames vanish; retransmission still delivers everything once.
+    await fault('relayDrop=0.2');
+    for (let n = 0; n < 30; n++) { await webInsert(` w${n}`); if (n % 3 === 0) await deskInsert(` d${n}`); await new Promise((r) => setTimeout(r, 40)); }
+    await until(async () => (await deskText()).includes(' w29') && (await webText()).includes(' d27'), 'every edit despite 20% frame loss', 90_000);
+    await fault('relayDrop=0');
+    assert.equal((await deskText()).match(/ w\d+/g).length, 30, 'no duplicated insertions');
+
+    // 2. Rotation: every signaling socket ends abruptly (the 300 s platform limit); both endpoints come back.
+    const before = (await terminate()).terminated;
+    assert.ok(before >= 2, `sockets terminated: ${before}`);
+    await webInsert(' after-rotation');
+    await until(async () => (await deskText()).includes('after-rotation'), 'edit after rotation', 90_000);
+    await deskInsert(' back-after-rotation');
+    await until(async () => (await webText()).includes('back-after-rotation'), 'desktop edit after rotation', 90_000);
+
+    // 3. Instance replacement during an asset transfer: the sockets go away twice while a 400 kB image is in flight.
+    const hash = await b.execute(async () => {
+      const s = window.__p2p.session;
+      const png = new Uint8Array(400_000).map((_, i) => (i * 13) % 251);
+      const h = await s.blobs.add(png);
+      s.model.createBinary('fig137.png', h, png.length);
+      await s.model.flush();
+      return h;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    await terminate();
+    await new Promise((r) => setTimeout(r, 1500));
+    await terminate();
+    await until(() => page.evaluate((h) => window.__p2p.session.blobs.has(h), hash), 'asset after instance replacements', 120_000);
+    const bytes = await page.evaluate(async (h) => { const b = await window.__p2p.session.store.getBlob(h); return b ? b.length : 0; }, hash).catch(() => -1);
+    if (bytes !== -1) assert.equal(bytes, 400_000);
+    // Still relay-only and authenticated after all of it.
+    assert.equal(await page.evaluate(() => window.__pcs.filter((pc) => pc.connectionState === 'connected').length), 0);
+    assert.equal(await b.execute(() => window.__p2p.session.peers.map((p) => `${p.route}:${p.uname}`).join(',')), `relay:${user}`);
+  } finally {
+    await fault('relayDrop=0').catch(() => {});
+    await browser.close();
+    await b.execute(() => localStorage.removeItem('hivetex.e2e.noWebrtc'));
+  }
+});
+
+test('doorbell: the desktop app waits without a server connection and is rung awake by a browser that opens the project', { timeout: 300_000 }, async (t) => {
+  const web = 'http://localhost:1420';
+  if (!(await fetch(web).then((r) => r.ok).catch(() => false))) return t.skip('web dev server not running');
+  const { chromium } = await import('@playwright/test');
+  const click = async (sel) => {
+    await b.$(sel);
+    await b.execute((q) => {
+      const el = /^[/(]/.test(q) ? document.evaluate(q, document, null, 9, null).singleNodeValue : document.querySelector(q);
+      el.click();
+    }, sel);
+  };
+  const desk = () => b.execute(() => {
+    const s = window.__p2p.session;
+    const d = s.runtime?.managerDiagnostics;
+    return { socket: d?.socketOpen ?? false, bell: d?.doorbellMode ?? false, answers: d?.answers ?? 0, peers: s.peers.length };
+  });
+  let slug = uniq('deskbell-');
+  await home();
+  await click('[data-testid="new-project-btn"]');
+  await (await b.$("//input[@placeholder='my-paper-2026']")).setValue(slug);
+  await (await b.$("//form[.//h2[normalize-space()='New project']]//input[@type='password']")).setValue(PROJECT_PW);
+  await click("//button[normalize-space()='Create project']");
+  await byTestId('workspace');
+  slug = await fullText('project-slug');
+  await click('[data-testid="settings-btn"]');
+  await b.execute(() => {
+    const sel = [...document.querySelectorAll('select')].find((s) => s.closest('label')?.textContent?.includes('Default role') || document.querySelector(`label[for="${s.id}"]`)?.textContent?.includes('Default role'));
+    sel.value = 'editor';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await click("(//button[normalize-space()='Save'])[1]");
+  await until(async () => (await fullText('settings-dialog')).includes('Saved'), 'role saved');
+  await click("//div[@data-testid='settings-dialog']//button[@aria-label='Close' or normalize-space()='Close']");
+  const id = await b.execute(async () => {
+    const s = window.__p2p.session;
+    const fid = await s.model.createTextNow('main.tex', 'kept on the sleeping desktop');
+    await s.model.flush();
+    return fid;
+  });
+  // Alone: the introduction window ends and the app keeps no connection to the server.
+  await until(async () => { const d = await desk(); return d.bell && !d.socket; }, 'desktop dormant without a socket', 90_000);
+  const projectId = await b.execute(() => window.__p2p.session.project.id);
+  const catalog = () => b.execute(async () => JSON.parse(await window.__TAURI_INTERNALS__.invoke('worker_request', { method: 'catalog.list', params: '{}' })));
+  await home();
+  await until(async () => {
+    const entry = (await catalog()).projects.find((p) => p.project.project === projectId);
+    return entry?.stage === 'dormant' && !entry.status;
+  }, 'retained seed dormant with no editor or live actor', 30_000);
+  assert.equal(await present('[data-testid="workspace"]'), false);
+
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ baseURL: web });
+    await ctx.addInitScript(() => localStorage.setItem('hivetex.test', '1'));
+    const page = await ctx.newPage();
+    const user = uniq('webbell');
+    await page.goto('/#/register');
+    await page.getByLabel('Username').fill(user);
+    await page.getByLabel('Email').fill(`${user}@example.com`);
+    await page.locator('input[type=password]').nth(0).fill(PW);
+    await page.locator('input[type=password]').nth(1).fill(PW);
+    await page.getByRole('button', { name: 'Create account' }).click();
+    await page.getByRole('heading', { name: 'Your projects' }).waitFor();
+    await page.getByTestId('join-btn').click();
+    await page.locator('form:has(h2:text("Join a project")) input[type=text]').fill(slug);
+    await page.locator('form:has(h2:text("Join a project")) input[type=password]').fill(PROJECT_PW);
+    const rang = Date.now();
+    await page.getByRole('button', { name: 'Join', exact: true }).click();
+    await page.getByTestId('workspace').waitFor();
+    await page.getByRole('treeitem', { name: 'main.tex' }).click({ timeout: 60_000 });
+    await page.locator('.cm-content', { hasText: 'kept on the sleeping desktop' }).waitFor({ timeout: 60_000 });
+    console.log(`# desktop ring-to-content ${Date.now() - rang} ms`);
+    await until(async () => (await catalog()).projects.some((p) => p.project.project === projectId && p.status?.diagnostics?.answers > 0), 'the headless desktop answered a ring', 30_000);
+    await page.locator('.cm-content').click();
+    await page.keyboard.type(' and the browser replied');
+    await b.execute((pid) => { location.hash = '#/p/' + pid; }, projectId);
+    await byTestId('workspace');
+    await until(() => b.execute(async (f) => (await window.__p2p.session.model.openText(f)).toString().includes('the browser replied'), id), 'browser edit on the desktop', 60_000);
+    await until(async () => !(await desk()).socket && !(await page.evaluate(() => window.__p2p.session.runtime?.managerDiagnostics?.socketOpen ?? false)), 'no socket on either side', 60_000);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('right-click Files > Open folder puts a project kept in the app in Documents/HiveTeX, and disk changes show up live', { timeout: 300_000 }, async () => {
   await home();
   let slug = uniq('ctx-');
@@ -518,3 +798,31 @@ test('local mode: no account, nothing sent anywhere; later sign in, share one lo
   await home();
   assert.equal((await b.findAll('[data-testid="local-project"]')).length, 0, 'no local project left');
 });
+
+// Last: Quit ends the app this WebDriver session drives. (Close-to-background and second launch: lifecycle.mjs.)
+test('launch at login is opt-in and removable; Quit flushes, stops the worker and exits', { timeout: 120_000 }, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const invoke = (cmd, args = {}) => b.execute(async (c, a) => JSON.stringify((await window.__TAURI_INTERNALS__.invoke(c, a)) ?? null), cmd, args).then(JSON.parse);
+  const ps = (script) => (spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' }).stdout ?? '').trim();
+  const initial = await invoke('startup_get');
+  assert.equal(initial.login, false, 'not registered until the user selects it');
+  assert.equal(initial.tray, true, 'tray available on this desktop');
+  if (process.platform !== 'win32') return;
+  const runKey = () => ps("Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' | Out-String -Width 400");
+  await invoke('startup_set', { login: true, background: true });
+  assert.match(runKey(), /hivetex-desktop.*--background/i);
+  assert.equal((await invoke('startup_get')).background, true);
+  await invoke('startup_set', { login: false, background: false });
+  assert.doesNotMatch(runKey(), /hivetex-desktop/i, 'deselecting removes the registration');
+
+  const pid = Number(ps('(Get-Process hivetex-desktop | Select-Object -First 1).Id'));
+  const alive = () => ps(`Get-Process -Id ${pid} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id`) !== '';
+  const workers = () => Number(ps(`(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*hivetex-worker*' } | Measure-Object).Count`) || 0);
+  assert.equal(workers(), 1);
+  await b.execute(() => { void window.__TAURI_INTERNALS__.invoke('app_quit', { discard: false }); });
+  const end = Date.now() + 30_000;
+  while (Date.now() < end && alive()) await new Promise((r) => setTimeout(r, 300));
+  assert.equal(alive(), false, 'the app exited after Quit');
+  assert.equal(workers(), 0, 'the sync worker exited too');
+});
+

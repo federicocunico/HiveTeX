@@ -43,7 +43,7 @@
 
 ## 6. Cross-area validation
 
-- [ ] 6.1 Run the existing full project checks and affected Rust/desktop integration checks after the changes, without modifying Turborepo commands; verify builds, lint/type checks, tests, bundle constraints and cross-area create/share/reopen behavior pass, recording environment limitations explicitly.
+- [x] 6.1 Run the existing full project checks and affected Rust/desktop integration checks after the changes, without modifying Turborepo commands; verify builds, lint/type checks, tests, bundle constraints and cross-area create/share/reopen behavior pass, recording environment limitations explicitly.
 - [x] 6.3 If implementation is pushed, identify triggered workflows and monitor CI/desktop/deployment runs to terminal states, fetch failing logs and fix regressions before reporting completion; report the final observed workflow outcomes.
 
 ## Approved release follow-up

@@ -1,0 +1,19 @@
+{
+  "windows": [
+    {
+      "pid": 80756,
+      "webviewDestroyed": true,
+      "workers": 1
+    }
+  ],
+  "phases": [
+    "two projects bootstrap and persist edits with no renderer; reattach preserves identity",
+    "actual worker crash, new generation, renderer reload and durable reattach without duplicate identity",
+    "persistent global pause and native restart; complete replicas after resume",
+    "logout stops both scopes and no delayed callback resurrects them"
+  ],
+  "bootstrapMs": [
+    9639,
+    5569
+  ]
+}

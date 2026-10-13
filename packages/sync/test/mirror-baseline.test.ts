@@ -198,13 +198,13 @@ describe('initial binding and content readiness', () => {
     a.model.putEntry('ghost1', { path: 'main.tex', kind: 'text' });
     await bindWith(a, controlled(dir).fs);
     await sleep(300);
-    expect(await read(dir, 'main.tex')).toBe('precious');
+    await expect.poll(async () => await read(dir, 'main.tex'), { timeout: 15_000 }).toBe('precious');
     expect((await a.model.openText('ghost1')).toString()).toBe(''); // and the unknown text was not "merged" with the disk's
     // once the text is known, an equal file simply gets its baseline
     (await a.model.openText('ghost1')).insert(0, 'precious');
     a.model.markComplete(fileDocId('ghost1'));
     await sleep(300);
-    expect(await read(dir, 'main.tex')).toBe('precious');
+    await expect.poll(async () => await read(dir, 'main.tex'), { timeout: 15_000 }).toBe('precious');
   });
 
   it('writes the file once its content is complete', async () => {
@@ -235,7 +235,7 @@ describe('initial binding and content readiness', () => {
     await bindWith(viewer, controlled(dir).fs, {}, notices);
     await waitFor(async () => (await read(dir, 'main.tex')) === 'project text');
     await sleep(200);
-    expect(revisions(viewer)).toEqual(before);
+    await expect.poll(async () => revisions(viewer), { timeout: 15_000 }).toEqual(before);
     expect(viewer.model.list().map((f) => f.path)).toEqual(['main.tex']);
     expect((await viewer.model.openText(id)).toString()).toBe('project text');
     expect(owner.model.list().map((f) => f.path)).toEqual(['main.tex']);

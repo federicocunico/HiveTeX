@@ -2,7 +2,7 @@
  * Local development / e2e server: embedded Postgres (PGlite, persisted under .data/), in-memory rate limiter,
  * console mailer. Never used in production (Vercel uses ./production.ts).
  */
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { PGlite } from '@electric-sql/pglite';
@@ -16,8 +16,14 @@ import type { Deps } from './deps.js';
 import type { Mailer } from './mail.js';
 import { MemoryRateLimiter, UnlimitedRateLimiter } from './ratelimit.js';
 import { MemoryKv } from './kv.js';
+import { createDevPush } from './dev-push.js';
+import { createApplicationRelayRouter } from './signal/application-relay.js';
 import { MemorySignalBackend, createSignalSession } from './signal/hub.js';
+import { createMemoryRelayAdmission } from './signal/relay-budget.js';
 import { WebSocketServer } from 'ws';
+
+/** Dev/e2e fault knobs, set through GET /__dev/faults?relayDrop=0.2 on the local server only. */
+export const devFaults = { relayDrop: 0 };
 
 export interface LocalOptions {
   dataDir?: string | undefined; // undefined => in-memory
@@ -43,6 +49,8 @@ export async function localDeps(opts: LocalOptions = {}): Promise<Deps & { mailb
     ticketPublicJwks: [{ kid: 'dev', jwk: { ...(await exportJWK(publicKey)), alg: 'EdDSA', use: 'sig', kid: 'dev' } }],
     argon: { memoryCost: 8192, timeCost: 2, parallelism: 1 },
     breachedCheck: false,
+    // Rings stay on this machine: the dev server's own push endpoint, unless DOORBELL_URL names another (or is 'off').
+    ...(process.env.DOORBELL_URL === 'off' ? {} : { doorbellUrl: process.env.DOORBELL_URL || `http://localhost:${opts.port ?? Number(process.env.PORT ?? 3000)}/__dev/push` }),
   };
   const mailbox: { to: string; subject: string; text: string }[] = [];
   const mailer: Mailer = {
@@ -61,6 +69,17 @@ export async function localDeps(opts: LocalOptions = {}): Promise<Deps & { mailb
     signal: new MemorySignalBackend(),
     kv: new MemoryKv(),
   };
+  if (process.env.APPLICATION_RELAY === '1') {
+    // Dev/e2e only: in-process budget with the shipped limits (deployments use the Redis budget, see production.ts).
+    const router = createApplicationRelayRouter({ namespace: 'local', backend: out.signal as MemorySignalBackend, admission: createMemoryRelayAdmission(), deps: out });
+    // Dev/e2e fault injection (13.7): `devFaults.relayDrop` silently loses that share of relayed ciphertext frames.
+    out.applicationRelay = {
+      async attach(ctx) {
+        const r = await router.attach(ctx);
+        return { forward: (m) => (Math.random() < devFaults.relayDrop ? Promise.resolve() : r.forward(m)), close: () => r.close() };
+      },
+    };
+  }
   if (process.env.E2E_FAKE_GITHUB) {
     // End-to-end tests: pretend to be GitHub's OAuth endpoints so the whole connect flow can run offline.
     out.github = { clientId: 'e2e-client', clientSecret: 'e2e-secret' };
@@ -79,13 +98,41 @@ export async function startLocal(opts: LocalOptions = {}) {
   const app = buildApp(deps);
   // Dev-only: expose the mailbox so e2e tests can read verification/reset links.
   app.get('/__dev/mailbox', (c) => c.json(deps.mailbox));
+  app.get('/__dev/faults', (c) => {
+    const drop = Number(c.req.query('relayDrop'));
+    if (Number.isFinite(drop) && drop >= 0 && drop < 1) devFaults.relayDrop = drop;
+    return c.json(devFaults);
+  });
+  // Ends every signaling socket abruptly, as the platform does at the 300 s rotation or when an instance goes away.
+  app.get('/__dev/signal/terminate', (c) => {
+    let n = 0;
+    for (const ws of wss.clients) { ws.terminate(); n++; }
+    return c.json({ terminated: n });
+  });
   const port = opts.port ?? 3000;
-  const server = serve({ fetch: app.fetch, port });
+  // Dev-only push service for doorbell rings (dev-push.ts), outside the /api app (no CSRF guard, like ntfy); localDeps
+  // points config.doorbellUrl at it.
+  const push = createDevPush().app;
+  // Dev/soak only: REQUEST_LOG=<file> appends one JSON line per request and WebSocket upgrade (time, method, path,
+  // origin, user agent), to measure control-plane traffic from idle devices (verification 13.2). No bodies or tokens.
+  const requestLog = process.env.REQUEST_LOG;
+  const logRequest = (m: string, path: string, origin: string | null | undefined, ua: string | null | undefined) => {
+    if (requestLog) appendFileSync(requestLog, JSON.stringify({ t: Date.now(), m, path, origin: origin ?? null, ua: ua ?? null }) + '\n');
+  };
+  const fetch = (req: Request) => {
+    const url = new URL(req.url);
+    logRequest(req.method, url.pathname, req.headers.get('origin'), req.headers.get('user-agent'));
+    if (!url.pathname.startsWith('/__dev/push/')) return app.fetch(req);
+    url.pathname = url.pathname.slice('/__dev/push'.length);
+    return push.fetch(new Request(url, req));
+  };
+  const server = serve({ fetch, port });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   (server as import('node:http').Server).on('upgrade', (req, socket, head) => {
+    logRequest('WS', (req.url ?? '').split('?')[0] ?? '', req.headers.origin, req.headers['user-agent']);
     if (!req.url?.startsWith('/api/signal') || !deps.signal) return void socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => {
-      const h = createSignalSession({ send: (d) => ws.send(d), close: (c, r) => ws.close(c, r) }, deps, deps.signal as MemorySignalBackend);
+      const h = createSignalSession({ get bufferedAmount() { return ws.bufferedAmount; }, send: (d) => ws.send(d), close: (c, r) => ws.close(c, r) }, deps, deps.signal as MemorySignalBackend);
       ws.on('message', (d) => void h.onMessage(String(d)));
       ws.on('close', () => void h.onClose());
     });

@@ -35,6 +35,8 @@ export class Election {
   private timer: ReturnType<typeof setInterval> | null = null;
   private changeCbs = new Set<(leader: string | null) => void>();
   private beatN = 0;
+  private stopped = false;
+  private unsubs: Array<() => void> = [];
 
   constructor(
     private mesh: Mesh,
@@ -49,18 +51,18 @@ export class Election {
   ) {
     this.self = { ...selfRecord, stamp: 1 };
     // Leadership inputs are privileged: the mesh drops them from a peer that is a viewer when they arrive.
-    mesh.onApp('cap', (from, body) => this.onCap(from, body as CapabilityRecord), { editorOnly: true });
-    mesh.onApp('beat', (from, body) => this.onBeat(from, body as Beat), { editorOnly: true });
-    mesh.onPeerJoin((p) => {
+    this.unsubs.push(mesh.onApp('cap', (from, body) => this.onCap(from, body as CapabilityRecord), { editorOnly: true }));
+    this.unsubs.push(mesh.onApp('beat', (from, body) => this.onBeat(from, body as Beat), { editorOnly: true }));
+    this.unsubs.push(mesh.onPeerJoin((p) => {
       void mesh.sendApp(p.deviceId, 'cap', this.self);
       // Share what we know about devices the newcomer cannot see directly.
       for (const r of this.remotes.values()) void mesh.sendApp(p.deviceId, 'cap', r.rec);
       this.recompute();
-    });
-    mesh.onPeerLeave((p) => {
+    }));
+    this.unsubs.push(mesh.onPeerLeave((p) => {
       this.remotes.delete(p.deviceId);
       this.recompute();
-    });
+    }));
   }
 
   private now() {
@@ -68,6 +70,7 @@ export class Election {
   }
 
   start() {
+    if (this.stopped || this.timer) return;
     this.mesh.broadcastApp('cap', this.self);
     this.recompute();
     this.timer = setInterval(() => this.tick(), this.opts.intervalMs ?? HEARTBEAT_MS);
@@ -75,12 +78,20 @@ export class Election {
   }
 
   stop() {
+    if (this.stopped) return;
+    this.self = { ...this.self, optOut: true, stamp: this.self.stamp + 1 };
+    this.mesh.broadcastApp('cap', this.self);
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.current = null;
+    for (const off of this.unsubs.splice(0)) off();
+    this.changeCbs.clear();
   }
 
   /** Update our own capability (power state, load, opt-out...). Propagates to peers immediately. */
   update(patch: Partial<Omit<CapabilityRecord, 'dev' | 'stamp'>>) {
+    if (this.stopped) return;
     this.self = { ...this.self, ...patch, stamp: this.self.stamp + 1 };
     this.mesh.broadcastApp('cap', this.self);
     this.recompute();
@@ -88,6 +99,7 @@ export class Election {
 
   /** The device id was only registered after the election started (offline start): adopt it. Nobody knew the old one. */
   setDevice(dev: string) {
+    if (this.stopped) return;
     if (dev === this.self.dev) return;
     this.self = { ...this.self, dev, stamp: this.self.stamp + 1 };
     this.mesh.broadcastApp('cap', this.self);
@@ -100,6 +112,7 @@ export class Election {
 
   /** One heartbeat + liveness sweep. Public so tests (and low-power timers) can drive it. */
   tick() {
+    if (this.stopped) return;
     this.mesh.broadcastApp('beat', { dev: this.self.dev, n: ++this.beatN } satisfies Beat);
     const limit = (this.opts.intervalMs ?? HEARTBEAT_MS) * MISSED_BEATS;
     const t = this.now();
@@ -147,6 +160,7 @@ export class Election {
 
   onLeaderChange(cb: (leader: string | null) => void) {
     this.changeCbs.add(cb);
+    return () => void this.changeCbs.delete(cb);
   }
 
   scoreOf(dev: string): number {

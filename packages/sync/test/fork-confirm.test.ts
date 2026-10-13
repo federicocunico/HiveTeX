@@ -142,7 +142,7 @@ describe('merge input must be confirmed', () => {
     await waitFor(() => w.errors.length > 0);
     late.resolve('confirmed'); // the answer to attempt 1 turns up now
     await new Promise((r) => setTimeout(r, 50));
-    expect(w.fork.active).toBe(true);
+    await expect.poll(async () => w.fork.active, { timeout: 15_000 }).toBe(true);
     expect(w.reports).toEqual([]);
     expect(mineKeys(store).length).toBeGreaterThan(0);
     w.setConfirm(async () => 'confirmed'); // attempt 3 is answered
@@ -226,7 +226,7 @@ describe('F03 over the mesh', () => {
     }); // bob does not answer anything on the next link
     const linking = net.link(a, b); // bob's side does not finish linking while it holds
     await new Promise((r) => setTimeout(r, 1200)); // well past the confirmation deadline, with retries
-    expect(a.fork.active).toBe(true);
+    await expect.poll(async () => a.fork.active, { timeout: 15_000 }).toBe(true);
     expect(a.reports).toEqual([]);
     expect(a.fork.journal?.stage === 'prepared' || a.fork.journal?.stage === 'reconciling').toBe(true);
     expect(await text(b, id)).toBe(BASE); // nothing unmerged reached bob

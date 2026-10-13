@@ -59,18 +59,25 @@
       if (!u) return void (updateMsg = 'You are up to date.');
       updateMsg = `Version ${u.version} is available. Downloading…`;
       await u.downloadAndInstall();
-      updateMsg = 'Update installed. Restart HiveTeX to use it.';
+      updateMsg = 'Update installed. Restarting HiveTeX…';
+      // A durable quit first (one seed, one network identity), then the new version starts.
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('app_restart');
     } catch (e) {
       updateMsg = e instanceof Error ? e.message : 'Could not check for updates';
     }
   }
 
-  function saveConnection(e: Event) {
+  async function saveConnection(e: Event) {
     e.preventDefault();
     error = info = '';
     try {
       // Only an actual change becomes a custom server; the default stays the default (and follows future builds).
-      if (isDesktop && serverUrl.trim() && parseServerUrl(serverUrl) !== apiBase()) setServerUrl(serverUrl);
+      if (isDesktop && serverUrl.trim() && parseServerUrl(serverUrl) !== apiBase()) {
+        const {stopRuntimes}=await import('../lib/runtimes.js');
+        await stopRuntimes();
+        setServerUrl(serverUrl);
+      }
       if (texUrl.trim()) {
         const t = new URL(texUrl.trim());
         if (t.protocol !== 'https:' && t.hostname !== 'localhost') throw new Error('The TeX server URL must use https://');
@@ -145,7 +152,7 @@
         <input type="text" bind:value={serverUrl} placeholder={serverLabel(defaultServer())} data-testid="account-server" />
       </label>
       {#if safeStorage('serverUrl')}
-        <p class="muted" style="margin-top: -6px"><button type="button" class="small" onclick={() => (useDefaultServer(), location.reload())} data-testid="account-server-default">Use the default server ({serverLabel(defaultServer())})</button></p>
+        <p class="muted" style="margin-top: -6px"><button type="button" class="small" onclick={async () => { const {stopRuntimes}=await import('../lib/runtimes.js'); await stopRuntimes(); useDefaultServer(); location.reload(); }} data-testid="account-server-default">Use the default server ({serverLabel(defaultServer())})</button></p>
       {/if}
     {/if}
     <label class="field">TeX package server <small>used by the in-browser compiler only; leave empty for the default</small>

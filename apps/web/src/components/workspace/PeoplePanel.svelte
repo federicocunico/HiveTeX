@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { ProjectSession } from '../../lib/session.svelte.js';
+  import { routeText } from '../../lib/sync-view.js';
   import { Share } from '../../ui/icons.js';
   import Avatar from '../../ui/Avatar.svelte';
   import Icon from '../../ui/Icon.svelte';
@@ -32,10 +33,10 @@
       <span class="who"><strong>{session.user.username} (you)</strong><span class="meta">{ROLE[session.role] ?? session.role} · this device</span></span>
     </li>
     {#each session.peers as p (p.dev)}
-      {@const file = fileOf(p.uname)}
+      {@const file = p.seed ? null : fileOf(p.uname)}
       <li>
         <Avatar name={p.uname} size={28} />
-        <span class="who"><strong>{p.uname}</strong><span class="meta">{ROLE[p.role] ?? p.role} · online{file ? ` · ${file}` : ''}</span></span>
+        <span class="who"><strong>{p.uname}</strong><span class="meta">{ROLE[p.role] ?? p.role} · {p.seed ? 'background seed' : 'online'}{file ? ` · ${file}` : ''}</span><span class="meta" class:warn={p.limited} data-testid="route-{p.uname}" data-route={p.route}>{routeText(p.route, p.limited)}</span></span>
         {@render actions?.({ dev: p.dev, name: p.uname })}
       </li>
     {/each}
@@ -92,6 +93,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .warn {
+    color: var(--warning, var(--muted));
   }
   .intro {
     margin: 4px 14px 10px;

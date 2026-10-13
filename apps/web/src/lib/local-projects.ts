@@ -56,43 +56,25 @@ export function forgetLocalProject(id: string, storage: Store = localStorage) {
   storage.removeItem(`hivetex.proj.${id}`);
 }
 
-/** Deletes a project's stored contents on this device (IndexedDB database of the session). */
-export function removeLocalProjectData(id: string, factory: IDBFactory = indexedDB): Promise<void> {
-  return new Promise((resolve) => {
-    const r = factory.deleteDatabase(`hivetex-project-${id}`);
-    r.onsuccess = r.onerror = r.onblocked = () => resolve();
-  });
+/** Deletes a local project's stored contents on this device (see project-store.ts: IndexedDB or the native store). */
+export async function removeLocalProjectData(id: string): Promise<void> {
+  const { removeProjectStore } = await import('./project-store.js');
+  await removeProjectStore({ kind: 'local', id });
 }
 
-/** Copies a project's stored contents on this device (documents, images, history, change log) to another id. */
-export async function copyProjectData(fromId: string, toId: string): Promise<void> {
-  const [{ IndexedDbPersistence }, Y] = await Promise.all([import('@hivetex/sync'), import('yjs')]);
-  const from = await IndexedDbPersistence.open(`hivetex-project-${fromId}`);
-  const to = await IndexedDbPersistence.open(`hivetex-project-${toId}`);
-  try {
-    for (const d of await from.listDocs()) {
-      const updates = await from.load(d);
-      if (updates.length) await to.compact(d, Y.mergeUpdates(updates));
-    }
-    for (const h of await from.listBlobs()) {
-      const b = await from.getBlob(h);
-      if (b) await to.putBlob(h, b);
-    }
-    for (const s of await from.listSnapshots()) await to.putSnapshot(s);
-    for (const c of await from.listChangeSets()) await to.putChangeSet(c);
-  } finally {
-    from.close();
-    to.close();
-  }
+/** Copies a local project's stored contents (documents, images, history, change log) into a shared project's store. */
+export async function copyProjectData(fromId: string, to: { project: string; account: string }): Promise<void> {
+  const { copyProjectContent } = await import('./project-store.js');
+  await copyProjectContent({ kind: 'local', id: fromId }, { kind: 'shared', ...to });
 }
 
 /**
  * Publish (signed in): the local project becomes a shared project with exactly its files and history, and its folder
  * (if any) stays linked. `create` makes the project on the server and returns its description.
  */
-export async function publishLocalProject(local: LocalProject, create: () => Promise<ProjectInfo>): Promise<ProjectInfo> {
+export async function publishLocalProject(local: LocalProject, create: () => Promise<ProjectInfo>, account: string): Promise<ProjectInfo> {
   const info = await create();
-  await copyProjectData(local.id, info.id);
+  await copyProjectData(local.id, { project: info.id, account });
   const { getLocation, removeLocation, setLocation } = await import('./locations.js');
   const loc = await getLocation(local.id).catch(() => null);
   if (loc && loc.kind === 'folder') {

@@ -36,8 +36,8 @@ then on that browser compiles there: faster, with every LaTeX package.
 
 ### The desktop app
 
-Download the installer for your system from the [Releases page](https://github.com/federicocunico/HiveTeX/releases).
-First launch:
+Download the installer from the [Releases page](https://github.com/federicocunico/HiveTeX/releases). Releases currently
+ship Windows installers only; on macOS and Linux build the app from source (`make desktop-build`). First launch:
 
 - **Windows:** SmartScreen shows "Windows protected your PC". Click *More info* → *Run anyway*.
 - **macOS:** open the `.dmg` and drag HiveTeX to Applications. If macOS blocks it, open *System Settings → Privacy &
@@ -122,6 +122,76 @@ make dev-local   # everything on your computer: API on :3000 (embedded database,
 
 ## Host your own server
 
+### Desktop background syncing
+
+On **Your projects → Background syncing**, retained owner/editor projects are selected as dormant seeds by default.
+Joining a project does not download it: open its editor once or choose **Download and seed**. Background downloads
+do not change the account's recently opened projects. Viewers cannot seed.
+
+Dormant seeds listen on one shared push stream per service; they hold no project runtime or control-plane socket and
+do not renew tickets. A verified ring wakes the project and fetches current authorization. **Enable background syncing**
+only controls background demand; **Work offline** pauses networking and is remembered in the native catalog. You can
+disable an individual seed without deleting its contents. Background actors do not compile, push GitHub backups or
+watch folders; folder edits reconcile when the editor reopens.
+
+The catalog is scoped to the signed-in account and server. Locked/missing credentials show **Sign in to resume**;
+the worker never invents a temporary background identity. A complete cached replica describes the last verified root,
+not changes no peer has supplied yet. Old caches with an unknown association require confirmation before migration.
+See [desktop storage and recovery](docs/desktop-storage.md) and [runtime ownership](docs/runtime.md).
+
+**Who can seed.** Owners and editors of a signed-in, cloud project. A viewer cannot seed and cannot be selected for
+download; a member demoted to viewer, or removed, stops seeding at its next verified answer and keeps its local copy.
+Local-only projects never seed.
+
+**What each status means** (shown per project in Background syncing):
+
+| Status | Meaning |
+| --- | --- |
+| Dormant | Listening for a ring on the shared push stream. No runtime, ticket or socket. |
+| Waking, Connecting, Receiving, Reconciling, Synced | Rung awake: connected to peers, fetching every text and referenced file, serving newcomers. Synced only once every file is held and reconciled. |
+| Receiving with a missing file | No reachable peer holds that file. It stays listed as missing and is retried; the project never reports Synced meanwhile. |
+| File deferred | A file waits for space: background content would exceed 2 GiB, or less than 128 MiB of disk would remain. Nothing already stored is deleted to make room. |
+| Queued | Four background projects are already awake. Queued projects rotate in as awake ones go idle. |
+| Ring channel unreachable | The push service cannot be reached. The seed stays asleep and does **not** fall back to a server socket. Open the project or use Sync now. |
+| Offline / Sign in to resume | No network, or the OS keychain is locked or empty. |
+| Paused / Disabled | Work offline, or background seeding switched off for that project. Contents are kept. |
+
+**Limits.** At most four background projects are awake at once (open editors do not count). Background transfers use
+two at a time (one per project), a 32 MiB receive buffer and about 5 MiB/s; the open project always goes first.
+
+**When the server is unreachable.** Tickets last 15 minutes. Peers already connected keep syncing until their tickets
+expire, and are then disconnected. Dormant seeds cannot be rung, and new devices cannot join, until the control plane
+is back. Rings themselves are limited to one per 20 s and 60 per hour per device and project.
+
+**Router port mapping.** While an account actively syncs, the desktop app asks the home router (UPnP) to forward
+its one peer-to-peer UDP port with a 30-minute lease, and removes it when sync stops or the app quits. It is an extra
+address for co-authors, never shown as a connection; see [router port mapping](docs/port-mapping.md).
+
+**Network ports.** Nothing needs to be opened by hand. Everything except the peer-to-peer port is an outgoing
+connection that firewalls allow by default.
+
+| What | Port | Direction |
+|---|---|---|
+| Server: accounts, tickets and introductions (signaling WebSocket, only while devices are being introduced) | TCP 443 (HTTPS) | outgoing |
+| Doorbell: dormant seeds wait for rings on the push service (`ntfy.sh` by default) | TCP 443 (HTTPS) | outgoing |
+| Updates, TinyTeX and the quick compiler (GitHub releases), TeX packages (CTAN mirrors) | TCP 443 (HTTPS) | outgoing |
+| STUN: discovering the public address (`stun.cloudflare.com`, `stun.l.google.com`) | UDP 3478, UDP 19302 | outgoing |
+| TURN relay, when a direct connection is impossible (Cloudflare) | UDP/TCP 3478, TLS 443 or 5349 | outgoing |
+| **Peer-to-peer sync** (WebRTC, desktop app): one UDP port for every connection | UDP, random, chosen by the system at start | both |
+| Router port mapping (UPnP): router discovery, then the router's control URL | UDP 1900 (multicast, local network only), router's HTTP port | local network |
+| Local compile helper: the web app compiling on this computer | TCP 47812 (else 47813–47815), `127.0.0.1` only | this computer |
+
+The peer-to-peer port changes each time the app starts, so it cannot be forwarded by hand: UPnP forwards it when the
+router allows, otherwise STUN and, as a last resort, TURN connect co-authors. On first launch Windows may ask whether
+HiveTeX can communicate on networks; allowing private networks is enough for direct connections at home. Browsers use
+their own WebRTC ports and need nothing on this list but HTTPS, STUN and TURN.
+
+Local development uses 1420 (web), 3000 (local server) and the ports in `docker-compose.yml` (Postgres, Redis, Upstash
+proxy, Mailpit).
+
+**Closing the window keeps syncing** in the tray; Quit stops it. Starting with the computer (optionally without a
+window) is opt-in. See [the desktop app in the background](docs/desktop-app.md).
+
 HiveTeX's server runs on [Vercel](https://vercel.com) (Hobby plan, free), with [Neon](https://neon.tech) (Postgres)
 and [Upstash](https://upstash.com) (Redis) from the Vercel marketplace. You need accounts on GitHub and Vercel, and a
 Gmail address used only to send email. Vercel Hobby is for non-commercial use. To run everything on your own
@@ -154,6 +224,14 @@ Run the commands from the repository root (Git Bash on Windows).
    - **TURN:** testers on different networks connect more reliably with a free
      [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) key (`CF_TURN_KEY_ID`,
      `CF_TURN_API_TOKEN`).
+   - **Application relay (optional):** without TURN, devices that cannot connect directly can exchange end-to-end
+     encrypted traffic through your own server. It is off by default because it spends the same free Vercel/Upstash
+     quotas as everything else; see [docs/deployment.md](docs/deployment.md#application-relay) for the budget
+     variables and [docs/protocol.md](docs/protocol.md#route-selection-and-the-application-relay) for how routes are chosen.
+   - **Doorbell (on by default, free):** idle devices keep no connection to your server. They wait on the free
+     [ntfy.sh](https://ntfy.sh) push service and are rung awake when a co-author opens the project, so the free tiers
+     scale with introductions instead of installed devices. `DOORBELL_URL` points at a self-hosted ntfy; see
+     [docs/deployment.md](docs/deployment.md#doorbell-push-service).
 
 4. **Become admin:** open the URL printed at the end and register the admin username you gave. It becomes the
    platform admin automatically, but only while no admin exists yet.
@@ -165,8 +243,7 @@ Run the commands from the repository root (Git Bash on Windows).
    make release VERSION=0.1.2 CONFIRM=1   # checks CI passed for this commit, then pushes tag v0.1.2
    ```
 
-   After about 30 minutes the release is **published** on the Releases page with the Windows, macOS and Linux
-   installers, already pointing at your server, and installed apps are offered the update. A failed build is re-run
+   After about 30 minutes the release is **published** on the Releases page with the Windows installers, already pointing at your server, and installed apps are offered the update. A failed build is re-run
    automatically (3 attempts); after that the release stays a draft until you re-run the failed job (see [Deployment](docs/deployment.md#5-desktop)).
 
 6. **Invite people:** send them your web link, or the release page for the desktop app.

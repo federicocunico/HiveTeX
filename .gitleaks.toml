@@ -7,4 +7,10 @@ description = "Known non-secrets"
 paths = [
   # Deny-list of common passwords the server rejects at registration (not credentials).
   '''server/src/data/common-passwords\.ts''',
+  # Unmodified third-party sources vendored for a pinned patch (vendor/PATCHES.md), e.g. their upstream CI config.
+  '''apps/desktop/src-tauri/vendor/''',
+]
+# A structurally valid but fake ticket (fake signature) that tests log redaction.
+regexes = [
+  '''eyJhbGciOiJFZERTQSJ9\.eyJwaWQiOiJwcm9qZWN0LTEifQ\.c2lnbmF0dXJlLWJ5dGVzLWhlcmU''',
 ]

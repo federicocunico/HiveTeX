@@ -245,7 +245,7 @@
           {#if auth.local}
             <button type="button" class="link" onclick={() => go('/')} data-testid="back-to-local">Back to my local projects</button>
           {:else}
-            <button type="button" class="ghost" onclick={() => { enterLocalMode(); go('/'); }} data-testid="continue-local">Continue without an account</button>
+            <button type="button" class="ghost" onclick={async () => { await enterLocalMode(); go('/'); }} data-testid="continue-local">Continue without an account</button>
             <p class="muted small">Projects stay on this computer and nothing is sent anywhere. Sign in later to share them.</p>
           {/if}
         </div>

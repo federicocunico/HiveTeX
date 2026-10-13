@@ -30,3 +30,6 @@ export interface TrustedKey {
   jwk: Record<string, unknown>;
 }
 export * from './wire.js';
+
+export * from './relay.js';
+export * from './doorbell.js';

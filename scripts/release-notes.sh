@@ -13,7 +13,7 @@ base="https://github.com/${GH_REPO}/releases/download/${tag}"
 link() {
   local name
   name=$(grep -E "$1" "$assets" | grep -v '\.sig$' | head -1 || true)
-  [ -n "$name" ] && printf '[%s](%s/%s)' "$name" "$base" "$name"
+  if [ -n "$name" ]; then printf '[%s](%s/%s)' "$name" "$base" "$name"; fi
 }
 # "a or b", skipping whichever is missing.
 either() {
@@ -23,22 +23,27 @@ either() {
   if [ -n "$a" ] && [ -n "$b" ]; then printf '%s or %s' "$a" "$b"; else printf '%s%s' "$a" "$b"; fi
 }
 
+# Only the systems this release has installers for (Windows-only for now).
+win=$(either '\.exe$' '\.msi$')
+mac=$(link '\.dmg$')
+rpm=$(link '\.rpm$')
+lin=$(either '\.AppImage$' '\.deb$')
+if [ -n "$rpm" ]; then lin="${lin:+$lin or }$rpm"; fi
+
+echo "## Download"
+echo
+echo "| System | Installer |"
+echo "|---|---|"
+if [ -n "$win" ]; then echo "| Windows 10 and 11 | $win |"; fi
+if [ -n "$mac" ]; then echo "| macOS 11 or later (Apple silicon and Intel) | $mac |"; fi
+if [ -n "$lin" ]; then echo "| Linux | $lin |"; fi
+echo
+echo "**First launch**"
+echo
+if [ -n "$win" ]; then echo '- **Windows:** SmartScreen shows "Windows protected your PC". Click *More info*, then *Run anyway*.'; fi
+if [ -n "$mac" ]; then echo '- **macOS:** open the `.dmg` and drag HiveTeX to Applications. If macOS blocks it, open *System Settings → Privacy & Security* and click *Open Anyway*.'; fi
+if [ -n "$lin" ]; then echo '- **Linux:** run `chmod +x HiveTeX_*.AppImage` and start it, or install the `.deb` or `.rpm`. Device keys need a keychain (GNOME Keyring or KWallet), which standard desktops have.'; fi
 cat <<EOF
-## Download
-
-| System | Installer |
-|---|---|
-| Windows 10 and 11 | $(either '\.exe$' '\.msi$') |
-| macOS 11 or later (Apple silicon and Intel) | $(link '\.dmg$') |
-| Linux | $(either '\.AppImage$' '\.deb$')$( [ -n "$(link '\.rpm$')" ] && printf ' or %s' "$(link '\.rpm$')" ) |
-
-**First launch**
-
-- **Windows:** SmartScreen shows "Windows protected your PC". Click *More info*, then *Run anyway*.
-- **macOS:** open the \`.dmg\` and drag HiveTeX to Applications. If macOS blocks it, open *System Settings → Privacy &
-  Security* and click *Open Anyway*.
-- **Linux:** run \`chmod +x HiveTeX_*.AppImage\` and start it, or install the \`.deb\` or \`.rpm\`. Device keys need a
-  keychain (GNOME Keyring or KWallet), which standard desktops have.
 - The sign-in screen shows the server (\`hivetex.vercel.app\` by default). Use *Change* to connect to another one.
 
 Already installed? *Account → Check for updates* installs this version.

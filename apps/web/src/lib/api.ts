@@ -89,7 +89,7 @@ export function sessionOrigin(): string {
   const base = apiBase();
   return new URL(base || (isDesktop && import.meta.env.DEV ? import.meta.env.VITE_DEV_PROXY_TARGET : location.origin)).origin;
 }
-let bearer: { origin: string; token: string } | null = null;
+let bearer: { origin: string; token: string; remembered: boolean } | null = null;
 let bearerRevision = 0;
 let remembered: RememberedSession | null = null;
 function persistence() {
@@ -116,7 +116,7 @@ export async function initBearer() {
   const revision = ++bearerRevision;
   const result = await persistence().load(origin);
   if (revision !== bearerRevision || origin !== sessionOrigin()) return;
-  bearer = result.ok && result.token ? { origin, token: result.token } : null;
+  bearer = result.ok && result.token ? { origin, token: result.token, remembered: true } : null;
   reportCredential(result, async () => {
     await initBearer();
     await (await import('./auth.svelte.js')).loadMe();
@@ -126,14 +126,22 @@ export async function initBearer() {
 export async function setBearer(token: string | null) {
   const origin = sessionOrigin();
   const revision = ++bearerRevision;
-  bearer = token ? { origin, token } : null;
+  bearer = token ? { origin, token, remembered: false } : null;
   if (!isDesktop) return;
   const result = await (token ? persistence().save(origin, token) : persistence().forget(origin));
   if (revision !== bearerRevision || origin !== sessionOrigin()) return;
+  if (bearer) bearer.remembered = result.ok;
   reportCredential(result, async () => {
     if (origin !== sessionOrigin() || revision !== bearerRevision) return;
     await setBearer(token);
+    if (token) await (await import('./auth.svelte.js')).loadMe();
   });
+}
+
+/** Live desktop session for the trusted worker; never persisted outside the OS credential store. */
+export function desktopSessionCredential() {
+  if (!isDesktop || bearer?.origin !== sessionOrigin()) return undefined;
+  return { token: bearer.token, remembered: bearer.remembered };
 }
 
 export class ApiError extends Error {
@@ -182,8 +190,8 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
   if (origin !== sessionOrigin()) throw new ApiError(0, 'server_changed', 'The server changed. Please try again.');
   if (!res.ok) {
     if (res.status === 401 && sentBearer && bearer === sentBearer && path !== '/auth/login') {
-      await setBearer(null);
-      (await import('./auth.svelte.js')).invalidateSession();
+      const invalidating = (await import('./auth.svelte.js')).invalidateSession();
+      await Promise.all([setBearer(null), invalidating]);
     }
     const retry = Number(res.headers.get('Retry-After'));
     throw new ApiError(res.status, json.error?.code ?? 'error', json.error?.message ?? res.statusText, Number.isFinite(retry) && retry > 0 ? retry * 1000 : undefined);

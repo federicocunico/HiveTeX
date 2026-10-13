@@ -76,31 +76,37 @@ export class BackupAgent {
   private tokenCheckedAt = 0;
   statusCbs = new Set<() => void>();
   pushes = 0;
+  private stopped = false;
+  private unsubs: Array<() => void> = [];
+  private abort: AbortController | null = null;
 
   constructor(private o: AgentOptions) {
-    o.mesh.onApp('gh-cap', (from, body) => this.onCap(from, body as WriterCap));
-    o.mesh.onPeerJoin((p) => {
+    this.unsubs.push(o.mesh.onApp('gh-cap', (from, body) => this.onCap(from, body as WriterCap)));
+    this.unsubs.push(o.mesh.onPeerJoin((p) => {
       void this.announceTo(p.deviceId);
-    });
-    o.mesh.onPeerLeave((p) => {
+    }));
+    this.unsubs.push(o.mesh.onPeerLeave((p) => {
       this.caps.delete(p.deviceId);
-    });
+    }));
     // The root doc also carries our own bookkeeping (settings, backup state): count file edits and table changes only.
-    o.model.onDocUpdate((id, _u, origin) => {
+    this.unsubs.push(o.model.onDocUpdate((id, _u, origin) => {
       if (id !== 'root') this.noteChange(origin);
-    });
-    o.model.onFilesChanged(() => this.noteChange(null));
+    }));
+    this.unsubs.push(o.model.onFilesChanged(() => this.noteChange(null)));
     // Binding / policy / progress live in the shared project meta; keep UIs in step with local and remote changes.
     const onMeta = () => {
       for (const cb of this.statusCbs) cb();
     };
     o.model.meta.observe(onMeta);
+    const watched = new Set([o.model.meta]);
+    this.unsubs.push(() => { for (const meta of watched) meta.unobserve(onMeta); });
     // The root document can be replaced (offline merge): watch the new one.
-    o.model.onDocReplaced((docId) => {
+    this.unsubs.push(o.model.onDocReplaced((docId) => {
       if (docId !== 'root') return;
       o.model.meta.observe(onMeta);
+      watched.add(o.model.meta);
       onMeta();
-    });
+    }));
   }
 
   private now() {
@@ -108,14 +114,22 @@ export class BackupAgent {
   }
 
   start() {
+    if (this.stopped || this.timer) return;
     void this.refreshToken().then(() => this.announce());
     this.timer = setInterval(() => void this.tick(), this.o.tickMs ?? 30_000);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
   stop() {
+    if (this.stopped) return;
+    this.hasToken = false;
+    this.announce();
+    this.stopped = true;
+    this.abort?.abort();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    for (const off of this.unsubs.splice(0)) off();
+    this.statusCbs.clear();
   }
 
   // ---- shared configuration (owners write it, everyone reads it) ----
@@ -153,9 +167,11 @@ export class BackupAgent {
   }
 
   private async announceTo(dev: string) {
+    if (this.stopped) return;
     await this.o.mesh.sendApp(dev, 'gh-cap', this.selfCap());
   }
   announce() {
+    if (this.stopped) return;
     this.o.mesh.broadcastApp('gh-cap', this.selfCap());
   }
 
@@ -177,6 +193,7 @@ export class BackupAgent {
 
   private async refreshToken() {
     const t = await this.o.getToken().catch(() => null);
+    if (this.stopped) return null;
     const had = this.hasToken;
     this.hasToken = !!t;
     this.tokenCheckedAt = this.now();
@@ -192,6 +209,7 @@ export class BackupAgent {
   // ---- change tracking (done by the writer only) ----
 
   private noteChange(origin: unknown) {
+    if (this.stopped) return;
     if (!this.binding) return;
     const t = this.now();
     const who = (origin instanceof PeerConnection ? origin.claims?.uname : this.o.self.uname) ?? null;
@@ -220,8 +238,10 @@ export class BackupAgent {
   }
 
   async tick() {
+    if (this.stopped) return;
     if (this.running) return;
     if (this.now() - this.tokenCheckedAt > 5 * 60_000) await this.refreshToken();
+    if (this.stopped) return;
     const b = this.binding;
     if (!b || !this.isWriter() || this.bindingMismatch) return;
     // A takeover can inherit unsaved work the previous writer never counted: treat unknown state as dirty.
@@ -235,6 +255,7 @@ export class BackupAgent {
 
   /** Pushes immediately. Any device with a token may run it, writer or not. */
   async backupNow(): Promise<PushResult | null> {
+    if (this.stopped || this.o.getRole() === 'viewer') throw new Error('Editor detached or backup not authorized');
     const b = this.binding;
     if (!b) throw new Error('This project is not linked to a GitHub repository');
     if (this.bindingMismatch) {
@@ -242,13 +263,27 @@ export class BackupAgent {
     }
     if (this.running) return null;
     this.running = true;
+    const abort = new AbortController();
+    this.abort = abort;
+    const permitted = () => {
+      if (this.stopped || abort.signal.aborted || this.o.getRole() === 'viewer' || this.bindingMismatch || bindingKey(this.binding ?? b) !== bindingKey(b)) {
+        throw new Error('Backup cancelled: editor detached or authorization changed');
+      }
+    };
     try {
       const token = await this.o.getToken();
+      permitted();
       if (!token) throw new GitHubError(401, 'GitHub authorization expired — reconnect GitHub');
-      const client = new GitHubClient(token, this.o.fetchImpl ?? fetch.bind(globalThis));
+      const fetchImpl = this.o.fetchImpl ?? fetch.bind(globalThis);
+      const client = new GitHubClient(token, (input, init) => {
+        permitted();
+        return fetchImpl(input, { ...init, signal: abort.signal });
+      });
       const { files, seq } = await this.collect();
+      permitted();
       const m = this.meta;
       const res = await pushBackup(client, b.repo, b.branch, files, { message: commitMessage(m, this.now()), lastSha: m.lastSha, ...(this.o.project ? { project: this.o.project } : {}) });
+      permitted();
       const next = this.meta;
       next.lastBackupAt = this.now();
       next.lastError = null;
@@ -265,6 +300,7 @@ export class BackupAgent {
       this.saveMeta(next);
       return res;
     } catch (e) {
+      if (this.stopped || abort.signal.aborted || this.o.getRole() === 'viewer') throw e;
       const m = this.meta;
       m.lastError = e instanceof Error ? e.message : String(e);
       this.saveMeta(m);
@@ -275,6 +311,7 @@ export class BackupAgent {
       throw e;
     } finally {
       this.running = false;
+      if (this.abort === abort) this.abort = null;
     }
   }
 

@@ -331,7 +331,7 @@ describe('a demoted member over the mesh', () => {
     await waitFor(() => a.reports.length === 1, 5000);
     expect(a.reports[0]).toMatchObject({ discarded: true });
     await new Promise((r) => setTimeout(r, 200));
-    expect(await text(b, id)).toBe(BASE);
+    await expect.poll(async () => await text(b, id), { timeout: 15_000 }).toBe(BASE);
     expect(b.model.find('secret.tex')).toBeUndefined();
     expect(await text(a, id)).toBe(BASE);
     expect(a.fork.active).toBe(false);

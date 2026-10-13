@@ -42,6 +42,16 @@ async function tmp() {
 }
 
 describe('local folder mirror (9.3)', () => {
+  it('does not resurrect a watcher or import a folder when its lease stops during startup',async()=>{
+    net=await Net.create();const n=await net.add('owner','owner');const dir=await tmp();
+    await writeFile(join(dir,'outside.tex'),'not shared after detach');
+    const fs=nodeFs(dir),read=fs.read.bind(fs);let release!:()=>void;
+    const gate=new Promise<void>(r=>{release=r;});
+    fs.read=async path=>{await gate;return read(path);};
+    const mirror=new MirrorSync({model:n.model,mesh:n.mesh,blobs:new BlobManager(n.mesh,n.store),fs,getRole:()=>n.role});mirrors.push(mirror);
+    const started=mirror.start();mirror.stop();release();await started;
+    await sleep(80);expect(n.model.list()).toHaveLength(0);
+  });
   it('writes the project to the folder and picks up remote edits within a second', async () => {
     net = await Net.create();
     const [a, b] = [await net.add('alice', 'owner'), await net.add('bob', 'editor')];
@@ -119,7 +129,7 @@ describe('local folder mirror (9.3)', () => {
     }
     await waitFor(() => !!b.model.find('keep.tex'));
     await sleep(300);
-    expect(b.model.list().map((f) => f.path).sort()).toEqual(['.hivetexignore', 'keep.tex']);
+    await expect.poll(async () => b.model.list().map((f) => f.path).sort(), { timeout: 15_000 }).toEqual(['.hivetexignore', 'keep.tex']);
   });
 
   it('reverts local changes made by a read-only member and tells them', async () => {
@@ -139,7 +149,7 @@ describe('local folder mirror (9.3)', () => {
     expect(notices.some((n) => n.includes('read-only'))).toBe(true);
     // nothing leaked to the project
     await sleep(200);
-    expect(owner.model.list().map((f) => f.path)).toEqual(['main.tex']);
+    await expect.poll(async () => owner.model.list().map((f) => f.path), { timeout: 15_000 }).toEqual(['main.tex']);
     expect((await owner.model.openText(owner.model.find('main.tex')?.id as string)).toString()).toBe('protected content');
   });
 

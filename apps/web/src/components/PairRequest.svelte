@@ -15,16 +15,23 @@
   let queue = $state<Request[]>([]);
   const current = $derived(queue[0]);
 
+  const add = (r: Request) => { if (!queue.some((q) => q.id === r.id)) queue = [...queue, r]; };
+
   onMount(() => {
     if (!isDesktop) return;
     let unlisten: (() => void) | undefined;
     let gone = false;
     void import('@tauri-apps/api/event').then((ev) =>
-      ev.listen<Request>('helper://pair-request', (e) => (queue = [...queue, e.payload])).then((u) => {
+      ev.listen<Request>('helper://pair-request', (e) => add(e.payload)).then((u) => {
         if (gone) u();
         else unlisten = u;
       }),
     );
+    // A window opened for this request may have missed the event: ask for the requests still waiting.
+    void import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke<Request[]>('helper_pending'))
+      .then((open) => { if (!gone) for (const r of open) add(r); })
+      .catch(() => {});
     return () => {
       gone = true;
       unlisten?.();

@@ -382,10 +382,10 @@ mod tests {
 
     #[test]
     fn compiles_through_the_native_pipeline() {
-        if crate::tex::detect().is_none() {
+        let Some(_tex) = crate::tex::test_tex() else {
             eprintln!("no TeX on this machine: skipped");
             return;
-        }
+        };
         let root = std::env::temp_dir().join(format!("hivetex-helper-{}", random_hex(4)));
         let r2 = root.clone();
         let compile: CompileFn = Arc::new(move |req| crate::tex::compile_with(&r2, req, None));

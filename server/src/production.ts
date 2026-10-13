@@ -4,7 +4,9 @@ import type { Deps } from './deps.js';
 import { createUpstashKv } from './kv.js';
 import { createSmtpMailer, smtpFromEnv } from './mail.js';
 import { createUpstashLimiter } from './ratelimit.js';
-import { createUpstashSignalBackend } from './signal/hub.js';
+import { createApplicationRelayRouter } from './signal/application-relay.js';
+import { createUpstashSignalBackend, meterSignalBackend, UsageMeter } from './signal/hub.js';
+import { createRedisRelayAdmission, type EvalRedis, relayLimitsFromEnv } from './signal/relay-budget.js';
 import { cloudflareTurn } from './signal/turn.js';
 
 /** The first set variable among `names` (aliases, e.g. the names a Vercel Marketplace integration uses). */
@@ -31,13 +33,38 @@ export async function productionDepsWith(platform: PlatformDeps): Promise<Deps> 
   const turnToken = process.env.CF_TURN_API_TOKEN;
   const smtp = smtpFromEnv();
   if (!smtp) throw new Error('Missing env var GMAIL_USER / GMAIL_APP_PASSWORD (or SMTP_HOST)');
+  const config = configFromEnv();
+  const usage = new UsageMeter();
+  const signal = meterSignalBackend(await createUpstashSignalBackend(redisUrl, redisToken), usage);
+  const relayLimits = relayLimitsFromEnv(process.env);
+  let applicationRelay: Deps['applicationRelay'];
+  if (relayLimits) {
+    const { Redis } = await import('@upstash/redis');
+    // One namespace per deployment environment: preview and production never share an allowance.
+    const namespace = process.env.RELAY_NAMESPACE || `${process.env.VERCEL_ENV ?? 'node'}:${config.appOrigin}`;
+    const redis = new Redis({ url: redisUrl, token: redisToken });
+    const metered: EvalRedis = { eval: (script, keys, args) => { usage.add('relay.budget.eval'); return redis.eval(script, keys, args); } };
+    const admission = createRedisRelayAdmission(metered, namespace, relayLimits);
+    applicationRelay = createApplicationRelayRouter({ namespace, backend: signal, admission, deps: { config, now: () => new Date() }, meter: usage });
+  }
+  if (process.env.USAGE_LOG === '1') {
+    // One counters-only line per minute and instance; see docs/deployment.md ("Measuring usage").
+    setInterval(() => {
+      const counts = usage.snapshot();
+      if (Object.keys(counts).length) console.info('[usage]', JSON.stringify(counts));
+      usage.reset();
+    }, 60_000).unref();
+  }
   return {
     db: await createNeonDb(need('DATABASE_URL')),
     limiter: await createUpstashLimiter(redisUrl, redisToken),
     mailer: await createSmtpMailer(smtp),
-    config: configFromEnv(),
+    config,
     now: () => new Date(),
-    signal: await createUpstashSignalBackend(redisUrl, redisToken),
+    signal,
+    presenceBatchMs: 10_000,
+    usage,
+    ...(applicationRelay ? { applicationRelay } : {}),
     kv: await createUpstashKv(redisUrl, redisToken),
     ...(process.env.GITHUB_APP_CLIENT_ID && process.env.GITHUB_APP_CLIENT_SECRET
       ? { github: { clientId: process.env.GITHUB_APP_CLIENT_ID, clientSecret: process.env.GITHUB_APP_CLIENT_SECRET } }
@@ -55,7 +82,7 @@ export async function productionDeps(): Promise<Deps> {
     upgradeWebSocket: (_req, attach) =>
       experimental_upgradeWebSocket(
         (ws) => {
-          const h = attach({ send: (d) => ws.send(d), close: (code, reason) => ws.close(code, reason) });
+          const h = attach({ get bufferedAmount() { return ws.bufferedAmount; }, send: (d) => ws.send(d), close: (code, reason) => ws.close(code, reason) });
           ws.on('message', (data) => void h.onMessage(String(data)));
           ws.on('close', () => void h.onClose());
         },

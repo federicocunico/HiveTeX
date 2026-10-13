@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vite';
@@ -12,6 +13,8 @@ const remote = !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(target);
 export default defineConfig({
   // svelteTesting only acts under Vitest (browser build of Svelte, DOM cleanup between component tests).
   plugins: [svelte(), svelteTesting()],
+  // Unit tests (vitest): see packages/sync/vitest.config.ts for why CI needs generous limits and fewer workers.
+  test: { testTimeout: 30_000, hookTimeout: 30_000, ...(process.env.CI ? { maxWorkers: 2, minWorkers: 1 } : {}) },
   define: { 'import.meta.env.VITE_DEV_PROXY_TARGET': JSON.stringify(target) },
   server: {
     port: 1420,

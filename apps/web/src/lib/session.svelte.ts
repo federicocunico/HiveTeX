@@ -1,4 +1,5 @@
 import { exportRecoveryZip } from './recovery-export.js';
+import type { StoredDeviceKeys } from '@hivetex/crypto';
 import {
   CompileClient,
   CompileLeader,
@@ -19,32 +20,35 @@ import {
   ChangeLog,
   type ChangeSet,
   ConnectionManager,
+  ProjectRuntime,
+  type PushState,
   MirrorSync,
   LOCAL_ORIGIN,
   type FsAdapter,
   type FileEntry,
-  IndexedDbPersistence,
+  type Persistence,
   Mesh,
   ProjectModel,
+  type PeerRoute,
   type RtcFactory,
   type WebSocketLike,
   tauriRtcFactory,
   sha256Hex,
-  SyncTracker,
-  OfflineFork,
+  type SyncTracker,
+  type OfflineFork,
   type MergeConflict,
   type MergeReport,
   type HunkDecision,
   type FileChoice,
-  forkMeshOptions,
-  listenForkStatus,
   type SyncSnapshot,
 } from '@hivetex/sync';
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
-import { api, isDesktop, wsBase } from './api.js';
+import { api, apiBase, isDesktop, wsBase } from './api.js';
 import { copyText } from './clipboard.js';
 import { takeCreatedHere } from './created-here.js';
 import { isLocalProjectId } from './local-projects.js';
+import { openProjectStore, hasNativeProjectStore, type StoreRef } from './project-store.js';
+import { type HostedRuntime, attachRuntime } from './runtimes.js';
 import { type FolderAction, type FolderDeps, runFolderAction } from './project-folder.js';
 import { HelperEngine, type PairResult, helperToken, pairWithDesktop, probeHelper } from './helper-engine.js';
 import { applyImport, planFor } from './import/apply.js';
@@ -77,6 +81,11 @@ export interface PeerView {
   dev: string;
   uname: string;
   role: Role;
+  /** Direct WebRTC, WebRTC through TURN, or the server's encrypted application relay. */
+  route: PeerRoute;
+  /** Relay only: why the server currently refuses forwarding (queued edits and files wait). */
+  limited: string | null;
+  seed?: boolean;
 }
 
 type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -128,15 +137,28 @@ export class ProjectSession {
     return this.deviceId;
   }
 
-  private ticket = '';
-  private ticketTimer: ReturnType<typeof setTimeout> | null = null;
-  private manager: ConnectionManager | null = null;
-  private tracker!: SyncTracker;
+  /**
+   * The project's synchronization actor (packages/sync runtime.ts): replica, mesh, offline fork, tracker, identity and
+   * ticket recovery, connection manager and doorbell. This class adds the reactive view and the foreground services.
+   */
+  private runtime!: ProjectRuntime;
+  /** This workspace's editor lease on the shared runtime (runtimes.ts); released on close. */
+  private lease: import('@hivetex/sync').Lease<HostedRuntime> | null = null;
+  private unlisten: (() => void) | null = null;
+  private foregroundUnsubs: Array<() => void> = [];
+  private recoveryEntries: HostedRuntime['recoveryEntries'];
+  private get deviceId() {
+    return this.runtime?.deviceId ?? '';
+  }
+  private get tracker(): SyncTracker {
+    return this.runtime.tracker;
+  }
+  private get fork(): OfflineFork {
+    return this.runtime.fork;
+  }
   /** How far the join / sync is (stage, per-file state, percent, last sync). Null before the first computation. */
   syncStatus = $state<SyncSnapshot | null>(null);
 
-  /** Work done without a peer linked, merged git-style at the next link (offline-mode-git-merge). */
-  private fork!: OfflineFork;
   /** This device holds changes not shared yet (they are merged at the next link). */
   unsharedWork = $state(false);
   /** Why the merge of offline changes is waiting or could not be prepared (they are kept); null when nothing is wrong. */
@@ -151,24 +173,18 @@ export class ProjectSession {
   syncNowResult = $state('');
   /** Edits could not be written to this device's storage (they are kept in memory and retried). Independent of peer sync. */
   saveFailing = $state(false);
-  /**
-   * The ticket authority's public keys. One array for the whole session: the mesh and the connection manager verify
-   * against this very object, so keys loaded after an offline start reach them without rebuilding anything.
-   */
-  private trusted: TrustedKey[] = [];
-  private trustedLoaded = false;
-  private loadingTrusted: Promise<void> | null = null;
-  /** The control plane knows this device (`deviceId` is its id, not a temporary `offline-*` one). */
-  private registered = false;
-  private registering: Promise<void> | null = null;
+  /** The ticket authority's public keys (the runtime's array: the mesh verifies against this very object). */
+  private get trusted(): TrustedKey[] {
+    return this.runtime.trusted;
+  }
   /** Identity handed to compile and backup; `dev` follows the registration. */
   private selfRef = { dev: '', uname: '' };
-  /** Bumped by every ticket request, pause and close: only the latest, still-wanted request may act on its answer. */
-  private ticketSeq = 0;
+  doorbellState = $state<PushState>('off');
   private onlineHandler: (() => void) | null = null;
-  store!: IndexedDbPersistence;
+  store!: Persistence;
+  /** Which store holds this project on this device (desktop: native once migrated; see project-store.ts). */
+  storeKind: 'indexeddb' | 'native' = 'indexeddb';
   private disposed = false;
-  private deviceId = '';
   private staleTimer: ReturnType<typeof setTimeout> | null = null;
   private snapTimer: ReturnType<typeof setTimeout> | null = null;
   private keys!: Awaited<ReturnType<typeof localKeys>>['keys'];
@@ -199,105 +215,55 @@ export class ProjectSession {
   }
 
   async open() {
-    this.store = await IndexedDbPersistence.open(`hivetex-project-${this.project.id}`);
-    this.model = new ProjectModel(this.store);
-    await this.model.init();
-    // A project made on this device (or kept only here) authors its own file table; a joined one waits for a peer to confirm it.
-    if (this.isLocal || takeCreatedHere(this.project.id)) this.model.markComplete(ROOT_DOC_ID);
-    this.model.onSaveState((st) => {
-      this.saveFailing = st.failing;
+    const pid = this.project.id;
+    const key = { server: this.isLocal ? 'local' : apiBase(), account: this.user.id, project: pid };
+    this.lease = attachRuntime(key, 'editor', () => this.createRuntime());
+    const hosted = await this.lease.runtime;
+    if (this.disposed) {
+      await this.lease?.release();
+      return;
+    }
+    this.runtime = hosted.runtime;
+    this.recoveryEntries = hosted.recoveryEntries;
+    this.store = hosted.store;
+    this.storeKind = hosted.storeKind;
+    this.keys = hosted.keys;
+    this.unlisten = this.runtime.listen({
+      change: () => this.mirrorRuntime(),
+      syncEvent: (e, snap) => toast(syncEventText(e, snap), e === 'complete' ? 'ok' : 'info', e === 'complete' ? 4000 : 10_000),
+      mergeReport: (r) => this.onMergeReport(r),
+      role: (role) => {
+        this.role = role;
+        this.election?.update({}); // leadership eligibility depends on the role (viewers never lead)
+      },
+      deviceId: (id) => this.adoptDevice(id),
+      ticket: (r) => {
+        if (r.githubRepo !== undefined) this.project.githubRepo = r.githubRepo;
+      },
     });
-    this.refreshFiles();
-    this.model.onFilesChanged(() => this.refreshFiles());
-    // Who changed what (folder / editor / co-authors), kept on this device only.
-    this.changelog = new ChangeLog({ model: this.model, store: this.store });
-    this.changelog.start();
-    this.changelog.onChange(() => void this.refreshChanges());
-    void this.refreshChanges();
-
-    // Offline-first: the local identity (device keys, the id a registration gave them) never needs the network. What
-    // is missing (registration, trusted keys, a ticket) is recovered by the ticket loop whenever the control plane is
-    // reachable, each part on its own (see recoverIdentity).
-    try {
-      this.trusted.push(...(JSON.parse(sessionStorage.getItem('hivetex.trusted') ?? '[]') as TrustedKey[]));
-    } catch {
-      /* no cached keys */
-    }
-    let local: Awaited<ReturnType<typeof localKeys>>;
-    try {
-      local = await localKeys(this.user.id);
-    } catch {
-      // Device storage is unavailable: run with keys that live only in memory.
-      const { generateDeviceKeys } = await import('@hivetex/crypto');
-      local = { keys: await generateDeviceKeys(isDesktop ? { forceNoble: true } : {}), deviceId: null };
-    }
-    this.keys = local.keys;
-    this.registered = !!local.deviceId;
-    // A temporary id until registered: nothing is ever requested from the control plane with it.
-    this.deviceId = local.deviceId || `offline-${crypto.randomUUID()}`;
+    this.role = this.runtime.role;
     this.selfRef = { dev: this.deviceId, uname: this.user.username };
 
-    // Before the mesh exists, so a local edit made before any link is already recorded as unshared work.
-    this.fork = new OfflineFork({
-      model: this.model,
-      canEdit: () => this.canWrite,
-      enabled: () => !this.isLocal,
-      onReport: (r) => this.onMergeReport(r),
-      onError: (e) => {
-        this.mergeError = e;
-      },
-      onChange: () => {
-        this.unsharedWork = this.fork.active;
-        if (!this.fork.active) this.mergeError = null;
-        this.conflicts = [...this.fork.conflicts];
-      },
-      ...forkMeshOptions(
-        () => this.mesh,
-        () => this.deviceId,
-      ),
-    });
-    await this.fork.start();
-    this.unsharedWork = this.fork.active;
-    this.conflicts = [...this.fork.conflicts];
-
-    this.mesh = new Mesh({
-      projectId: this.project.id,
-      model: this.model,
-      keys: this.keys,
-      trusted: this.trusted,
-      getTicket: () => this.ticket,
-      beforeSync: (peer) => this.fork.beforeSync(peer),
-      // a failed preparation closes that link's document exchange; the next link tries again
-      onSyncGateError: (_peer, e) => {
-        this.mergeError = e;
-      },
-      // test hook only: shortens the revocation grace period in end-to-end tests
-      ...(Number(localStorage.getItem('hivetex.epochGraceMs')) ? { epochGraceMs: Number(localStorage.getItem('hivetex.epochGraceMs')) } : {}),
-    });
-    this.blobs = new BlobManager(this.mesh, this.store);
-    listenForkStatus(this.mesh, this.fork);
-    this.mesh.onPeerJoin(() => this.refreshPeers());
-    // A peer revealed a newer membership epoch (someone was removed or demoted): get a fresh ticket right away.
-    this.mesh.onEpochAdvance((e) => {
-      if (this.ticketEpoch() < e) void this.refreshTicketLoop();
-    });
-    this.mesh.onPeerLeave(() => this.refreshPeers());
-    this.tracker = new SyncTracker({
-      mesh: this.mesh,
-      model: this.model,
-      store: this.store,
-      blobs: this.blobs,
-      connecting: () => this.connecting.length,
-      offline: () => this.offline || this.paused,
-    });
-    this.tracker.onChange((snap) => (this.syncStatus = snap));
-    this.tracker.onEvent((e) => toast(syncEventText(e, this.tracker.snapshot), e === 'complete' ? 'ok' : 'info', e === 'complete' ? 4000 : 10_000));
-    this.tracker.start();
+    this.model = this.runtime.model;
+    this.mesh = this.runtime.mesh;
+    this.blobs = this.runtime.blobs;
+    this.changelog = this.runtime.changelog;
+    this.refreshFiles();
+    this.foregroundUnsubs.push(this.model.onFilesChanged(() => this.refreshFiles()));
+    // Who changed what (folder / editor / co-authors), kept on this device only.
+    this.foregroundUnsubs.push(this.changelog.onChange(() => void this.refreshChanges()));
+    void this.refreshChanges();
+    this.mirrorRuntime();
     this.mesh.awareness.setLocalStateField('user', { name: this.user.username, ...colorFor(this.user.username) });
-    this.mesh.awareness.on('change', () => this.refreshPresence());
+    this.mesh.awareness.setLocalStateField('deviceId', this.deviceId);
+    this.mesh.awareness.setLocalStateField('seed', false);
+    const presenceChanged = () => this.refreshPresence();
+    this.mesh.awareness.on('change', presenceChanged);
+    this.foregroundUnsubs.push(() => this.mesh.awareness.off('change', presenceChanged));
     this.refreshPresence();
 
     await this.setupCompile();
+    if (this.disposed) return;
     this.backup = new BackupAgent({
       mesh: this.mesh,
       model: this.model,
@@ -317,23 +283,22 @@ export class ProjectSession {
     });
     this.backup.start();
     this.dedupeTimer = undefined;
-    this.model.onFilesChanged(() => this.scheduleDedupe());
-    this.mesh.onDocReconciled(() => this.scheduleDedupe());
+    this.foregroundUnsubs.push(this.model.onFilesChanged(() => this.scheduleDedupe()));
+    this.foregroundUnsubs.push(this.mesh.onDocReconciled(() => this.scheduleDedupe()));
     await this.restoreLocation();
-    this.model.onDocUpdate(() => {
+    if (this.disposed) return;
+    this.foregroundUnsubs.push(this.model.onDocUpdate(() => {
       this.stale = true;
       this.scheduleSnapshot();
       this.scheduleStaleCheck();
       this.scheduleLocalCompile();
-    });
+    }));
     // A local project (no account, local-mode spec) never meets anyone: no ticket, no connections.
     if (this.isLocal) this.offline = true;
     else {
-      void this.refreshTicketLoop();
+      this.runtime.startNetworking();
       // Network back (the browser says so): do not wait for the retry timer.
-      this.onlineHandler = () => {
-        if (this.offline) void this.refreshTicketLoop();
-      };
+      this.onlineHandler = () => this.runtime.networkRestored();
       window.addEventListener('online', this.onlineHandler);
     }
     // Persist pending edits when the tab is hidden or closed (writes are normally batched every 250 ms).
@@ -351,7 +316,7 @@ export class ProjectSession {
 
   /** A zip of the project as held in memory right now, including edits storage refused (see recovery-export.ts). */
   async exportRecovery() {
-    return exportRecoveryZip(this.model, (h) => this.blobs.fetch(h, 5000));
+    return exportRecoveryZip(this.model, (h) => this.blobs.fetch(h, 5000), this.recoveryEntries);
   }
   private dedupeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -565,6 +530,7 @@ export class ProjectSession {
     const policy = this.policy();
     if (policy.loadEngine) ({ kind, supports } = await this.loadEngine());
     else this.engineNote = 'Using peers: this device does not compile.';
+    if (this.disposed) return;
     if (isDesktop) {
       // Packages the compiler downloads during a build (quick compiler), for the status bar.
       const { listen } = await import('@tauri-apps/api/event');
@@ -572,6 +538,7 @@ export class ProjectSession {
         this.compilerPhase = 'packages';
         this.compilerDetail = e.payload.startsWith('installing ') ? e.payload : `downloading ${e.payload}`;
       });
+      if (this.disposed) { this.unlistenPackages(); return; }
     }
     if (kind === 'wasm') {
       // TeX files the in-browser compiler downloads (the first time each is needed), for the status bar.
@@ -756,117 +723,154 @@ export class ProjectSession {
   private unlistenPackages: (() => void) | null = null;
   /** "This device only": compile here once edits settle. */
   private scheduleLocalCompile(delay = 1500) {
+    if (this.disposed) return;
     if (!this.policy().autoLocal || !this.engine) return;
     if (this.localTimer) clearTimeout(this.localTimer);
     this.localTimer = setTimeout(() => void this.compileLocal().catch(() => {}), delay);
   }
 
-  // ---- tickets & connectivity ----
+  /** Creates the project's runtime (first attachment only): store, identity, replica and synchronization actor. */
+  private async createRuntime(): Promise<HostedRuntime> {
+    const ref: StoreRef = this.isLocal ? { kind: 'local', id: this.project.id } : { kind: 'shared', project: this.project.id, account: this.user.id };
+    if (await hasNativeProjectStore(ref)) {
+      // Attaching to a retained actor never opens the store in the renderer, even briefly.
+      return this.openWorkerRuntime((await localKeys(this.user.id)).keys);
+    }
+    const opened = await openProjectStore(ref);
+    if (opened.migrationError) console.warn('[hivetex] store migration will be retried', opened.migrationError);
+    // Offline-first: the local identity (device keys, the id a registration gave them) never needs the network. What
+    // is missing (registration, trusted keys, a ticket) is recovered by the runtime's ticket loop whenever the control
+    // plane is reachable, each part on its own.
+    let cachedTrusted: TrustedKey[] = [];
+    try {
+      cachedTrusted = JSON.parse(sessionStorage.getItem('hivetex.trusted') ?? '[]') as TrustedKey[];
+    } catch {
+      /* no cached keys */
+    }
+    let local: Awaited<ReturnType<typeof localKeys>>;
+    try {
+      local = await localKeys(this.user.id);
+    } catch (e) {
+      // Device storage is unavailable: run with keys that live only in memory.
+      if (isDesktop) {
+        await opened.store.close();
+        throw e;
+      }
+      const { generateDeviceKeys } = await import('@hivetex/crypto');
+      local = { keys: await generateDeviceKeys(isDesktop ? { forceNoble: true } : {}), deviceId: null };
+    }
+    const keys = local.keys;
+    const pid = this.project.id;
+    const userId = this.user.id;
+    if (isDesktop && opened.kind === 'native') {
+      // Migration has finished and released its writer before the worker takes custody of this scope.
+      await opened.store.close();
+      return this.openWorkerRuntime(keys);
+    }
+    const runtime: ProjectRuntime = new ProjectRuntime({
+      projectId: pid,
+      isLocal: this.isLocal,
+      role: this.role,
+      // A project made on this device (or kept only here) authors its own file table; a joined one waits for a peer.
+      createdHere: takeCreatedHere(pid),
+      store: opened.store,
+      keys,
+      deviceId: local.deviceId || null,
+      trusted: cachedTrusted,
+      // The runtime's own role, not one workspace's: several workspaces and the background share it.
+      canWrite: () => runtime.role !== 'viewer',
+      // test hook only: shortens the revocation grace period in end-to-end tests
+      mesh: Number(localStorage.getItem('hivetex.epochGraceMs')) ? { epochGraceMs: Number(localStorage.getItem('hivetex.epochGraceMs')) } : {},
+      adapters: {
+        registerDevice: () => registerKeys(userId, keys, navigator.userAgent.slice(0, 48)),
+        loadTrusted: async () => (await api<{ keys: TrustedKey[] }>('GET', '/keys')).keys,
+        fetchTicket: (deviceId) => api('POST', `/projects/${pid}/ticket`, { deviceId }),
+        ring: (deviceId) => api('POST', `/projects/${pid}/ring`, { deviceId }),
+        iceServers: () => api<{ iceServers: unknown[]; expiresAt?: number }>('POST', '/turn', { projectId: pid }),
+        signalUrl: `${wsBase()}/api/signal`,
+        wsFactory: (url) => new WebSocket(url) as unknown as WebSocketLike,
+        rtcFactory: () => this.rtcFactory(),
+        createManager: (o) => new ConnectionManager(o),
+        saveTrusted: (k) => {
+          try {
+            sessionStorage.setItem('hivetex.trusted', JSON.stringify(k));
+          } catch {
+            /* private mode: the cache is only an optimisation */
+          }
+        },
+      },
+    });
+    await runtime.open();
+    return {
+      runtime,
+      store: opened.store,
+      storeKind: opened.kind,
+      keys,
+      setPaused: (p) => runtime.setPaused(p),
+      close: async () => {
+        await runtime.close();
+        // Unsaved edits (failing storage) keep the database open: closing it would end their retries.
+        const saved = await runtime.model?.destroy().then(() => true, () => false);
+        if (saved !== false) opened.store.close();
+      },
+    };
+  }
+  private async openWorkerRuntime(keys: StoredDeviceKeys): Promise<HostedRuntime> {
+    const { openDesktopWorker } = await import('./desktop-worker.js');
+    const hosted = await openDesktopWorker(this.project, this.user.id, takeCreatedHere(this.project.id));
+    return {
+      runtime: hosted.renderer.runtime, store: hosted.renderer.store, storeKind: 'native', keys,
+      recoveryEntries: () => hosted.renderer.recoveryEntries(),
+      setPaused: (paused) => hosted.renderer.runtime.setPaused(paused), close: hosted.close,
+    };
+  }
+
+  // ---- tickets & connectivity (the runtime owns them; these are the session's views) ----
 
   /** Fetch a fresh ticket now (e.g. right after the owner changed roles, so peers learn the new epoch). */
   refreshTicketNow() {
-    return this.refreshTicketLoop();
+    return this.runtime.refreshTicketNow();
   }
 
-  private ticketEpoch() {
-    return decodeClaims(this.ticket)?.ep ?? 0;
+  /** Copies the runtime's observable state into the reactive fields the UI reads. */
+  private mirrorRuntime() {
+    const r = this.runtime;
+    if (!r) return;
+    this.offline = r.offline;
+    this.revoked = r.revoked;
+    this.saveFailing = r.saveFailing;
+    this.unsharedWork = r.unsharedWork;
+    this.mergeError = r.mergeError;
+    this.conflicts = r.conflicts;
+    this.connecting = r.connecting;
+    this.doorbellState = r.doorbellState;
+    if (r.syncStatus !== this.syncStatus) this.syncStatus = r.syncStatus;
+    if (r.peers !== this.lastPeers) {
+      this.lastPeers = r.peers;
+      this.refreshPeers();
+    }
   }
-
-  /** Registers this device when the control plane does not know it yet. Concurrent callers share one request. */
-  private registerDevice(): Promise<void> {
-    this.registering ??= (async () => {
-      try {
-        const id = await registerKeys(this.user.id, this.keys, navigator.userAgent.slice(0, 48));
-        if (this.disposed) return;
-        this.registered = true;
-        this.adoptDevice(id);
-      } finally {
-        this.registering = null;
-      }
-    })();
-    return this.registering;
-  }
-
-  /** Loads the trusted ticket keys in place (see `trusted`). Concurrent callers share one request. */
-  private loadTrusted(): Promise<void> {
-    this.loadingTrusted ??= (async () => {
-      try {
-        const k = await api<{ keys: TrustedKey[] }>('GET', '/keys');
-        if (this.disposed) return;
-        this.trusted.splice(0, this.trusted.length, ...k.keys);
-        this.trustedLoaded = true;
-        try {
-          sessionStorage.setItem('hivetex.trusted', JSON.stringify(k.keys));
-        } catch {
-          /* private mode: the cache is only an optimisation */
-        }
-      } finally {
-        this.loadingTrusted = null;
-      }
-    })();
-    return this.loadingTrusted;
-  }
+  private lastPeers: unknown = null;
 
   /** The registration gave this device its id: everything that identified it by the temporary one follows. */
   private adoptDevice(id: string) {
-    if (id === this.deviceId) return;
-    this.deviceId = id;
     this.selfRef.dev = id;
     this.election?.setDevice(id);
   }
 
-  private ticketUsable() {
-    const exp = decodeClaims(this.ticket)?.exp;
-    return !!exp && exp * 1000 > Date.now() + 30_000;
-  }
-
-  private async refreshTicketLoop() {
-    // A local project never talks to a server; a closed or paused session makes no requests.
-    if (this.disposed || this.paused || this.isLocal) return;
-    if (this.ticketTimer) clearTimeout(this.ticketTimer);
-    this.ticketTimer = null;
-    const seq = ++this.ticketSeq;
-    /** False once the session closed or paused, or a newer request took over: the answer is then dropped. */
-    const current = () => !this.disposed && !this.paused && seq === this.ticketSeq;
-    let next = 15_000;
-    let stage: 'identity' | 'ticket' = 'identity';
-    try {
-      // Each missing part is recovered on its own; a failure of one never replaces or discards the others.
-      if (!this.registered) await this.registerDevice();
-      if (!this.trustedLoaded) {
-        // Keys cached from earlier in this tab still verify tickets; without any, nothing can be verified yet.
-        await this.loadTrusted().catch((e) => {
-          if (this.trusted.length === 0) throw e;
-        });
-      }
-      if (!current()) return;
-      stage = 'ticket';
-      const r = await api<{ ticket: string; expiresAt: number; githubRepo?: string | null }>('POST', `/projects/${this.project.id}/ticket`, { deviceId: this.deviceId });
-      if (!current()) return;
-      if (r.githubRepo !== undefined) this.project.githubRepo = r.githubRepo;
-      const first = !this.ticket;
-      this.ticket = r.ticket;
-      const claims = decodeClaims(r.ticket);
-      if (claims && claims.role !== this.role) {
-        this.role = claims.role;
-        this.election?.update({}); // leadership eligibility depends on the role (viewers never lead)
-      }
-      this.offline = false;
-      if (first || !this.manager) this.startManager();
-      if (!first) void this.mesh.refreshOwnTicket(r.ticket);
-      next = Math.max(30_000, r.expiresAt - Date.now() - 3 * 60_000);
-    } catch (e) {
-      if (!current()) return;
-      const status = (e as { status?: number }).status;
-      // Only a refusal of the ticket request itself (for a registered device) means the access was withdrawn: a
-      // failure while registering or loading keys is just the control plane being out of reach.
-      if (stage === 'ticket' && (status === 403 || status === 404)) {
-        this.role = 'viewer';
-        this.revoked = true;
-        next = 60_000;
-      } else this.offline = true;
+  /** Browser RTC, or the Rust stack where the webview has none; chosen when the connection manager starts. */
+  private rtcFactory(): RtcFactory {
+    // Some system webviews (notably WebKitGTK on Linux) lack WebRTC: the desktop app then uses the Rust stack.
+    const useRust = isDesktop && (typeof RTCPeerConnection === 'undefined' || localStorage.getItem('hivetex.rtc') === 'rust');
+    // Test builds only (VITE_E2E=1): `hivetex.e2e.noWebrtc` makes every WebRTC attempt unable to find a path, to exercise
+    // the application relay in the packaged desktop app (browsers use an init script instead).
+    const noPath = import.meta.env.VITE_E2E === '1' && localStorage.getItem('hivetex.e2e.noWebrtc') === '1';
+    if (useRust) {
+      // The factory is synchronous; the Tauri imports resolve lazily inside the wrapper's async setup.
+      return (ice) => lazyTauriRtc()(ice);
     }
-    if (current()) this.ticketTimer = setTimeout(() => void this.refreshTicketLoop(), next);
+    return (ice) =>
+      new RTCPeerConnection(noPath ? { iceServers: [], iceTransportPolicy: 'relay' } : { iceServers: ice as RTCIceServer[] }) as unknown as ReturnType<RtcFactory>;
   }
 
   revoked = $state(false);
@@ -879,53 +883,12 @@ export class ProjectSession {
   mirrorNotice = $state('');
   private mirror: MirrorSync | null = null;
   private mirrorFs: { dispose(): unknown } | null = null;
+  private folderGeneration = 0;
+  private mirrorNativeId: string | null = null;
   setPaused(p: boolean) {
     this.paused = p;
-    this.tracker?.touch();
-    if (p) {
-      // No server request and no timer while paused: a ticket request in flight is dropped.
-      this.ticketSeq++;
-      if (this.ticketTimer) clearTimeout(this.ticketTimer);
-      this.ticketTimer = null;
-      this.manager?.stop();
-      this.manager = null;
-      this.connecting = [];
-      for (const peer of this.mesh.peers) peer.conn.close();
-    } else {
-      if (this.ticketUsable()) this.startManager();
-      void this.refreshTicketLoop();
-    }
-  }
-
-  private startManager() {
-    if (this.manager || this.paused || this.disposed || !this.registered || !this.ticket) return;
-    // Some system webviews (notably WebKitGTK on Linux) lack WebRTC: the desktop app then uses the Rust stack.
-    const useRust = isDesktop && (typeof RTCPeerConnection === 'undefined' || localStorage.getItem('hivetex.rtc') === 'rust');
-    let rtcFactory: RtcFactory = (ice) => new RTCPeerConnection({ iceServers: ice as RTCIceServer[] }) as unknown as ReturnType<RtcFactory>;
-    if (useRust) {
-      rtcFactory = (ice) => {
-        // The factory is synchronous; the Tauri imports resolve lazily inside the wrapper's async setup.
-        const lazy = lazyTauriRtc();
-        return lazy(ice);
-      };
-    }
-    this.manager = new ConnectionManager({
-      mesh: this.mesh,
-      projectId: this.project.id,
-      keys: this.keys,
-      trusted: this.trusted,
-      getTicket: () => this.ticket,
-      signalUrl: `${wsBase()}/api/signal`,
-      wsFactory: (url) => new WebSocket(url) as unknown as WebSocketLike,
-      rtcFactory,
-      // The answer carries the relay credentials' expiry: the manager refreshes them before they run out.
-      getIceServers: () => api<{ iceServers: unknown[]; expiresAt?: number }>('POST', '/turn', { projectId: this.project.id }),
-    });
-    this.manager.onState(() => {
-      this.connecting = this.manager?.candidates() ?? [];
-      this.tracker?.touch();
-    });
-    this.manager.start();
+    // No server request, no push subscription and no timer while paused; resuming recovers.
+    this.runtime.setPaused(p);
   }
 
   /**
@@ -936,15 +899,13 @@ export class ProjectSession {
     if (this.syncingNow) return this.syncNowResult;
     this.syncingNow = true;
     try {
-      if (this.paused || this.offline) {
+      const round = this.paused || this.offline ? null : await this.runtime.syncNow();
+      if (!round) {
         this.syncNowResult = 'Offline: edits are kept on this device and sync when you reconnect.';
         return this.syncNowResult;
       }
-      this.manager?.reconnectNow();
       // The outcome of this round: queued requests or silence are "pending", never success, and the sync time only advances on success.
-      const r = await this.tracker.syncNow();
-      const snap = await this.tracker.refresh();
-      this.syncNowResult = syncNowMessage(snap, r);
+      this.syncNowResult = syncNowMessage(round.snapshot, round.outcome);
       toast(this.syncNowResult, 'info', 6000);
       return this.syncNowResult;
     } finally {
@@ -954,11 +915,11 @@ export class ProjectSession {
 
   /** For diagnosing a slow join: when each stage of reaching each co-author device happened. */
   syncDiagnostics() {
-    return { status: this.syncStatus, candidates: this.manager?.candidates() ?? [], stages: this.manager?.diagnostics() ?? {} };
+    return { status: this.syncStatus, ...this.runtime.managerDiagnostics };
   }
 
   private refreshPeers() {
-    this.peers = this.mesh.peers.map((p) => ({ dev: p.deviceId, uname: p.claims.uname, role: p.claims.role }));
+    this.peers = this.runtime.peers.map((p) => ({ ...p }));
     this.connected = this.peers.length > 0;
     this.noPeerOnline = this.peers.length === 0;
     this.onLeader(this.election?.leader() ?? null);
@@ -990,7 +951,7 @@ export class ProjectSession {
    * added; files at the same path with different content become conflicts to resolve. The local copy is left as is.
    */
   async mergeLocalProject(localId: string): Promise<MergeReport> {
-    const src = await IndexedDbPersistence.open(`hivetex-project-${localId}`);
+    const src = (await openProjectStore({ kind: 'local', id: localId })).store;
     try {
       const m = new ProjectModel(src);
       await m.init();
@@ -1083,6 +1044,7 @@ export class ProjectSession {
   private async restoreLocation() {
     await migrateLegacyMirrors().catch(() => 0);
     const loc = await getLocation(this.project.id).catch((): Location => ({ kind: 'app' }));
+    if (this.disposed) return;
     this.location = loc;
     if (loc.kind !== 'folder') return;
     try {
@@ -1112,24 +1074,30 @@ export class ProjectSession {
    * (Claude Code, Codex, Cursor, an editor...) can edit the files, and every change syncs with collaborators.
    */
   async bindFolder(target: { desktopPath: string; label?: string } | { handle: FileSystemDirectoryHandle; label?: string }) {
+    if (this.disposed) return;
     await this.unbindFolder(false);
+    const generation = this.folderGeneration;
+    if (this.disposed) return;
     let fsa: FsAdapter & { dispose(): unknown };
     let loc: Location;
     if ('desktopPath' in target) {
       const { tauriFs } = await import('./tauri-fs.js');
-      fsa = await tauriFs(this.project.id, target.desktopPath);
+      const id = `${this.project.id}-${crypto.randomUUID()}`;
+      fsa = await tauriFs(id, target.desktopPath);
+      if (generation === this.folderGeneration && !this.disposed) this.mirrorNativeId = id;
       loc = { kind: 'folder', label: target.label ?? folderLabel(target.desktopPath), desktopPath: target.desktopPath };
     } else {
       fsa = webFs(target.handle);
       loc = { kind: 'folder', label: target.label ?? target.handle.name, handle: target.handle };
     }
+    if (generation !== this.folderGeneration || this.disposed) { await fsa.dispose(); return; }
     this.mirrorFs = fsa;
-    this.mirror = new MirrorSync({
+    const mirror = new MirrorSync({
       model: this.model,
       mesh: this.mesh,
       blobs: this.blobs,
       fs: fsa,
-      getRole: () => this.role,
+      getRole: () => this.runtime.role,
       marker: { id: this.project.id, slug: this.project.slug },
       // Folder and project changed the same lines while the app was closed: kept as a conflict to resolve.
       onConflict: (c) => this.fork.recordTextConflict(c),
@@ -1137,12 +1105,16 @@ export class ProjectSession {
         this.mirrorNotice = m;
       },
     });
+    this.mirror = mirror;
     try {
-      await this.mirror.start();
+      await mirror.start();
     } catch (e) {
-      await this.unbindFolder(false);
+      mirror.stop();
+      if (generation === this.folderGeneration) await this.unbindFolder(false);
+      else await fsa.dispose();
       throw e;
     }
+    if (generation !== this.folderGeneration || this.disposed) { mirror.stop(); await fsa.dispose(); return; }
     this.mirrorDir = loc.label;
     this.location = loc;
     this.folderPending = false;
@@ -1151,11 +1123,15 @@ export class ProjectSession {
 
   /** Stops using the folder. The files stay where they are; the project keeps living in the app. */
   async unbindFolder(forget = true) {
+    const generation = ++this.folderGeneration;
     this.mirror?.stop();
     this.mirror = null;
-    await Promise.resolve(this.mirrorFs?.dispose()).catch(() => {});
+    const oldFs = this.mirrorFs;
     this.mirrorFs = null;
+    this.mirrorNativeId = null;
     this.mirrorDir = null;
+    await Promise.resolve(oldFs?.dispose()).catch(() => {});
+    if (generation !== this.folderGeneration) return;
     if (forget) {
       this.location = { kind: 'app' };
       this.folderPending = false;
@@ -1192,6 +1168,7 @@ export class ProjectSession {
     return runFolderAction(
       {
         projectId: this.project.id,
+        bindingId: () => this.mirrorNativeId ?? this.project.id,
         slug: this.project.slug,
         boundPath: () => (this.mirrorDir && this.location.kind === 'folder' ? (this.location.desktopPath ?? null) : null),
         bind: (path) => this.bindFolder({ desktopPath: path }),
@@ -1207,7 +1184,7 @@ export class ProjectSession {
   async revealFolder() {
     if (!isDesktop || !this.mirrorDir) return;
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('mirror_reveal', { id: this.project.id });
+    await invoke('mirror_reveal', { id: this.mirrorNativeId ?? this.project.id });
   }
 
   async hashOf(bytes: Uint8Array) {
@@ -1249,33 +1226,35 @@ export class ProjectSession {
   }
 
   async close() {
+    if (this.disposed) return;
     this.disposed = true;
+    // Remove schedulers before awaiting storage, so a retained seed cannot start foreground work meanwhile.
+    for (const off of this.foregroundUnsubs.splice(0)) off();
+    this.leader?.stop();
+    this.client?.stop();
+    this.backup?.stop();
+    this.monitor?.stop();
+    this.election?.stop();
+    if (this.snapTimer) clearTimeout(this.snapTimer);
     await this.changelog?.flush().catch(() => {});
-    this.changelog?.stop();
     if (this.flushHandler) {
       window.removeEventListener('pagehide', this.flushHandler);
       document.removeEventListener('visibilitychange', this.flushHandler);
     }
-    this.ticketSeq++;
-    if (this.ticketTimer) clearTimeout(this.ticketTimer);
-    this.ticketTimer = null;
     if (this.onlineHandler) window.removeEventListener('online', this.onlineHandler);
     if (this.staleTimer) clearTimeout(this.staleTimer);
     await this.unbindFolder(false);
-    this.manager?.stop();
-    this.tracker?.stop();
     this.backup?.stop();
     clearTimeout(this.dedupeTimer);
     clearTimeout(this.localTimer);
     this.unlistenPackages?.();
     this.monitor?.stop();
-    this.fork?.stop();
     this.election?.stop();
-    this.mesh?.destroy();
+    this.unlisten?.();
     if (this.unloadGuard) window.removeEventListener('beforeunload', this.unloadGuard);
-    // Unsaved edits (failing storage) keep the database open: closing it would end their retries.
-    const saved = await this.model?.destroy().then(() => true, () => false);
-    if (saved !== false) this.store?.close();
+    // Detach this editor: the runtime (replica, mesh, store) closes only if nothing else needs it (a background seed).
+    await this.lease?.release();
+    this.lease = null;
   }
 }
 

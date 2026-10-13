@@ -1,7 +1,12 @@
 name: CI
+# Web app, server and shared packages. Jobs run in parallel; the slowest (Playwright) is split in two shards.
+# Runs for pull requests and for pushes to master and version tags (never twice for the same branch commit).
 on:
   push:
+    branches: [master, main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -11,21 +16,22 @@ jobs:
   # The repository is public: fail if any commit adds a credential (rules: .gitleaks.toml).
   secrets:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
       - name: Scan the full history for secrets
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.0 git /repo --no-banner --redact --config /repo/.gitleaks.toml
 
-  test:
-    runs-on: ubuntu-latest
+  # Static checks: Makefile and Compose sanity, lint, type-checks, bundle budget, dependency audit, test timing audit.
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
+        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - name: Makefile smoke test
         run: |
@@ -36,23 +42,51 @@ jobs:
         run: node --test scripts/deploy-production.test.mjs
       - name: Docker stack config
         run: docker compose config -q
-      - name: Lint, type-check and unit tests
-        run: pnpm turbo build lint test
+      - name: Build and lint
+        run: pnpm turbo build lint
       - name: Svelte type-check
         run: pnpm --filter @hivetex/web exec svelte-check --tsconfig ./tsconfig.json --threshold error
       - name: Web bundle budget
-        run: pnpm --filter @hivetex/web build && pnpm --filter @hivetex/web size
+        run: pnpm --filter @hivetex/web size
       - name: Dependency audit
         run: pnpm audit --audit-level=high
+
+  # Unit and integration tests of every package (turbo runs them in parallel; limits in each vitest config).
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Unit tests
+        run: pnpm turbo test
+
+  # Browser end-to-end tests against the local server, in two shards.
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
       - name: Install browser for e2e
         run: pnpm exec playwright install --with-deps chromium
-      - name: End-to-end tests
-        run: pnpm exec playwright test
+      - name: End-to-end tests (shard ${{ matrix.shard }}/2)
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/2
         env:
           CI: "true"
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.shard }}
           path: test-results/
           retention-days: 7

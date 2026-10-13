@@ -19,6 +19,7 @@
   import Projects from './views/Projects.svelte';
   import Toaster from './ui/Toaster.svelte';
   import PairRequest from './components/PairRequest.svelte';
+  import DesktopLifecycle from './components/DesktopLifecycle.svelte';
 
   onMount(loadMe);
 
@@ -140,6 +141,7 @@
     </main>
   </div>
   <PairRequest />
+  <DesktopLifecycle />
   <footer class="sr-only">HiveTeX is open source (AGPL-3.0): {SOURCE_URL}</footer>
 {/if}
 <Toaster />

@@ -26,6 +26,19 @@ const pcsOf = (rtc: FakeRtcNetwork) =>
   (rtc as unknown as { pcs: Map<string, { onconnectionstatechange: (() => void) | null; connectionState: string }> }).pcs;
 
 describe('connection lifecycle ownership (F10)', () => {
+  it('desktop zero-idle policy keeps a failed push channel socketless and bounds an explicit Sync now introduction', async () => {
+    const { auth, lo } = await pair();
+    const { mgr, sockets } = managerFor(lo, auth, PID, new FakeRtcNetwork(), {
+      zeroIdle: true, doorbell: { ring: async () => false },
+      introductionWindowMs: 100, introductionMinMs: 10, idleCloseMs: 5,
+    });
+    cleanup.push(() => mgr.stop());
+    mgr.start(); mgr.setDoorbellAvailable(false);
+    await flush(30); expect(sockets).toHaveLength(0);
+    mgr.reconnectNow(); await flush(30); expect(sockets).toHaveLength(1);
+    await vi.waitFor(() => expect(mgr.socketOpen).toBe(false), { timeout: 1000 });
+    await flush(30); expect(sockets).toHaveLength(1);
+  });
   it('duplicate announcements while configuration loads share one attempt', async () => {
     const { auth, lo, hi } = await pair();
     const ice = deferred<unknown[]>();
@@ -121,7 +134,8 @@ describe('connection lifecycle ownership (F10)', () => {
     await flushMicro();
     const ws = sockets[0] as FakeWs;
     ws.say({ t: 'join', ticket: hi.ticket, sid: 's1' });
-    for (let i = 0; i < 200 && pcsOf(rtc).size === 0; i++) await flushMicro(1);
+    // Bounded by real time (Date is not faked): ticket verification is real crypto, slower on a loaded runner.
+    for (const end = Date.now() + 15_000; pcsOf(rtc).size === 0 && Date.now() < end; ) await flushMicro(1);
     // the attempt fails: a retry timer is pending
     const pcs = pcsOf(rtc);
     const pc = [...pcs.values()][0];
@@ -336,5 +350,38 @@ describe('relay credentials (F09)', () => {
     s.mgr.reconnectNow();
     await vi.waitFor(() => expect(s.factories.calls).toBe(3));
     expect(svc.calls.n).toBe(2);
+  });
+});
+
+
+describe('peer-to-peer data path', () => {
+  it('keeps edits off the signaling server after direct connectivity, including a signaling outage', async () => {
+    const { auth, lo, hi } = await pair();
+    const rtc = new FakeRtcNetwork(), relay = new Relay();
+    const sa: FakeWs[] = [], sb: FakeWs[] = [];
+    const a = managerFor(lo, auth, PID, rtc, { wsFactory: relay.attach(lo, sa), heartbeatMs: 60_000 });
+    const b = managerFor(hi, auth, PID, rtc, { wsFactory: relay.attach(hi, sb), heartbeatMs: 60_000 });
+    cleanup.push(() => { a.mgr.stop(); b.mgr.stop(); });
+    a.mgr.start(); b.mgr.start();
+    await vi.waitFor(() => expect(lo.mesh.peers.length).toBe(1));
+    await vi.waitFor(() => expect(hi.mesh.peers.length).toBe(1));
+    await flush(100);
+    // Once introductions settle, the non-gatekeeper leaves signaling entirely.
+    expect(a.mgr.socketOpen).toBe(true);
+    expect(b.mgr.socketOpen).toBe(false);
+    const before = [...sa, ...sb].map(ws => ws.sent.length);
+    const file = await lo.model.createTextNow('p2p.tex', 'peer content');
+    await vi.waitFor(() => expect(hi.model.files.has(file)).toBe(true));
+    await hi.mesh.openDoc('f:' + file);
+    await vi.waitFor(async () => expect((await hi.model.openText(file)).toString()).toBe('peer content'));
+    for (let n = 0; n < 10; n++) (await lo.model.openText(file)).insert(0, String(n));
+    await vi.waitFor(async () => expect((await hi.model.openText(file)).toString()).toBe('9876543210peer content'));
+    expect([...sa, ...sb].map(ws => ws.sent.length)).toEqual(before);
+    sa[0]?.close();
+    expect(a.mgr.socketOpen).toBe(false);
+    (await hi.model.openText(file)).insert(0, 'offline-server:');
+    await vi.waitFor(async () => expect((await lo.model.openText(file)).toString()).toBe('offline-server:9876543210peer content'));
+    expect(a.mgr.socketOpen).toBe(false);
+    expect(lo.mesh.peers.length).toBe(1);
   });
 });

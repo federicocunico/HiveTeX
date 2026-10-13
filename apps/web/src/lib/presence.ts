@@ -25,6 +25,7 @@ export type PresentPerson = { clientId: number; name: string; color: string; fil
 export function peopleFromAwareness(states: Map<number, unknown>, me: number): PresentPerson[] {
   const out: PresentPerson[] = [];
   for (const [id, st] of states) {
+    if ((st as { seed?: unknown } | null)?.seed === true) continue;
     const user = (st as { user?: { name?: unknown } } | null)?.user;
     if (id === me || typeof user?.name !== 'string') continue;
     const file = (st as { file?: unknown }).file;

@@ -6,6 +6,8 @@ const { secure, values } = vi.hoisted(() => {
   return { values, secure: { get: vi.fn(async (k: string) => values.get(k) ?? null), set: vi.fn(async (k: string, v: string) => { values.set(k, v); }), delete: vi.fn(async (k: string) => { values.delete(k); }) } };
 });
 vi.mock('../src/lib/secure.js', () => ({ secure }));
+vi.mock('../src/lib/runtimes.js', () => ({ activateRuntimes: vi.fn(), stopRuntimes: vi.fn(async () => {}) }));
+vi.mock('../src/lib/seeds.js', () => ({ activateDesktopSeeds: vi.fn(async () => {}) }));
 const A = 'https://a.example';
 const B = 'https://b.example';
 const user = { id: 'account-a', username: 'alice', email: 'alice@example.test', emailVerified: true, isAdmin: false };
@@ -24,6 +26,7 @@ describe('desktop sign-in lifecycle', () => {
     const { login, auth } = await import('../src/lib/auth.svelte.js');
     await login('alice', 'password');
     expect(values.get(sessionKey(A))).toBe('issued-token');
+    expect(api.desktopSessionCredential()).toEqual({ token: 'issued-token', remembered: true });
     expect(auth.user?.id).toBe(user.id);
     vi.resetModules();
     const restarted = await import('../src/lib/api.js');
@@ -40,6 +43,7 @@ describe('desktop sign-in lifecycle', () => {
     expect(auth.user?.id).toBe(user.id);
     const { sessionNotice } = await import('../src/lib/session-notice.svelte.js');
     expect(sessionNotice.message).toContain('could not be remembered');
+    expect(api.desktopSessionCredential()).toEqual({ token: 'issued-token', remembered: false });
     await api.api('GET', '/auth/me');
     expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.headers).toMatchObject({ Authorization: 'Bearer issued-token' });
     await sessionNotice.retry?.();

@@ -81,7 +81,9 @@ describe('real-time propagation at group scale', () => {
       });
       const perKey = frames / 30;
       console.log(`[scale] N=${n} keystroke p50=${pct(lat, 50).toFixed(2)}ms p95=${pct(lat, 95).toFixed(2)}ms frames/keystroke=${perKey.toFixed(1)}`);
-      expect(pct(lat, 95)).toBeLessThan(50);
+      // The healthy-network contract (spec peer-sync): <= 250 ms. In-process it is usually a few ms; a loaded CI
+      // runner must not turn a scheduling delay into a failure, while a real regression (a timer, a resend) still does.
+      expect(pct(lat, 95)).toBeLessThan(250);
       expect(perKey).toBe(n - 1);
     }, 60_000);
   }

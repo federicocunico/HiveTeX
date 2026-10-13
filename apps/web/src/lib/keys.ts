@@ -1,5 +1,5 @@
 import { type StoredDeviceKeys, generateDeviceKeys } from '@hivetex/crypto';
-import { api, isDesktop } from './api.js';
+import { api, sessionOrigin, isDesktop } from './api.js';
 import { secure } from './secure.js';
 
 /**
@@ -25,7 +25,19 @@ const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 /** Desktop: private key seeds live in the OS credential store, never in IndexedDB or files. */
 async function getDesktop(userId: string): Promise<Stored | undefined> {
-  const raw = await secure.get(`device:${userId}`);
+  const { storeScope } = await import('@hivetex/sync');
+  const key = `device:${await storeScope(sessionOrigin(), userId, 'identity')}`;
+  let raw = await secure.get(key);
+  if (!raw) {
+    // Existing seeds stay stable; the old unscoped registration ID is not portable to another server.
+    const legacy = await secure.get(`device:${userId}`);
+    if (legacy) {
+      const migrated = JSON.parse(legacy);
+      migrated.deviceId = null;
+      raw = JSON.stringify(migrated);
+      await secure.set(key, raw);
+    }
+  }
   if (!raw) return undefined;
   const j = JSON.parse(raw) as { edSeed: string; xSeed: string; edPub: string; xPub: string; deviceId: string | null };
   return { keys: { kind: 'noble', edSeed: unb64(j.edSeed), xSeed: unb64(j.xSeed), edPub: j.edPub, xPub: j.xPub }, deviceId: j.deviceId };
@@ -33,7 +45,9 @@ async function getDesktop(userId: string): Promise<Stored | undefined> {
 
 async function putDesktop(userId: string, v: Stored) {
   if (v.keys.kind !== 'noble') throw new Error('desktop keys must be raw seeds');
-  await secure.set(`device:${userId}`, JSON.stringify({ edSeed: b64(v.keys.edSeed), xSeed: b64(v.keys.xSeed), edPub: v.keys.edPub, xPub: v.keys.xPub, deviceId: v.deviceId }));
+  const { storeScope } = await import('@hivetex/sync');
+  const key = `device:${await storeScope(sessionOrigin(), userId, 'identity')}`;
+  await secure.set(key, JSON.stringify({ edSeed: b64(v.keys.edSeed), xSeed: b64(v.keys.xSeed), edPub: v.keys.edPub, xPub: v.keys.xPub, deviceId: v.deviceId }));
 }
 
 async function get(userId: string): Promise<Stored | undefined> {

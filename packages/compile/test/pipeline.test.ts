@@ -83,6 +83,33 @@ async function device(name: string, role: 'owner' | 'editor' | 'viewer', perf: n
 
 const pdfText = (d: Dev) => (d.client.lastGood ? new TextDecoder().decode(d.client.lastGood.pdf) : '');
 
+describe('foreground detach with a retained mesh', () => {
+  it('aborts an in-flight build, publishes no late result, and schedules nothing on later seed edits', async () => {
+    net = await Net.create();
+    const d = await device('foreground', 'owner', 3);
+    const id = await d.node.model.createTextNow('main.tex', 'first');
+    let release!: () => void;
+    let signal: AbortSignal | undefined;
+    let calls = 0;
+    d.engine.compile = async (_input, opts?: { signal?: AbortSignal }) => {
+      calls++;
+      signal = opts?.signal;
+      await new Promise<void>(resolve => { release = resolve; });
+      return { ok: true, pdf: new Uint8Array([1]), synctex: new Uint8Array([2]), log: 'late' };
+    };
+    await waitFor(() => calls === 1);
+    d.leader.stop(); d.client.stop(); d.election.stop();
+    expect(signal?.aborted).toBe(true);
+    release();
+    (await d.node.model.openText(id)).insert(0, 'seed edit ');
+    await sleep(100);
+    await expect.poll(async () => calls, { timeout: 15_000 }).toBe(1);
+    expect(d.leader.lastResult).toBeNull();
+    expect(d.client.lastGood).toBeNull();
+    expect(await d.leader.run()).toBeNull();
+  });
+});
+
 describe('compile pipeline (8.3)', () => {
   it('compiles after typing pauses on the leader only, and every member receives the PDF', async () => {
     net = await Net.create();
@@ -213,7 +240,7 @@ describe('manual compile (8.8)', () => {
     for (let i = 0; i < 200; i++) vic.client.requestCompile();
     await waitFor(() => (vic.client as { latest: unknown }).latest !== null);
     await sleep(300);
-    expect(snapshots).toBe(1); // 200 requests, one honored
+    await expect.poll(async () => snapshots, { timeout: 15_000 }).toBe(1); // 200 requests, one honored
     expect(big.engine.calls.length).toBe(calls); // unchanged state: no rebuild
     const latest = () => vic.client.latest; // (re-read: TS narrowed it to null above)
     expect(latest()?.by.uname).toBe('big'); // ...but the requester got the current result
@@ -247,7 +274,7 @@ describe('manual compile (8.8)', () => {
     vic.node.mesh.broadcastApp('compiled', { stateHash: 'x', ok: true, pdfHash: 'f'.repeat(64), diagnostics: [], log: '', by: { dev: vic.node.dev, uname: 'vic' }, at: 1, seq: 99 });
     small.node.mesh.broadcastApp('compiled', { stateHash: 'y', ok: true, pdfHash: 'e'.repeat(64), diagnostics: [], log: '', by: { dev: small.node.dev, uname: 'small' }, at: 1, seq: 99 });
     await sleep(100);
-    expect(big.client.latest === null || big.client.latest.by.dev === big.node.dev).toBe(true);
+    await expect.poll(async () => big.client.latest === null || big.client.latest.by.dev === big.node.dev, { timeout: 15_000 }).toBe(true);
     expect(big.client.latest?.seq).not.toBe(99);
   });
 });

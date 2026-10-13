@@ -132,7 +132,7 @@ The desktop app looks for `pdflatex`, `xelatex`, `lualatex` (and `latexmk`) on `
 
 * **Windows** – install [MiKTeX](https://miktex.org/download) and make sure its `bin` directory is on `PATH`. A fresh install
   must be allowed to fetch missing packages without prompting. The interactive installer asks about this ("Install missing
-  packages on-the-fly: Yes"). For an unattended install (e.g. `choco install miktex`), run the same commands as CI:
+  packages on-the-fly: Yes"). For an unattended install (e.g. `choco install miktex`), run:
   `initexmf --admin --set-config-value="[MPM]AutoInstall=1"`, `miktex --admin packages update-package-database`,
   `miktex --admin packages update`, `initexmf --update-fndb`. Otherwise the engine exits before writing a log.
   MiKTeX's `latexmk` needs Perl (e.g. Strawberry Perl); without it the fallback multi-pass runner is used.

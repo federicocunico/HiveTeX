@@ -1,0 +1,7 @@
+
+# Generated worker bundle (apps/desktop/worker-build.mjs)
+/resources/worker/
+/resources/node/
+
+# Build output of the vendored crate when its own tests run
+/vendor/*/target/

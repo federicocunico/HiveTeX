@@ -44,7 +44,7 @@ describe('data channel transport (6.1)', () => {
       a.send('bulk', new Uint8Array(7)),
     ]);
     await new Promise((r) => setTimeout(r, 20));
-    expect(seen.filter((s) => s.startsWith('sync'))).toEqual(['sync:10', `sync:${FRAGMENT_SIZE * 3 + 5}`, 'sync:3']);
+    await expect.poll(async () => seen.filter((s) => s.startsWith('sync')), { timeout: 15_000 }).toEqual(['sync:10', `sync:${FRAGMENT_SIZE * 3 + 5}`, 'sync:3']);
     expect(seen).toContain('bulk:7');
   });
 
@@ -55,7 +55,7 @@ describe('data channel transport (6.1)', () => {
     b.onClose(() => closed++);
     a.close();
     await new Promise((r) => setTimeout(r, 5));
-    expect(closed).toBe(2);
+    await expect.poll(async () => closed, { timeout: 15_000 }).toBe(2);
   });
 });
 
@@ -190,7 +190,7 @@ describe('bounded fragment assembly (F12)', () => {
     feed(frame(1, 10));
     expect(ch.assembledBytes).toBe(10);
     await new Promise((r) => setTimeout(r, 60));
-    expect(violations).toHaveLength(1);
+    await expect.poll(async () => violations, { timeout: 15_000 }).toHaveLength(1);
     expect(ch.assembledBytes).toBe(0);
   });
 

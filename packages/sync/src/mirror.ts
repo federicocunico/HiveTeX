@@ -1,3 +1,4 @@
+import { MIRROR_ORIGIN } from './origins.js';
 import { MAX_BLOB_BYTES } from '@hivetex/protocol';
 import diff from 'fast-diff';
 import ignore from 'ignore';
@@ -66,7 +67,7 @@ export interface FolderMarker {
 }
 
 /** Origin of Yjs transactions that come from the bound folder (attribution in the change log). */
-export const MIRROR_ORIGIN = 'mirror-import';
+export { MIRROR_ORIGIN };
 
 export function parseMarker(bytes: Uint8Array | null): FolderMarker | null {
   if (!bytes) return null;
@@ -168,6 +169,7 @@ export class MirrorSync {
   async start() {
     this.running = true;
     await this.loadIgnoreFile();
+    if (!this.running) return;
     // Subscribe first so no update that arrives while we reconcile can be missed.
     this.stopFns.push(this.o.fs.watch((ev) => this.onDiskEvent(ev.path)));
     this.stopFns.push(this.o.model.onFilesChanged(() => void this.syncTableToDisk()) as unknown as () => void);
@@ -189,8 +191,10 @@ export class MirrorSync {
     this.stopFns.push(this.o.mesh.onPeerJoin(() => this.fetchContent()));
     this.fetchContent(); // asks for what is missing; the reconciliation below only uses text that is complete
     const saved = (await this.o.model.store.getMeta(BASE_META).catch(() => null)) as Record<string, string> | null;
+    if (!this.running) return;
     this.savedBase = new Map(Object.entries(saved ?? {}));
     await this.initialReconcile();
+    if (!this.running) return;
     await this.writeMarker();
   }
 
@@ -236,10 +240,12 @@ export class MirrorSync {
 
   private async initialReconcile() {
     const disk = (await this.o.fs.list()).filter((f) => !this.isIgnored(f.path));
+    if (!this.running) return;
     const have = new Map(this.o.model.list().map((f) => [f.path, f]));
     for (const f of disk) {
       const entry = have.get(f.path);
       const bytes = await this.o.fs.read(f.path);
+      if (!this.running) return;
       if (!bytes) continue;
       // A viewer's folder never changes the project: differences are resolved from the project's side only.
       if (this.o.getRole() === 'viewer') {
@@ -261,6 +267,7 @@ export class MirrorSync {
    * Content the project does not have yet is never mistaken for an empty file: the folder's copy waits untouched.
    */
   private async reconcileText(entry: FileEntry, bytes: Uint8Array) {
+    if (!this.running || this.o.getRole() === 'viewer') return;
     const path = entry.path;
     if (this.o.model.availability(`f:${entry.id}`) !== 'complete') {
       this.deferred.add(path);
@@ -268,6 +275,7 @@ export class MirrorSync {
     }
     this.deferred.delete(path);
     const ytext = await this.o.model.openText(entry.id);
+    if (!this.running || this.o.getRole() === 'viewer') return;
     const text = new TextDecoder().decode(bytes);
     const project = ytext.toString();
     if (project === text) {
@@ -415,6 +423,7 @@ export class MirrorSync {
   }
 
   private async writeEntry(f: FileEntry) {
+    if (!this.running) return;
     if (f.kind === 'dir' || this.isIgnored(f.path) || this.held.has(f.path)) return;
     // Text the project does not hold completely is unknown, not empty: writing it would erase the folder's copy.
     if (f.kind === 'text' && this.o.model.availability(`f:${f.id}`) !== 'complete') {
@@ -530,6 +539,7 @@ export class MirrorSync {
 
   private async handleDiskChange(path: string) {
     const bytes = await this.readStable(path);
+    if (!this.running) return;
     const entry = this.o.model.find(path);
 
     if (this.o.getRole() === 'viewer') {
@@ -550,6 +560,7 @@ export class MirrorSync {
       return;
     }
     const hash = await sha256Hex(bytes);
+    if (!this.running || this.o.getRole() === 'viewer') return;
     if (this.lastWritten.get(path) === hash || this.isRecentWrite(path, hash)) return; // echo of our own write
     this.lastWritten.set(path, hash);
     this.onDisk.add(path);
@@ -568,6 +579,7 @@ export class MirrorSync {
    */
   private async mergeDiskText(entry: FileEntry, path: string, next: string) {
     const ytext = await this.o.model.openText(entry.id);
+    if (!this.running || this.o.getRole() === 'viewer') return;
     const base = this.base.get(path);
     if (!base) {
       applyTextDiff(ytext, next, MIRROR_ORIGIN);
@@ -628,6 +640,7 @@ export class MirrorSync {
   }
 
   private async importFile(path: string, bytes: Uint8Array, entry: FileEntry | undefined) {
+    if (!this.running || this.o.getRole() === 'viewer') return;
     if (bytes.length > MAX_BLOB_BYTES) {
       this.o.onNotice?.(`"${path}" is larger than ${Math.round(MAX_BLOB_BYTES / 1048576)} MB and was not added to the project.`);
       return;
@@ -642,6 +655,7 @@ export class MirrorSync {
       }
     } else {
       const hash = await this.o.blobs.add(bytes);
+      if (!this.running || this.o.getRole() === 'viewer') return;
       if (entry?.kind === 'binary') this.o.model.setBinary(entry.id, hash, bytes.length, MIRROR_ORIGIN);
       else {
         if (entry) this.o.model.delete(entry.id, MIRROR_ORIGIN);

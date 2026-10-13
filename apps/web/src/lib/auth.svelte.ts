@@ -1,6 +1,8 @@
 import { ApiError, api, isDesktop, sessionOrigin, setBearer, setLocalMode } from './api.js';
 
 import { userCacheKey } from './remembered-session.js';
+import { activateRuntimes, stopRuntimes } from './runtimes.js';
+import { activateDesktopSeeds } from './seeds.js';
 
 export interface User {
   id: string;
@@ -28,14 +30,18 @@ function storeLocal(on: boolean) {
 }
 
 /** Desktop: continue without an account. Remembered, so the app opens in local mode next time. */
-export function enterLocalMode() {
-  authRevision++;
+export async function enterLocalMode() {
+  const revision = ++authRevision;
+  await stopRuntimes();
+  if (revision !== authRevision) return;
   storeLocal(true);
   setLocalMode(true);
   auth.user = LOCAL_USER;
   auth.local = true;
   auth.offline = false;
   auth.ready = true;
+  activateRuntimes(LOCAL_USER.id);
+  await activateDesktopSeeds(LOCAL_USER.id);
 }
 
 /** Leaves local mode (before signing in or registering): requests to the server are allowed again. */
@@ -91,11 +97,17 @@ export async function loadMe() {
       if (e instanceof ApiError && e.status === 401) cacheUser(null);
     }
   } finally {
+    if (origin === sessionOrigin() && revision === authRevision && auth.user) {
+      activateRuntimes(auth.user.id);
+      await activateDesktopSeeds(auth.user.id).catch(() => { /* dashboard exposes native availability errors */ });
+    }
     auth.ready = true;
   }
 }
 
 async function finish(r: { user: User; token?: string }, revision: number, origin: string) {
+  await stopRuntimes();
+  if (revision !== authRevision || origin !== sessionOrigin()) throw new ApiError(0, 'session_changed', 'Sign-in was cancelled. Please try again.');
   storeLocal(false);
   setLocalMode(false);
   auth.local = false;
@@ -104,6 +116,9 @@ async function finish(r: { user: User; token?: string }, revision: number, origi
   auth.user = r.user;
   auth.offline = false;
   cacheUser(r.user);
+  activateRuntimes(r.user.id);
+  await activateDesktopSeeds(r.user.id).catch(() => { /* dashboard exposes native availability errors */ });
+  if (revision !== authRevision || origin !== sessionOrigin()) throw new ApiError(0, 'session_changed', 'Sign-in was cancelled. Please try again.');
   return r.user;
 }
 
@@ -138,22 +153,22 @@ export async function logout() {
   const revoking = api('POST', '/auth/logout').catch(() => {});
   auth.user = null;
   cacheUser(null);
-  await setBearer(null);
-  await revoking;
+  await Promise.all([setBearer(null), stopRuntimes(), revoking]);
 }
 
 export async function logoutAll() {
   authRevision++;
-  await api('POST', '/auth/logout-all');
-  await setBearer(null);
+  const revoking = api('POST', '/auth/logout-all');
   auth.user = null;
   cacheUser(null);
+  await Promise.all([setBearer(null), stopRuntimes(), revoking]);
 }
 
 /** An authoritative server rejection ends online authorization and its cached identity. */
-export function invalidateSession() {
+export async function invalidateSession() {
   authRevision++;
   auth.user = null;
   auth.offline = false;
   cacheUser(null);
+  await stopRuntimes();
 }
