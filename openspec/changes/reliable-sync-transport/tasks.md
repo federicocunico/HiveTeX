@@ -5,7 +5,7 @@
 - [x] 1.1 Move the browser-vs-browser WebRTC lab (signaling server, test page, Windows Sandbox runner) into `apps/desktop/e2e/rtclab` with a `make rtc-lab` target; verify it reproduces the 2026-10-13 browser results (relay-only UDP and TCP, all, STUN-only connect and answer ≥ 40/45 pings) and writes a results file
 - [x] 1.2 Add the native peer to `make rtc-lab` (desktop test build driven over DevTools, bridge peer with a forced transport policy); verify the same four scenarios run native↔native and native↔browser and the results file names the selected pair and the native stack state per scenario
 - [x] 1.3 Add a hold phase to `make sandbox-sync` (`HOLD_S`: periodic edits on both sides, convergence checked every few seconds, route changes logged) and a scenario matrix option (STUN only, TURN, relay on/off, deaf session); verify a 3-minute hold run on today's build reproduces the direct link dying after ~5 s in the timeline
-- [ ] 1.4 Document both labs in `docs/remaining-verification.md` and `docs/network-diagnostics.md`; verify the documented commands run as written
+- [x] 1.4 Document both labs in `docs/remaining-verification.md` and `docs/network-diagnostics.md`; verify the documented commands run as written
 
 ## 2. Native stack visibility and bounds
 
@@ -40,7 +40,7 @@
 
 - [ ] 6.1 Measure baseline and relay command usage (`USAGE_LOG=1` in production, relay runs of `make sandbox-sync` against a preview) and compute `RELAY_PROVIDER_COMMANDS`, `RELAY_BASELINE_COMMANDS` and per-account limits; verify `relayLimitsFromEnv` accepts the profile and the numbers are recorded in `docs/deployment.md`
 - [ ] 6.2 Add the relay variables to `scripts/setup.mjs` prompts (values never printed) and deploy with a commit authored by the Vercel team member's address; verify `/api/health` and that a fresh session's `ready` advertises the relay capability
-- [ ] 6.3 Document cost per relayed MiB and per relay hour, the rollback (unset `RELAY_PROVIDER_COMMANDS`) and the gates from `docs/application-relay-security.md`; verify the deployment doc lists each
+- [x] 6.3 Document cost per relayed MiB and per relay hour, the rollback (unset `RELAY_PROVIDER_COMMANDS`) and the gates from `docs/application-relay-security.md`; verify the deployment doc lists each
 
 ## 7. Native stack decision record
 
