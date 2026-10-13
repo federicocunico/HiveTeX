@@ -6,6 +6,7 @@ import IconButton from '../src/ui/IconButton.svelte';
 import { Settings } from '../src/ui/icons.js';
 import { keyLabel, matchesKey } from '../src/ui/keys.js';
 import DialogHarness from './fixtures/DialogHarness.svelte';
+import DialogStackHarness from './fixtures/DialogStackHarness.svelte';
 import SplitterHarness from './fixtures/SplitterHarness.svelte';
 
 const flush = async () => {
@@ -41,6 +42,34 @@ describe('Dialog', () => {
     await flush();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it('closes on Escape even when focus fell to the page (a focused button became disabled during an action)', async () => {
+    render(DialogHarness);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    await flush();
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    await fireEvent.keyDown(document.body, { key: 'Escape' });
+    await flush();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('with dialogs stacked, Escape closes the topmost one only, once', async () => {
+    const closes: string[] = [];
+    render(DialogStackHarness, { props: { closes } });
+    await flush();
+    // focus inside the top dialog: its own handler closes it, the page-level fallback does not close another
+    const yes = screen.getByRole('button', { name: 'Yes' });
+    yes.focus();
+    await fireEvent.keyDown(yes, { key: 'Escape' });
+    await flush();
+    expect(closes).toEqual(['inner']);
+    // focus lost to the page: the remaining (now topmost) dialog closes
+    (document.activeElement as HTMLElement | null)?.blur();
+    await fireEvent.keyDown(document.body, { key: 'Escape' });
+    await flush();
+    expect(closes).toEqual(['inner', 'outer']);
   });
 });
 

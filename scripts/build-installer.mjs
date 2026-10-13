@@ -9,6 +9,7 @@
  *   TAURI_SIGNING_PRIVATE_KEY=...    set it (path or content) to also produce the updater signatures, as the release does;
  *                                    without it the build is unsigned for updates and says so
  *   --bundles nsis,msi               limit the bundle types (default: all of this OS)
+ *   CARGO_TARGET_DIR=E:\build\target  put the Rust build (several GB) on another drive
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -20,7 +21,8 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = join(root, 'apps', 'desktop');
 const out = join(root, 'dist-installer');
-const bundleDir = join(desktop, 'src-tauri', 'target', 'release', 'bundle');
+// CARGO_TARGET_DIR (e.g. on a roomier drive) moves the Rust build output, bundles included.
+const bundleDir = join(process.env.CARGO_TARGET_DIR || join(desktop, 'src-tauri', 'target'), 'release', 'bundle');
 const shell = process.platform === 'win32';
 
 const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, stdio: 'inherit', shell, ...opts });

@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  /** Open dialogs, oldest first: Escape outside every dialog closes only the topmost one. */
+  const openDialogs: HTMLElement[] = [];
+</script>
+
 <script lang="ts">
   import { onDestroy, onMount, tick, type Snippet } from 'svelte';
   import { focusInitial, trapTab } from './focus.js';
@@ -38,13 +43,28 @@
   const opener = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
 
   onMount(() => {
+    openDialogs.push(box);
     void tick().then(() => focusInitial(box));
   });
 
   onDestroy(() => {
+    const i = openDialogs.indexOf(box);
+    if (i >= 0) openDialogs.splice(i, 1);
     // Return focus where it came from, if that element is still in the page.
     if (opener && opener.isConnected) queueMicrotask(() => opener.focus());
   });
+
+  /**
+   * Escape while focus is outside every dialog: a focused button that became disabled during an action (Change ID,
+   * Save) drops focus to the page body, and the dialog's own key handler never sees the key. The topmost dialog closes.
+   */
+  function onWindowKey(e: KeyboardEvent) {
+    if (e.key !== 'Escape' || !dismissible || e.defaultPrevented || openDialogs.at(-1) !== box) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.closest('[role="dialog"]')) return;
+    e.preventDefault();
+    onClose();
+  }
 
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && dismissible) {
@@ -65,6 +85,8 @@
     onsubmit?.(e);
   }
 </script>
+
+<svelte:window onkeydown={onWindowKey} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="hx-scrim" onclick={onScrim}>
