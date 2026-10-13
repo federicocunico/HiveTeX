@@ -13,7 +13,11 @@
   ports 3478/5349/443 are open, the NAT keeps one port for every destination, Windows Firewall blocks nothing). Most
   likely the other device's network does not accept a direct link and there is no TURN relay. Still to collect: the
   error after "attempt N" in People, and the other device's network and app version.
-- Turn on the TURN relay (the code is already there; it is only used when a direct link fails, and it forwards traffic
+- Fastest option, a fixed TURN account (ExpressTURN free tier, already created; the credentials are in the git-ignored
+  `.env.setup` as `TURN_USERNAME`, `TURN_CREDENTIAL`, `TURN_SERVER`; verified: relay candidates over UDP and TCP on port 3478):
+  run `make setup` (it copies them to Vercel production and preview and redeploys), then do step 4 and 5 below. The loose
+  file `expressturn.info` is git-ignored: delete it once `.env.setup` has the values.
+- Alternatively turn on the Cloudflare TURN relay (the code is already there; it is only used when a direct link fails, and it forwards traffic
   that is already end-to-end encrypted):
   1. Cloudflare dashboard → **Realtime** → **TURN** → create a TURN key
      ([docs](https://developers.cloudflare.com/realtime/turn/)). Copy its **key ID** and **API token** (the token is

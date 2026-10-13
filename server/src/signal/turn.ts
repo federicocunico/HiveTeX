@@ -75,3 +75,46 @@ turnRoutes.post('/', rateLimit('turn', 60, 3600), async (c) => {
   }
   return c.json({ iceServers: [...DEFAULT_STUN, ...relay], expiresAt: deps.now().getTime() + TURN_TTL * 1000, relay: status });
 });
+
+/**
+ * Fixed relay credentials, for providers without a minting API (ExpressTURN, a coturn with a static user). The same
+ * username and credential go to every project member's device, so use a relay account that is only good for relaying.
+ */
+export function staticTurn(cfg: { urls: string[]; username: string; credential: string }): TurnProvider {
+  return {
+    async mint() {
+      return { iceServers: [{ urls: cfg.urls, username: cfg.username, credential: cfg.credential }] };
+    },
+  };
+}
+
+/** All providers at once: the answer has every server that worked, and fails only when none did. */
+export function combineTurn(providers: TurnProvider[]): TurnProvider {
+  return {
+    async mint(ttl) {
+      const results = await Promise.allSettled(providers.map((p) => p.mint(ttl)));
+      const ok = results.flatMap((r) => (r.status === 'fulfilled' ? r.value.iceServers : []));
+      if (ok.length === 0) throw new Error('no relay provider issued credentials');
+      return { iceServers: ok };
+    },
+  };
+}
+
+/**
+ * The relay configured in the environment: Cloudflare Realtime TURN (`CF_TURN_KEY_ID` + `CF_TURN_API_TOKEN`) and/or a
+ * fixed account (`TURN_USERNAME` + `TURN_CREDENTIAL`, with `TURN_URLS` as a comma-separated list or `TURN_SERVER` as
+ * `host:port`; the default server is ExpressTURN's free one). Undefined when neither is set.
+ */
+export function turnFromEnv(env: Record<string, string | undefined>, fetchFn: typeof fetch = fetch): TurnProvider | undefined {
+  const providers: TurnProvider[] = [];
+  if (env.CF_TURN_KEY_ID && env.CF_TURN_API_TOKEN) providers.push(cloudflareTurn(env.CF_TURN_KEY_ID, env.CF_TURN_API_TOKEN, fetchFn));
+  if (env.TURN_USERNAME && env.TURN_CREDENTIAL) {
+    const server = (env.TURN_SERVER ?? 'free.expressturn.com:3478').trim();
+    const urls = env.TURN_URLS
+      ? env.TURN_URLS.split(',').map((u) => u.trim()).filter(Boolean)
+      : [`turn:${server}?transport=udp`, `turn:${server}?transport=tcp`];
+    providers.push(staticTurn({ urls, username: env.TURN_USERNAME, credential: env.TURN_CREDENTIAL }));
+  }
+  if (providers.length === 0) return undefined;
+  return providers.length === 1 ? (providers[0] as TurnProvider) : combineTurn(providers);
+}

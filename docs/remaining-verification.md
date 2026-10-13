@@ -16,7 +16,7 @@ says what a pass and a failure mean. Background: [network-diagnostics.md](networ
 
 Why: the original failure only appears when the two devices cannot reach each other directly.
 
-1. Make sure the relay exists first, or the test cannot succeed behind strict NATs. In `TODO.md` follow *Turn on the
+1. Make sure the relay exists first (ExpressTURN account or Cloudflare; see `docs/deployment.md`), or the test cannot succeed behind strict NATs. In `TODO.md` follow *Turn on the
    TURN relay* (Cloudflare key, Vercel variables, redeploy). Check that the `turn` request in DevTools returns
    `turn:` or `turns:` URLs, and that **Network diagnostics > Connection servers** says *relay credentials issued*.
 2. Update both devices to the same version that includes this change.

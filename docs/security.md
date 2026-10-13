@@ -73,6 +73,7 @@ for each control.
 * **Metadata** is visible to the control plane: accounts, which projects exist and who is a member, device public keys, when devices are online. Content is not.
 * **Editors are trusted.** Updates are not individually signed, so a malicious editor can write anything an editor may write (and attribute it to the connection it came from).
 * **Trusted Types** and per-update signatures were considered and not implemented.
+* **A fixed TURN account is shared with every member.** With `TURN_USERNAME`/`TURN_CREDENTIAL` (e.g. ExpressTURN) the same relay credential is handed to every authenticated project member's device, so a member can read it and relay their own traffic at the account's cost. Relayed project traffic stays end-to-end encrypted. Use an account that can only relay, watch its quota, and rotate it when a member is removed or it leaks. Cloudflare's minted credentials expire after an hour.
 * **Free-tier availability**: no SLA; if the control plane is down, existing meshes keep working until their tickets expire (15 min), but new joins, ticket refreshes and rings stop: dormant seeds stay asleep until the control plane returns.
 * The in-browser TeX engine depends on a third-party TeX file server (configurable).
 

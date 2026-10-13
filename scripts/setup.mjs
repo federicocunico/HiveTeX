@@ -200,6 +200,12 @@ async function serverSettings({ ticketsOnly = false } = {}) {
   if (missing('CF_TURN_KEY_ID') && !given('CF_TURN_KEY_ID')) note('TURN relay: optional, recommended for testers on different networks');
   await want('CF_TURN_KEY_ID', 'Cloudflare TURN key id', { secret: false, optional: true });
   if (given('CF_TURN_KEY_ID') || !missing('CF_TURN_KEY_ID')) await want('CF_TURN_API_TOKEN', 'Cloudflare TURN API token', { secret: true });
+  // A fixed relay account (ExpressTURN free tier: https://www.expressturn.com): used besides, or instead of, Cloudflare.
+  await want('TURN_USERNAME', 'Fixed TURN relay username (e.g. ExpressTURN)', { secret: false, optional: true });
+  if (given('TURN_USERNAME') || !missing('TURN_USERNAME')) {
+    await want('TURN_CREDENTIAL', 'Its credential', { secret: true });
+    await want('TURN_SERVER', 'Its server as host:port (empty = free.expressturn.com:3478)', { secret: false, optional: true });
+  }
   if (needed.length) {
     throw new Error(`Missing values: ${needed.join(', ')}. Run in a terminal to be asked, or put them in .env.setup (see .env.example).`);
   }

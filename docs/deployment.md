@@ -13,7 +13,7 @@ Everything runs on free tiers; **Vercel Hobby is for non-commercial use**.
 | Durable data (accounts, projects, memberships) | **Neon Postgres** (Vercel Marketplace) | sets `DATABASE_URL` |
 | Rate limits, signaling pub/sub, one-time hand-offs | **Upstash Redis** (Vercel Marketplace) | sets `KV_REST_API_URL`, `KV_REST_API_TOKEN` (the server also accepts `UPSTASH_REDIS_REST_URL` / `_TOKEN`) |
 | Recovery email | **Gmail SMTP** with an App Password | `GMAIL_USER`, `GMAIL_APP_PASSWORD` |
-| NAT relay (optional) | **Cloudflare Realtime TURN** free tier | `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` |
+| NAT relay (optional) | **Cloudflare Realtime TURN** free tier and/or a fixed account such as **ExpressTURN** free tier | `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`; `TURN_USERNAME`, `TURN_CREDENTIAL` (+ `TURN_SERVER`, `TURN_URLS`) |
 | Application relay (optional, off by default) | the same Vercel function + Upstash | `APPLICATION_RELAY=1` plus measured headroom, see section 4 |
 | GitHub backup (optional) | GitHub App | see `docs/github-backup.md` |
 
@@ -36,7 +36,12 @@ Other settings:
   once an admin exists.
 - `APP_ORIGIN`: optional on Vercel. Production deployments default to the project's production domain
   (`VERCEL_PROJECT_PRODUCTION_URL`).
-- `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`: optional TURN relay.
+- `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`: optional TURN relay (Cloudflare mints short-lived credentials).
+- `TURN_USERNAME`, `TURN_CREDENTIAL`, `TURN_SERVER` (host:port, default `free.expressturn.com:3478`), `TURN_URLS`: optional
+  fixed TURN account, for providers that give one static username and password (ExpressTURN free tier). It is offered
+  over UDP and TCP on 3478 (ports 80 and 443 are not served by the free host). If both providers are set, clients get
+  both. The credential is sent to every authenticated project member's device, so keep it to an account that can only
+  relay. Check after a deploy: Network diagnostics must say *relay credentials issued* and the *Relay* check must pass.
 - `APPLICATION_RELAY`, `RELAY_*`, `USAGE_LOG`: optional application relay and usage logging (section 4).
 
 ## 3. First deploy

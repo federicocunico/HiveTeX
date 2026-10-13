@@ -17,3 +17,6 @@ playwright-report
 .env*
 !.env.example
 !docker/.env.stack
+
+# ExpressTURN credentials handed over as a loose file: never commit
+expressturn.info

@@ -7,7 +7,7 @@ import { createUpstashLimiter } from './ratelimit.js';
 import { createApplicationRelayRouter } from './signal/application-relay.js';
 import { createUpstashSignalBackend, meterSignalBackend, UsageMeter } from './signal/hub.js';
 import { createRedisRelayAdmission, type EvalRedis, relayLimitsFromEnv } from './signal/relay-budget.js';
-import { cloudflareTurn } from './signal/turn.js';
+import { turnFromEnv } from './signal/turn.js';
 
 /** The first set variable among `names` (aliases, e.g. the names a Vercel Marketplace integration uses). */
 function need(...names: string[]): string {
@@ -29,8 +29,7 @@ export async function productionDepsWith(platform: PlatformDeps): Promise<Deps> 
   // The Vercel Marketplace Upstash integration sets KV_REST_API_*; a manual setup usually uses UPSTASH_REDIS_REST_*.
   const redisUrl = need('UPSTASH_REDIS_REST_URL', 'KV_REST_API_URL');
   const redisToken = need('UPSTASH_REDIS_REST_TOKEN', 'KV_REST_API_TOKEN');
-  const turnKey = process.env.CF_TURN_KEY_ID;
-  const turnToken = process.env.CF_TURN_API_TOKEN;
+  const turn = turnFromEnv(process.env);
   const smtp = smtpFromEnv();
   if (!smtp) throw new Error('Missing env var GMAIL_USER / GMAIL_APP_PASSWORD (or SMTP_HOST)');
   const config = configFromEnv();
@@ -69,7 +68,7 @@ export async function productionDepsWith(platform: PlatformDeps): Promise<Deps> 
     ...(process.env.GITHUB_APP_CLIENT_ID && process.env.GITHUB_APP_CLIENT_SECRET
       ? { github: { clientId: process.env.GITHUB_APP_CLIENT_ID, clientSecret: process.env.GITHUB_APP_CLIENT_SECRET } }
       : {}),
-    ...(turnKey && turnToken ? { turn: cloudflareTurn(turnKey, turnToken) } : {}),
+    ...(turn ? { turn } : {}),
     ...platform,
   };
 }
