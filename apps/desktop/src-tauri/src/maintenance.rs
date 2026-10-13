@@ -58,6 +58,19 @@ pub fn clear_compiler_cache(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// WebView can release profile handles shortly after its owner process has exited.
+#[cfg(windows)]
+fn remove_stopped_profile(path: &Path, timeout: std::time::Duration) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match remove_owned_tree(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if std::time::Instant::now() >= deadline => return Err(error),
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
+        }
+    }
+}
+
 /// An installer-only entry point: no window, tray, synchronization worker or compiler is initialized.
 #[cfg(windows)]
 pub fn uninstall(identifier: &str, startup_name: &str) -> Result<(), String> {
@@ -74,8 +87,8 @@ pub fn uninstall(identifier: &str, startup_name: &str) -> Result<(), String> {
     for key in ["APPDATA", "LOCALAPPDATA"] {
         let base = std::env::var_os(key).map(std::path::PathBuf::from).ok_or_else(|| format!("{key} is unavailable"))?;
         if !base.is_absolute() { return Err(format!("{key} must be an absolute profile path")); }
-        remove_owned_tree(&base.join(identifier))?;
-        if identifier == APP_ID { remove_owned_tree(&base.join(LEGACY_ID))?; }
+        remove_stopped_profile(&base.join(identifier), std::time::Duration::from_secs(5))?;
+        if identifier == APP_ID { remove_stopped_profile(&base.join(LEGACY_ID), std::time::Duration::from_secs(5))?; }
     }
     Ok(())
 }
@@ -177,6 +190,34 @@ mod tests {
         assert!(matches!(owned.get_password(), Err(keyring::Error::NoEntry)));
         assert_eq!(unrelated.get_password().unwrap(), "preserve");
         unrelated.delete_credential().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn uninstall_waits_for_a_stopped_process_to_release_its_profile() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = std::env::temp_dir().join(format!("hivetex-profile-lock-{}", std::process::id()));
+        remove_owned_tree(&root).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).share_mode(0).open(root.join("cache.lock")).unwrap();
+        let release = std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_millis(200)); drop(file); });
+        remove_stopped_profile(&root, std::time::Duration::from_secs(5)).unwrap();
+        release.join().unwrap();
+        assert!(!root.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn uninstall_reports_a_profile_that_remains_locked() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = std::env::temp_dir().join(format!("hivetex-profile-busy-{}", std::process::id()));
+        remove_owned_tree(&root).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).share_mode(0).open(root.join("cache.lock")).unwrap();
+        assert!(remove_stopped_profile(&root, std::time::Duration::ZERO).is_err());
+        assert!(root.exists());
+        drop(file);
+        remove_owned_tree(&root).unwrap();
     }
 
     #[test]
