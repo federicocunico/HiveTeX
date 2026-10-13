@@ -157,7 +157,7 @@ test('workflow handoff is direct, publication-gated, shares only the deploy job 
   assert.match(release, /if: needs.publish.outputs.stable == 'true'/);
   assert.match(release, /uses: \.\/\.github\/workflows\/deploy-production.yml/);
   assert.match(release, /if: steps.publication.outputs.stable == 'true'/);
-  assert.match(deployWorkflow, /release:\n    types: \[published\]/);
+  assert.match(deployWorkflow, /release:\r?\n    types: \[published\]/);
   assert.match(deployWorkflow, /release_tag:/);
   assert.doesNotMatch(deployWorkflow, /group: deploy-production/);
   assert.match(reusable, /workflow_call:/);

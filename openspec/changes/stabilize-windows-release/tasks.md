@@ -12,7 +12,7 @@
 
 ## 3. Complete Windows uninstall
 
-- [ ] 3.1 Implement scoped maintenance cleanup of app-owned data, credentials and autostart without a GUI; verify cleanup fixtures, reparse-point isolation and idempotence.
+- [x] 3.1 Implement scoped maintenance cleanup of app-owned data, credentials and autostart without a GUI; verify cleanup fixtures, reparse-point isolation and idempotence.
 - [ ] 3.2 Integrate explicit-uninstall cleanup into NSIS and MSI while preserving upgrade data; verify both installer types and upgrade paths with isolated Windows installer checks, and document explicit uninstall data removal.
 
 ## 4. Windows CI and release preparation
