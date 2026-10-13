@@ -64,12 +64,32 @@
     ${GetOptions} $CMDLINE "_?=" $R0
     ${If} ${Errors}
       DetailPrint "Removing HiveTeX user data, compiler caches, credentials and login startup"
+      ReadEnvStr $R0 HIVETEX_MAINTENANCE_LOG
+      ${If} $R0 != ""
+        FileOpen $R1 "$R0" w
+        FileWrite $R1 "NSIS cleanup executable: $INSTDIR\${MAINBINARYNAME}.exe$\r$\n"
+        FileClose $R1
+      ${EndIf}
+      ; Reset the parameter-probe state before running maintenance.
+      ClearErrors
       ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --uninstall-cleanup' $R1
       ${If} ${Errors}
         StrCpy $R1 1
       ${EndIf}
+      ${If} $R0 != ""
+        Push $R1
+        FileOpen $R1 "$R0" a
+        FileWrite $R1 "NSIS cleanup exit status: "
+        FileClose $R1
+        Pop $R1
+        Push $R1
+        FileOpen $R0 "$R0" a
+        FileWrite $R0 "$R1$\r$\n"
+        FileClose $R0
+        Pop $R1
+      ${EndIf}
       ${If} $R1 <> 0
-        MessageBox MB_OK|MB_ICONSTOP "HiveTeX could not remove all its user data. Close HiveTeX and retry uninstall. Your linked project folders are not removed."
+        MessageBox MB_OK|MB_ICONSTOP "HiveTeX could not remove all its user data. Close HiveTeX and retry uninstall. Your linked project folders are not removed." /SD IDOK
         SetErrorLevel 1
         Abort
       ${EndIf}

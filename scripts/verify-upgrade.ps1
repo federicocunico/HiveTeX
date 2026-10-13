@@ -11,6 +11,7 @@ $work = [IO.Path]::GetFullPath($work)
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
 if (-not $work.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test path escaped the temporary directory' }
 New-Item -ItemType Directory -Path $work | Out-Null
+$env:HIVETEX_MAINTENANCE_LOG = Join-Path $work 'cleanup-error.log'
 $owned = @(
   (Join-Path $env:APPDATA 'app.hivetex.desktop'), (Join-Path $env:LOCALAPPDATA 'app.hivetex.desktop'),
   (Join-Path $env:APPDATA 'app.p2platex.desktop'), (Join-Path $env:LOCALAPPDATA 'app.p2platex.desktop')
@@ -165,6 +166,7 @@ try {
   Assert-Clean
   Write-Host 'All Windows upgrade/uninstall checks passed'
 } catch {
+  if (Test-Path -LiteralPath $env:HIVETEX_MAINTENANCE_LOG) { Get-Content -LiteralPath $env:HIVETEX_MAINTENANCE_LOG | Write-Host }
   Write-Error -Message $_.Exception.Message -ErrorAction Continue
   throw
 } finally {

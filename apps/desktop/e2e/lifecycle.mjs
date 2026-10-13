@@ -147,6 +147,17 @@ try {
     if (saved) writeFileSync(settings, saved); else rmSync(settings, { force: true });
   }
   console.log('ok - a background login start restores sync without a window; a manual launch opens it');
+  const victim = apps()[0].id;
+  const cleanup = spawn(exe, ['--uninstall-cleanup'], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let cleanupLog = '';
+  cleanup.stdout.on('data', chunk => { cleanupLog += chunk.toString(); });
+  cleanup.stderr.on('data', chunk => { cleanupLog += chunk.toString(); });
+  assert.equal(await exited(cleanup), 0, 'live maintenance cleanup failed: ' + cleanupLog);
+  await until(() => apps().length === 0 && workers(victim) === 0, 'cleanup stopped app and worker');
+  for (const profile of [process.env.APPDATA, process.env.LOCALAPPDATA]) {
+    assert.equal(existsSync(join(profile, identifier)), false, 'cleanup removed the isolated app profile');
+  }
+  console.log('ok - maintenance stops a live app and worker and removes its isolated profiles');
 } finally {
   killAll();
   rmSync(copyDir, { recursive: true, force: true });
