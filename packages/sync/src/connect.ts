@@ -601,6 +601,7 @@ export class ConnectionManager {
   private openSocket() {
     const ws = this.o.wsFactory(this.o.signalUrl);
     this.ws = ws;
+    this.tr('socket.opening');
     this.socketHadRelay = false;
     this.stats.socketOpens++;
     // Events of a socket that is no longer the current one (stopped, rotated, replaced) are ignored, and the timers
@@ -620,6 +621,7 @@ export class ConnectionManager {
     const cancelBeat = () => this.cancel(beat);
     ws.onopen = () => {
       if (this.ws !== ws) return;
+      this.tr('socket.opened');
       // Authentication happens when the relay's challenge arrives (see onServerMessage).
       this.backoff = 1000;
       // proactive rotation before the platform cuts the connection
@@ -632,6 +634,7 @@ export class ConnectionManager {
       this.cancel(rotate);
       cancelBeat();
       if (this.ws !== ws) return;
+      this.tr('socket.closed', undefined, { backoffMs: this.backoff });
       this.ws = null;
       this.onRelay.clear();
       // Relay sessions are bound to this socket's session id: they end with it (fresh keys after reconnecting).
@@ -662,7 +665,9 @@ export class ConnectionManager {
     } catch {
       return;
     }
+    if (m.t === 'err') this.tr('server.err', undefined, { code: String(m.code ?? 'unknown').slice(0, 40) });
     if (m.t === 'challenge' && typeof m.nonce === 'string') {
+      this.tr('socket.challenge');
       // Prove we hold the device key named in our ticket (a copied ticket alone must not be enough).
       const gen = this.gen;
       const ticket = this.o.getTicket();
@@ -681,6 +686,7 @@ export class ConnectionManager {
       return;
     }
     if (m.t === 'ready') {
+      this.tr('server.ready', undefined, { others: (m.tickets ?? []).length });
       this.onRelay.clear();
       this.sessions.clear();
       const caps = Array.isArray(m.capabilities) && m.capabilities.includes(APPLICATION_RELAY_CAPABILITY);
@@ -902,7 +908,10 @@ export class ConnectionManager {
 
   private async sendSignal(to: string, sig: LinkSignal) {
     const peer = this.known.get(to);
-    if (!peer || this.stopped) return;
+    if (!peer || this.stopped) {
+      if (!this.stopped) this.tr('sig.unsent', to, { reason: 'unknown-device' });
+      return;
+    }
     const gen = this.gen;
     const env = await seal(this.o.keys, peer.claims.devX, utf8(JSON.stringify(sig)), this.aad(this.selfDev, to));
     if (this.stopped || gen !== this.gen) return; // stopped while sealing: transmit nothing
@@ -915,7 +924,10 @@ export class ConnectionManager {
     // No socket: relay through a peer. Prefer one that announced a direct link to the target; any other peer
     // passes it one more hop (see onRtcViaMesh). An arbitrary peer that is not linked to the target would drop it.
     const via = this.o.mesh.peersLinkedTo(to)[0] ?? this.o.mesh.peers.find((p) => p.deviceId !== to)?.deviceId;
-    if (!via) return;
+    if (!via) {
+      this.tr('sig.unsent', to, { reason: this.socketOpen ? 'target-not-on-server' : 'no-socket-and-no-peer' });
+      return;
+    }
     this.stats.signalsViaMesh++;
     await this.o.mesh.sendApp(via, 'rtc', { to, from: this.selfDev, fromTicket: this.o.getTicket(), env: b64(env), hops: RTC_HOPS } satisfies RtcEnvelope);
   }
@@ -923,11 +935,15 @@ export class ConnectionManager {
   private async onEnvelope(fromTicket: string, env: Uint8Array) {
     const gen = this.gen;
     const k = await this.learn(fromTicket);
-    if (!k || this.stopped || gen !== this.gen) return;
+    if (!k || this.stopped || gen !== this.gen) {
+      if (!k && !this.stopped) this.tr('sig.dropped', undefined, { reason: 'sender-ticket-rejected' });
+      return;
+    }
     let sig: LinkSignal;
     try {
       sig = JSON.parse(fromUtf8(await open(this.o.keys, k.claims.devX, env, this.aad(k.claims.dev, this.selfDev)))) as LinkSignal;
     } catch {
+      this.tr('sig.dropped', k.claims.dev, { reason: 'cannot-decrypt' });
       return; // not for us / tampered
     }
     if (this.stopped || gen !== this.gen) return;

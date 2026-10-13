@@ -25,11 +25,11 @@
   function readDiagnostics() {
     try {
       const d = session?.syncDiagnostics();
-      if (d) return { candidates: d.candidates, routes: d.routes ?? {}, ice: d.ice ?? null, socketOpen: d.socketOpen, doorbellMode: d.doorbellMode, peers: session?.peers ?? [] };
+      if (d) return { trace: d.trace ?? [], candidates: d.candidates, routes: d.routes ?? {}, ice: d.ice ?? null, socketOpen: d.socketOpen, doorbellMode: d.doorbellMode, peers: session?.peers ?? [] };
     } catch {
       /* no runtime yet */
     }
-    return { candidates: [], routes: {}, ice: null, socketOpen: false, doorbellMode: false, peers: [] as NonNullable<typeof session>['peers'], none: true };
+    return { trace: [], candidates: [], routes: {}, ice: null, socketOpen: false, doorbellMode: false, peers: [] as NonNullable<typeof session>['peers'], none: true };
   }
 
   function refresh() {
@@ -86,7 +86,7 @@
   }
 
   async function copyReport() {
-    const text = buildReport({ results, ice, rows, app: isDesktop ? 'desktop' : 'web', when: new Date() });
+    const text = buildReport({ results, ice, rows, app: isDesktop ? 'desktop' : 'web', when: new Date(), trace: readDiagnostics().trace });
     try {
       await copyText(text);
       toast('Network report copied. It contains no passwords or keys.');

@@ -110,4 +110,23 @@ describe('per-peer details, peer test and report', () => {
     expect(text).toContain('Public address (hidden)');
     for (const forbidden of [SECRET, 'user-abc', '203.0.113.9', 'relay.example.org']) expect(text).not.toContain(forbidden);
   });
+
+  it('the report ends with the connection trace, device ids shortened, so a stuck pair shows where it stopped', async () => {
+    const text = buildReport({
+      results: [],
+      ice: null,
+      rows: [],
+      app: 'desktop',
+      when: new Date('2026-10-13T12:00:00Z'),
+      trace: [
+        { t: 1000, self: 'abcdef0123456789', ev: 'socket.opened' },
+        { t: 1050, self: 'abcdef0123456789', ev: 'sig.send', dev: '123456fedcba9876', data: { k: 'offer', via: 'server' } },
+        { t: 1200, self: 'abcdef0123456789', ev: 'link.timeout', dev: '123456fedcba9876', data: { cause: 'no-setup-reply' } },
+      ],
+    });
+    expect(text).toContain('Connection trace (last 3 steps');
+    expect(text).toContain('+    50 ms abcdef -> 123456 sig.send k=offer via=server');
+    expect(text).toContain('link.timeout cause=no-setup-reply');
+    expect(text).not.toContain('abcdef0123456789');
+  });
 });

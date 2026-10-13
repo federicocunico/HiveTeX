@@ -242,6 +242,8 @@ export function buildReport(input: {
   rows: PeerRow[];
   app: string;
   when: Date;
+  /** The latest connection steps (types and counts only, no addresses or credentials). */
+  trace?: Array<{ t: number; self: string; ev: string; dev?: string; data?: Record<string, string | number | boolean> }>;
 }): string {
   const lines = [`HiveTeX network report (${input.app})`, input.when.toISOString(), ''];
   lines.push('Checks');
@@ -253,6 +255,16 @@ export function buildReport(input: {
     lines.push(p.state === 'connected'
       ? `- ${p.name}: connected ${p.route}${p.pair ? ` [${p.pair}]` : ''}`
       : `- ${p.name}: not connected, attempt ${(p.attempts ?? 0) + 1}, state ${p.linkState ?? 'n/a'}, cause ${p.cause ?? 'none yet'}; local candidates: ${p.local ?? 'n/a'}; remote candidates: ${p.remote ?? 'n/a'}. ${p.explanation ?? ''}`);
+  }
+  if (input.trace && input.trace.length > 0) {
+    const short = (id: string) => id.slice(0, 6);
+    const last = input.trace.slice(-100);
+    const start = last[0]?.t ?? 0;
+    lines.push('', `Connection trace (last ${last.length} steps; device ids shortened)`);
+    for (const e of last) {
+      const data = e.data ? ` ${Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}` : '';
+      lines.push(`+${String(e.t - start).padStart(6)} ms ${short(e.self)}${e.dev ? ` -> ${short(e.dev)}` : ''} ${e.ev}${data}`);
+    }
   }
   return lines.join('\n');
 }
