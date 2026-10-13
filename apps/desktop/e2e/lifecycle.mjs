@@ -31,7 +31,10 @@ copyFileSync(exe, copy);
 const pathFilter = [exe, copy].map((p) => `$_.Path -eq '${p.replaceAll("'", "''")}'`).join(' -or ');
 
 function ps(script) {
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true });
+  // Get-Process -ErrorAction SilentlyContinue returns $? = false when no app exists. That is an empty query,
+  // not a harness failure; genuine terminating errors must still fail.
+  const command = `$ErrorActionPreference = 'Stop'; ${script}; exit 0`;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true });
   if (r.status !== 0) throw new Error(`process query failed: ${r.stderr}`);
   return (r.stdout ?? '').trim();
 }

@@ -66,6 +66,27 @@ function Assert-Preserved {
   }
   if (-not (Has-Credential)) { throw 'Upgrade removed the saved credential' }
 }
+function Start-Installed {
+  $entry = @(Get-Installed)[0]
+  $programDir = $entry.InstallLocation
+  if (-not $programDir) {
+    $key = Get-Item 'HKCU:\Software\hivetex\HiveTeX'
+    $programDir = $key.GetValue('InstallDir')
+    if (-not $programDir) { $programDir = $key.GetValue('') }
+  }
+  $exe = Join-Path $programDir 'hivetex-desktop.exe'
+  if (-not (Test-Path -LiteralPath $exe)) { throw 'Installed executable is missing' }
+  Set-Content -LiteralPath (Join-Path $env:APPDATA 'app.hivetex.desktop\startup.json') -Value '{"background":true}'
+  $app = Start-Process -FilePath $exe -ArgumentList '--background' -WindowStyle Hidden -PassThru
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  do {
+    $workers = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($app.Id) AND Name='node.exe'")
+    if ($workers.Count -eq 1) { return }
+    if ($app.HasExited) { throw 'Installed app exited before starting its worker' }
+    Start-Sleep -Milliseconds 200
+  } while ([DateTime]::UtcNow -lt $deadline)
+  throw 'Installed app did not start exactly one worker'
+}
 function Assert-Clean {
   foreach ($dir in $owned) { if (Test-Path -LiteralPath $dir) { throw "Uninstall left user data: $dir" } }
   if (Has-Credential) { throw 'Uninstall left an app credential' }
@@ -93,6 +114,7 @@ try {
     Invoke-Program $newSetup.FullName @('/S')
     Assert-One 'old setup -> new setup'
     Assert-Preserved
+    Start-Installed
     Remove-All
     Assert-Clean
   }
@@ -104,6 +126,7 @@ try {
   Assert-One 'MSI -> setup'
   Assert-Preserved
   if (@(Get-Installed | Where-Object { $_.WindowsInstaller -eq 1 }).Count) { throw 'MSI remains listed after setup migration' }
+  Start-Installed
   Remove-All
   Assert-Clean
 
@@ -115,6 +138,7 @@ try {
   Invoke-Program msiexec.exe @('/i', "`"$($newMsi.FullName)`"", '/qn', '/norestart')
   Assert-One 'MSI reinstall'
   Assert-Preserved
+  Start-Installed
   Remove-All
   Assert-Clean
   Write-Host 'All Windows upgrade/uninstall checks passed'

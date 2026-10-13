@@ -5,6 +5,11 @@ name: Desktop
 # - Manual run (Actions -> Desktop -> Run workflow) -> the same installers as workflow artifacts, no release.
 on:
   workflow_dispatch:
+    inputs:
+      diagnostics:
+        description: "Run the optional WebDriver UI diagnostics (warnings only)"
+        type: boolean
+        default: false
   push:
     branches: [main, master]
     tags: ["v*"]
@@ -18,7 +23,7 @@ on:
       - ".github/workflows/desktop.yml"
 
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
@@ -72,7 +77,7 @@ jobs:
 
   # WebDriver availability and GUI timing vary on hosted runners; run these manually with visible warnings.
   desktop-diagnostics:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostics
     runs-on: windows-2022
     continue-on-error: true
     timeout-minutes: 40

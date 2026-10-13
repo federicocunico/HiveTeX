@@ -24,7 +24,7 @@ The app's one bundled Node worker may restart after a crash. Retries back off an
 
 CI runs Windows builds, lint, types, bundle/dependency/security checks and unit tests. Desktop runs serialized native regressions plus the instance/background/restart harness without WebDriver. Release builds check packaged startup and both Windows installers, including setup/MSI conversion and complete uninstall, before publication. Signed updates and exact-source production deployment remain required.
 
-Browser e2e diagnostics run on Windows as advisory checks; failures and successful retries produce explicit warnings with report/trace artifacts. Full desktop UI diagnostics are available through a manual Desktop run and also report warnings. Linux/macOS matrices and scheduled Docker/network labs no longer run automatically.
+Browser e2e diagnostics run on Windows as advisory checks; failures and successful retries produce explicit warnings with report/trace artifacts. Full desktop UI diagnostics are available by selecting **diagnostics** in a manual Desktop run and also report warnings. A plain manual run validates installers without WebDriver. Manual builds do not cancel push validation. Linux/macOS matrices and scheduled Docker/network labs no longer run automatically.
 
 Reproduce the lifecycle check in PowerShell:
 
