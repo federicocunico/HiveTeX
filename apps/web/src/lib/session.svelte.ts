@@ -61,7 +61,7 @@ import { getGithubToken } from './github.js';
 import { toast } from '../ui/toast.svelte.js';
 import { syncEventText, syncNowMessage } from './sync-view.js';
 import { type PresentPerson, peopleFromAwareness, presenceColor } from './presence.js';
-import { COMPILE_MODE_KEY, type CompileMode, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
+import { COMPILE_MODE_KEY, type CompileMode, compileTargets, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
 import { folderPermission, webFs } from './fs-access.js';
 import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
 import { localKeys, registerKeys } from './keys.js';
@@ -390,10 +390,12 @@ export class ProjectSession {
 
   /** This device's compiler preference (Settings → Compiler); applies to every project. */
   compileMode = $state<CompileMode>(readCompileMode());
+  /** How this device actually takes part: a compiler whose reads cannot be verified (the quick compiler) builds for this device only (design D3b). */
+  get effectiveCompileMode(): CompileMode {
+    return this.compileMode === 'peers' ? 'peers' : this.localOnlyCompiler ? 'local' : this.compileMode;
+  }
   private policy() {
-    // A compiler whose reads cannot be verified (the quick compiler) builds for this device only (design D3b).
-    const mode = this.compileMode === 'peers' ? 'peers' : this.localOnlyCompiler ? 'local' : this.compileMode;
-    return policyFor(mode, localStorage.getItem('hivetex.compileForOthers') !== '0');
+    return policyFor(this.effectiveCompileMode, localStorage.getItem('hivetex.compileForOthers') !== '0');
   }
 
   /** The quick compiler's builds stay on this device (never shared, never leader). */
@@ -424,6 +426,7 @@ export class ProjectSession {
         this.engineKind = 'native';
         this.localOnlyCompiler = !engine.verifiedReads;
         this.election?.update({ engine: 'native', supports: engine.supports, optOut: this.policy().optOut });
+        this.scheduleLocalCompile(0);
       }
       this.compilerPhase = ok ? 'ready' : 'unavailable';
       this.compilerDetail = '';
@@ -575,9 +578,15 @@ export class ProjectSession {
       { engine: () => (String(this.model.settings.get('engine') ?? 'pdflatex') as 'pdflatex'), selfRole: () => this.role },
     );
     this.election.onLeaderChange((l) => this.onLeader(l));
+    const current = () => this.engine;
     const engineProxy: CompileEngine = {
-      kind,
-      supports,
+      // The engine can be adopted after setup (quick compiler installed, desktop app paired): read the current one.
+      get kind() {
+        return current()?.kind ?? kind;
+      },
+      get supports() {
+        return current()?.supports ?? supports;
+      },
       compile: async (input, opts) => {
         this.compileStatus = 'compiling';
         try {
@@ -605,6 +614,8 @@ export class ProjectSession {
     this.onLeader(this.election.leader());
     this.monitor = new SystemMonitor(this.election, () => this.probeSystem());
     this.monitor.start();
+    // A device that shows only its own builds (This device only, the quick compiler) compiles once ready, not only after an edit.
+    this.scheduleLocalCompile(0);
   }
 
   private monitor: SystemMonitor | null = null;
@@ -668,9 +679,10 @@ export class ProjectSession {
   private pdfState = '';
 
   requestCompile() {
-    if (this.amLeader) void this.leader.run();
-    else this.client.requestCompile();
-    if (this.mesh.peers.length === 0 && this.engine) void this.compileLocal();
+    const t = compileTargets({ amLeader: this.amLeader, leaderExists: this.election?.leader() != null, autoLocal: this.policy().autoLocal, hasEngine: !!this.engine });
+    if (t.runLeader) void this.leader.run();
+    if (t.request) this.client.requestCompile();
+    if (t.local) void this.compileLocal().catch(() => {});
   }
 
   async compileLocal() {

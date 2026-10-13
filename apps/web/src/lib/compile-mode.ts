@@ -40,6 +40,21 @@ export function policyFor(mode: CompileMode, compileForOthers: boolean): Compile
   }
 }
 
+/**
+ * Where an explicit compile request is carried out: this device's own build when it shows only its own results, the
+ * leader's build otherwise, and this device's build as well when nobody leads (the request would go unanswered).
+ */
+export function compileTargets(s: { amLeader: boolean; leaderExists: boolean; autoLocal: boolean; hasEngine: boolean }): {
+  runLeader: boolean;
+  request: boolean;
+  local: boolean;
+} {
+  if (s.autoLocal) return { runLeader: false, request: false, local: s.hasEngine };
+  if (s.amLeader) return { runLeader: true, request: false, local: false };
+  if (s.leaderExists) return { runLeader: false, request: true, local: false };
+  return { runLeader: false, request: true, local: s.hasEngine };
+}
+
 function safeLocalStorage() {
   try {
     return localStorage;

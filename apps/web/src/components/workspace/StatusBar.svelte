@@ -76,10 +76,12 @@
 
   <span class="item" data-tip="The device that builds the PDF for everyone: the best one online, chosen automatically">
     <Icon icon={Cpu} size={13} />
-    {#if s.compileMode === 'local'}
-      <span data-testid="leader">Compiles only on this device</span>
+    {#if s.effectiveCompileMode === 'local'}
+      <span data-testid="leader">Compiles only on this device{s.compileMode !== 'local' && s.localOnlyCompiler ? ` (${s.compilerName || 'quick compiler'})` : ''}</span>
     {:else if s.leaderName}
       <span data-testid="leader">Compiles on {s.leaderName}{s.leaderName.includes('(this device)') ? '' : ' (best available)'}</span>
+    {:else if s.compilerPhase === 'setting-up'}
+      <span data-testid="leader">Setting up the compiler…</span>
     {:else}
       <span data-testid="leader">Compiler: none available</span>
     {/if}

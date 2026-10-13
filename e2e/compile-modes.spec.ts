@@ -50,10 +50,26 @@ test('compiler preference: hand-off when the leader chooses "Use peers", peers n
   await M.page.keyboard.type('% local edit');
   await expect(M.page.getByTestId('compiled-by')).toContainText(`${M.username} (this device)`, { timeout: 30_000 });
 
+  // "This device only" also compiles when the project opens, without waiting for an edit (as the quick compiler does)
+  await M.page.reload();
+  await expect(M.page.getByTestId('leader')).toHaveText('Compiles only on this device', { timeout: 30_000 });
+  await expect(M.page.getByTestId('compiled-by')).toContainText(`${M.username} (this device)`, { timeout: 30_000 });
+  await expect(M.page.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
+
   // back to automatic: it leads again
   await setMode(M.page, 'auto');
   await expect.poll(() => leaderText(M.page), { timeout: 30_000 }).toContain('this device');
   await expect(L.page.getByTestId('no-peer-compiler')).toHaveCount(0, { timeout: 30_000 });
+
+  // nobody leads (automatic, but not compiling for others) while a co-author is connected: Recompile builds here
+  await M.page.evaluate(() => localStorage.setItem('hivetex.compileForOthers', '0'));
+  await M.page.reload();
+  await expect(M.page.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
+  await expect(M.page.getByTestId('leader')).toHaveText('Compiler: none available', { timeout: 30_000 });
+  await expect(M.page.getByTestId('compiled-by')).toHaveCount(0);
+  await M.page.getByTestId('compile-btn').click();
+  await expect(M.page.getByTestId('compiled-by')).toContainText(`${M.username} (this device)`, { timeout: 30_000 });
+  await M.page.evaluate(() => localStorage.removeItem('hivetex.compileForOthers'));
   await co.close();
   await ce.close();
 });
