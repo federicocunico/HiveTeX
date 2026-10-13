@@ -32,6 +32,10 @@
 - The connection details, network checks, peer test and *Copy report* now exist (docs/network-diagnostics.md): on both
   devices open Sync > Network diagnostics and press *Test connection*; the stage and cause say what is missing.
 
+## Verification still to do
+
+Real-device, relay, desktop and router-matrix checks, with exact commands and pass criteria: docs/remaining-verification.md.
+
 ## Secrets check (done 2026-10-11)
 
 Nothing private is in the public repository or its history:
