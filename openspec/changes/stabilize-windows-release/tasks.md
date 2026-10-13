@@ -20,7 +20,7 @@
 - [x] 4.1 Simplify required CI/Desktop checks to Windows and move timing-dependent UI/network diagnostics to explicit warnings with artifacts; verify workflow configuration, policy tests and warning behavior.
 - [ ] 4.2 Run Windows build/lint/type/unit/native regressions and packaged checks, fix deterministic failures and record results; set the unused v0.7.3 (or v0.7.4) consistently and verify source versions and release notes.
 
-- [ ] 4.3 Accept verified legacy Vercel CLI commit metadata for production ordering; verify project/SHA rejection regressions and a successful checked deploy.
+- [ ] 4.3 Accept verified legacy Vercel CLI commit metadata and use project-scoped API delivery; verify immutable source, project/SHA rejection, staged promotion regressions and a successful checked deploy.
 
 ## Workflow follow-up
 

@@ -6,14 +6,15 @@ const A = 'a'.repeat(40), B = 'b'.repeat(40), T = 'c'.repeat(40);
 const repo = 'owner/repo';
 const successful = { head_sha: A, event: 'push', head_repository: { full_name: repo }, status: 'completed', conclusion: 'success' };
 function fixture(overrides = {}) {
-  const calls = { cli: [], health: [], sleep: [], gh: [], log: [] };
+  const calls = { writes: [], health: [], sleep: [], gh: [], log: [] };
   let promoted = false, tagReads = 0;
   const options = { repo, tag: 'v1.2.3', sourceSHA: A, kind: 'release', token: 'test-token', orgId: 'team-test', projectId: 'prj_test', siteHost: 'site.vercel.app', ...overrides.options };
   const current = { id: 'dpl_old', projectId: 'prj_test', readyState: 'READY', url: 'old.vercel.app', meta: { hivetexSha: B }, ...overrides.current };
-  const created = { id: 'dpl_new', projectId: 'prj_test', readyState: 'READY', url: 'new.vercel.app', meta: { hivetexSha: A }, ...overrides.created };
+  const created = { id: 'dpl_new', projectId: 'prj_test', readyState: 'READY', url: 'new.vercel.app', meta: { hivetexSha: A }, target: 'production', gitSource: { sha: A }, ...overrides.created };
   const deps = {
     gh: async path => {
       calls.gh.push(path);
+      if (path === '/repos/' + repo) return { id: 123 };
       if (path.includes('/releases/tags/')) return { tag_name: options.tag, draft: false, prerelease: false, ...overrides.release };
       if (path.includes('/git/ref/tags/')) return { object: { type: 'commit', sha: overrides.changedTag && ++tagReads > 1 ? B : A } };
       if (path.includes('/git/ref/heads/')) return { object: { sha: overrides.masterTip || A } };
@@ -22,17 +23,20 @@ function fixture(overrides = {}) {
       if (path.includes('/compare/')) return { status: overrides.comparison || 'ahead' };
       throw new Error('Unexpected GitHub request ' + path);
     },
-    vercel: async path => {
+    vercel: async (path, allow404, body) => {
+      if (body !== undefined) {
+        calls.writes.push({ path, body });
+        if (overrides.apiFailure) throw new Error('deployment request failed');
+        if (path.includes('/promote/')) { promoted = true; return {}; }
+        if (path === '/v13/deployments') return { id: 'dpl_new', url: 'new.vercel.app' };
+        throw new Error('Unexpected API write ' + path);
+      }
+      if (path.includes('/v9/projects/')) return { id: 'prj_test', name: 'site' };
+
       if (path.includes('/v4/aliases/')) return { projectId: 'prj_test', deploymentId: promoted && !overrides.oldAlias ? 'dpl_new' : 'dpl_old' };
       if (path.includes('dpl_old')) return current;
       if (path.includes('dpl_new') || path.includes('new.vercel.app')) return created;
       throw new Error('Unexpected Vercel request ' + path);
-    },
-    cli: async args => {
-      calls.cli.push(args);
-      if (overrides.cliFailure) throw new Error('build/upload failed');
-      if (args[0] === 'promote') promoted = true;
-      return { stdout: 'https://new.vercel.app\n', stderr: '' };
     },
     head: async () => overrides.head || A,
     health: async url => { calls.health.push(url); if (overrides.unhealthyNew && url === 'https://new.vercel.app') throw new Error('new health failed'); },
@@ -78,12 +82,15 @@ test('uses the release commit when master advances and preserves explicit checko
   const result = await deploy(f.options, f.deps);
   assert.equal(result.sha, A);
   assert.equal(result.outcome, 'success');
-  assert.equal(f.calls.cli[0].includes('--skip-domain'), true);
-  assert.equal(f.calls.cli[0].includes('hivetexSha=' + A), true);
+  assert.equal(f.calls.writes[0].body.autoAssignCustomDomains, false);
+  assert.equal(f.calls.writes[0].body.meta.hivetexSha, A);
+  assert.deepEqual(f.calls.writes[0].body.gitSource, { type: 'github', repoId: '123', ref: A, sha: A });
+  assert.equal(f.calls.writes[0].body.target, 'production');
+  assert.equal(f.calls.writes[1].path, '/v10/projects/prj_test/promote/dpl_new');
   assert.deepEqual(f.calls.health, ['https://new.vercel.app', 'https://site.vercel.app']);
   const wrong = fixture({ head: B });
   await assert.rejects(deploy(wrong.options, wrong.deps), /Checkout is not/);
-  assert.equal(wrong.calls.cli.length, 0);
+  assert.equal(wrong.calls.writes.length, 0);
 });
 test('skips stale master, older stable release and an ancestor of deployed production', async () => {
   const master = fixture({ options: { tag: '', kind: 'master' }, masterTip: B });
@@ -92,12 +99,12 @@ test('skips stale master, older stable release and an ancestor of deployed produ
   assert.match((await deploy(old.options, old.deps)).reason, /newer stable release/);
   const ancestor = fixture({ comparison: 'behind' });
   assert.match((await deploy(ancestor.options, ancestor.deps)).reason, /newer descendant/);
-  for (const f of [master, old, ancestor]) assert.equal(f.calls.cli.length, 0);
+  for (const f of [master, old, ancestor]) assert.equal(f.calls.writes.length, 0);
 });
 test('duplicate notifications verify the already-current source without uploading', async () => {
   const f = fixture({ current: { meta: { hivetexSha: A } } });
   assert.equal((await deploy(f.options, f.deps)).outcome, 'skipped');
-  assert.equal(f.calls.cli.length, 0);
+  assert.equal(f.calls.writes.length, 0);
   assert.deepEqual(f.calls.health, ['https://old.vercel.app']);
 });
 test('legacy CLI git metadata establishes source ordering without bypassing project or SHA checks', async () => {
@@ -108,7 +115,7 @@ test('legacy CLI git metadata establishes source ordering without bypassing proj
   await assert.rejects(deploy(wrongProject.options, wrongProject.deps), /different Vercel project/);
   const invalid = fixture({ current: { meta: { gitCommitSha: 'invalid' } } });
   await assert.rejects(deploy(invalid.options, invalid.deps), /source is unknown/);
-  assert.equal(invalid.calls.cli.length, 0);
+  assert.equal(invalid.calls.writes.length, 0);
 });
 test('unknown/divergent production fails and explicit baseline is bound to its deployment ID', async () => {
   const unknown = fixture({ current: { meta: {} } });
@@ -124,27 +131,27 @@ test('build/migration and unhealthy new deployment failures never promote an old
   for (const overrides of [{ created: { readyState: 'ERROR' } }, { unhealthyNew: true }]) {
     const f = fixture(overrides);
     await assert.rejects(deploy(f.options, f.deps));
-    assert.equal(f.calls.cli.some(c => c[0] === 'promote'), false);
+    assert.equal(f.calls.writes.some(c => c.path.includes('/promote/')), false);
     assert.equal(f.calls.health.includes('https://site.vercel.app'), false);
   }
 });
-test('upload failures retry exactly four times and preserve published installers', async () => {
-  const f = fixture({ cliFailure: true });
+test('API failures retry exactly four times and preserve published installers', async () => {
+  const f = fixture({ apiFailure: true });
   await assert.rejects(deploy(f.options, f.deps), /four attempts/);
-  assert.equal(f.calls.cli.length, 4);
+  assert.equal(f.calls.writes.length, 4);
   assert.deepEqual(f.calls.sleep, [60000, 120000, 180000]);
   assert.equal(f.calls.gh.some(p => p.includes('/assets')), false);
 });
 test('rechecks moved tags and production ordering after a staged build', async () => {
   const moved = fixture({ changedTag: true });
   await assert.rejects(deploy(moved.options, moved.deps), /does not match/);
-  assert.equal(moved.calls.cli.some(c => c[0] === 'promote'), false);
+  assert.equal(moved.calls.writes.some(c => c.path.includes('/promote/')), false);
   const newer = fixture();
   const gh = newer.deps.gh;
   let comparisons = 0;
   newer.deps.gh = async path => path.includes('/compare/') ? { status: ++comparisons === 1 ? 'ahead' : 'behind' } : gh(path);
   assert.equal((await deploy(newer.options, newer.deps)).outcome, 'skipped');
-  assert.equal(newer.calls.cli.some(c => c[0] === 'promote'), false);
+  assert.equal(newer.calls.writes.some(c => c.path.includes('/promote/')), false);
 });
 test('old production health cannot stand in for alias promotion', async () => {
   const f = fixture({ oldAlias: true });
@@ -152,6 +159,11 @@ test('old production health cannot stand in for alias promotion', async () => {
   assert.equal(f.calls.health.includes('https://site.vercel.app'), false);
 });
 test('validates deployment source/project and unique URL independently of old production', async () => {
+  const wrongGit = fixture({ created: { gitSource: { sha: B } } });
+  await assert.rejects(deploy(wrongGit.options, wrongGit.deps), /Built Git source/);
+  assert.equal(wrongGit.calls.writes.some(c => c.path.includes('/promote/')), false);
+  const preview = fixture({ created: { target: 'preview' } });
+  await assert.rejects(deploy(preview.options, preview.deps), /not built for production/);
   const wrongSHA = fixture({ created: { meta: { hivetexSha: B } } });
   await assert.rejects(deploy(wrongSHA.options, wrongSHA.deps), /metadata does not match/);
   const wrongProject = fixture({ created: { projectId: 'other' } });

@@ -110,12 +110,12 @@ export async function waitReady(url, deps, projectId) {
   }
   throw new Error('New Vercel deployment did not become READY within ten minutes');
 }
-async function retryCLI(args, deps) {
+async function retryOperation(operation, deps) {
   for (let i = 0; i < 4; i++) {
-    try { return await deps.cli(args); }
+    try { return await operation(); }
     catch (error) {
       deps.log(error.message);
-      if (i === 3) throw new Error('Vercel command failed after four attempts; see build/upload logs above');
+      if (i === 3) throw new Error('Vercel API operation failed after four attempts; see request logs above');
       await deps.sleep(60_000 * (i + 1));
     }
   }
@@ -127,11 +127,18 @@ export async function deploy(options, deps) {
   let current = await currentProduction(candidate, deps);
   let decision = await guard(candidate, current, deps);
   if (decision.skip) return { outcome: 'skipped', ...decision, sha: candidate.sha, tag: candidate.tag, url: current ? 'https://' + current.url : '', id: current?.id };
-  const args = ['deploy', '--prod', '--skip-domain', '--yes', '--token', options.token, '--meta', 'hivetexSha=' + candidate.sha, '--meta', 'hivetexTrigger=' + candidate.kind];
-  if (candidate.tag) args.push('--meta', 'hivetexTag=' + candidate.tag);
-  const result = await retryCLI(args, deps);
-  const url = deploymentURL(result.stdout);
+  const project = await deps.vercel('/v9/projects/' + encodeURIComponent(candidate.projectId));
+  const repository = await deps.gh('/repos/' + candidate.repo);
+  if (project.id !== candidate.projectId || !project.name || !Number.isSafeInteger(repository.id)) throw new Error('Invalid project or repository identity for deployment');
+  const uploaded = await retryOperation(() => deps.vercel('/v13/deployments', false, {
+    name: project.name, project: candidate.projectId, target: 'production', autoAssignCustomDomains: false,
+    gitSource: { type: 'github', repoId: String(repository.id), ref: candidate.sha, sha: candidate.sha },
+    meta: { hivetexSha: candidate.sha, hivetexTrigger: candidate.kind, ...(candidate.tag ? { hivetexTag: candidate.tag } : {}) },
+  }), deps);
+  const url = deploymentURL('https://' + uploaded.url);
   const created = await waitReady(url, deps, candidate.projectId);
+  if ((created.gitSource?.sha || created.meta?.githubCommitSha) !== candidate.sha) throw new Error('Built Git source does not match the verified commit');
+  if (created.target !== 'production') throw new Error('New deployment was not built for production');
   if (created.meta?.hivetexSha !== candidate.sha) throw new Error('New deployment source metadata does not match the release');
   await deps.health(url);
   // The tag, CI and production state may change during the build; recheck before promotion.
@@ -139,7 +146,7 @@ export async function deploy(options, deps) {
   current = await currentProduction(candidate, deps);
   decision = await guard(candidate, current, deps);
   if (decision.skip) return { outcome: 'skipped', ...decision, sha: candidate.sha, tag: candidate.tag, url: current ? 'https://' + current.url : '', id: current?.id, stagedURL: url };
-  await retryCLI(['promote', url, '--yes', '--token', options.token], deps);
+  await retryOperation(() => deps.vercel('/v10/projects/' + encodeURIComponent(candidate.projectId) + '/promote/' + encodeURIComponent(created.id), false, {}), deps);
   let aliased = false;
   for (let i = 0; i < 24; i++) {
     const alias = await deps.vercel('/v4/aliases/' + encodeURIComponent(candidate.siteHost) + '?projectId=' + encodeURIComponent(candidate.projectId), true);
@@ -160,15 +167,19 @@ function dependencies(options, env) {
   const deadline = setTimeout(() => abort.abort(new Error('Production deployment exceeded its 40-minute budget')), 40 * 60_000);
   deadline.unref();
   const redact = text => [env.VERCEL_TOKEN, env.GH_TOKEN, env.VERCEL_AUTOMATION_BYPASS_SECRET].filter(Boolean).reduce((s, secret) => s.replaceAll(secret, '[redacted]'), String(text));
-  async function json(url, token, allow404 = false, signal) {
-    const response = await fetch(url, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(30_000), signal].filter(Boolean)) });
+  async function json(url, token, allow404 = false, signal, body) {
+    const response = await fetch(url, { method: body === undefined ? 'GET' : 'POST', body: body === undefined ? undefined : JSON.stringify(body), headers: { Authorization: 'Bearer ' + token, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, redirect: 'error', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(30_000), signal].filter(Boolean)) });
     if (allow404 && response.status === 404) return null;
-    if (!response.ok) throw new Error('Remote API request failed: HTTP ' + response.status);
-    return response.json();
+    if (!response.ok) {
+      const details = await response.json().catch(() => ({}));
+      throw new Error(redact('Remote API request failed: HTTP ' + response.status + ' ' + (details.error?.message || details.error?.code || '')));
+    }
+    const payload = await response.text();
+    return payload ? JSON.parse(payload) : {};
   }
   return {
     gh: (path, request = {}) => json('https://api.github.com' + path, env.GH_TOKEN, false, request.signal),
-    vercel: (path, allow404) => json('https://api.vercel.com' + path + (path.includes('?') ? '&' : '?') + 'teamId=' + encodeURIComponent(options.orgId), options.token, allow404),
+    vercel: (path, allow404, body) => json('https://api.vercel.com' + path + (path.includes('?') ? '&' : '?') + 'teamId=' + encodeURIComponent(options.orgId), options.token, allow404, undefined, body),
     sleep: ms => new Promise((resolve, reject) => {
       if (abort.signal.aborted) return reject(abort.signal.reason);
       const timer = setTimeout(() => { abort.signal.removeEventListener('abort', stop); resolve(); }, ms);
@@ -177,10 +188,6 @@ function dependencies(options, env) {
     }),
     log: message => console.error(redact(message)),
     head: async () => (await exec('git', ['rev-parse', 'HEAD'])).stdout,
-    cli: async args => {
-      try { return await exec('npx', ['--yes', 'vercel@50.25.4', ...args], { timeout: 25 * 60_000, signal: abort.signal, maxBuffer: 8 * 1024 * 1024, windowsHide: true }); }
-      catch (error) { throw new Error(redact((error.stderr || error.stdout || 'Vercel failed').slice(-10000))); }
-    },
     health: async url => {
       const bypass = env.VERCEL_AUTOMATION_BYPASS_SECRET;
       const headers = bypass ? { 'x-vercel-protection-bypass': bypass } : {};
@@ -192,11 +199,7 @@ function dependencies(options, env) {
           const response = await fetch(url + '/api/health', { headers, redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10_000)]) });
           if (isProtected(response)) {
             if (bypass) throw new Error('Health check is protected and VERCEL_AUTOMATION_BYPASS_SECRET was rejected.');
-            // Without a bypass secret, the Vercel CLI authenticates with the deploy token; protection stays enabled.
-            // --token goes before `curl`: options after the URL are passed through to curl itself.
-            const { stdout } = await exec('npx', ['--yes', 'vercel@50.25.4', ...(options.token ? ['--token', options.token] : []), 'curl', url + '/api/health', '--yes', '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
-              { timeout: 120_000, signal: abort.signal, windowsHide: true });
-            if (JSON.parse(stdout.trim().split('\n').at(-1)).ok === true) return;
+            throw new Error('Health check is protected. Configure VERCEL_AUTOMATION_BYPASS_SECRET for this project.');
           } else if (response.ok && (await response.json()).ok === true) return;
         } catch (error) {
           if (abort.signal.aborted || error.message.includes('Health check is protected')) throw error;
