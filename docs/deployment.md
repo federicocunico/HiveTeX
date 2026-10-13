@@ -74,23 +74,20 @@ make deploy-prod CONFIRM=1                   # runs `make check`, then vercel de
   set `HIVETEX_PRODUCTION_BASELINE_ID` (that exact Vercel deployment ID) and `HIVETEX_PRODUCTION_BASELINE_SHA`
   (its full verified Git commit). This baseline cannot apply to a different deployment. New deploys write their own
   `hivetexSha`, `hivetexTag` when applicable and trigger metadata.
-- **A deploy is checked before promotion.** The workflow uploads sources with production settings and `--skip-domain`,
-  waits for the unique deployment to be READY, checks its health, rechecks release/CI/ordering and promotes it. It then
+- **A deploy is checked before promotion.** The workflow creates a Git-source production build for the exact checked commit through the project-scoped Vercel API, with automatic domain assignment disabled. It waits for READY, verifies the actual Git SHA and health, rechecks release/CI/ordering and promotes it. It then
   verifies that the stable production alias points at the new deployment ID and checks its health. A healthy old
   endpoint cannot make a failed release deploy look green. Migrations still run during the build and must remain
   compatible with the currently serving version.
 - **Settings and recovery.** Reuse `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`; `make setup` configures
   them. `HIVETEX_API_BASE` names the stable production domain. When unique deployment URLs require authentication, the
-  health check goes through `vercel curl` with `VERCEL_TOKEN`; optionally set the repository’s
-  `VERCEL_AUTOMATION_BYPASS_SECRET` from that Vercel project’s automation bypass setting to send it in a header instead.
-  Protection stays enabled either way. The run summary reports source, tag, deployment URL and terminal state.
+  health check requires the repository’s `VERCEL_AUTOMATION_BYPASS_SECRET` from the project’s automation bypass setting, sent in a header. Protection stays enabled. API delivery reuses the existing deploy token and avoids CLI user/team lookups. The run summary reports source, tag, deployment URL and terminal state.
   Upload/promotion failures have bounded retries and a deployment budget. A deploy failure keeps published installers.
   Retry without republishing them: `gh workflow run deploy.yml -f release_tag=v1.2.3`. For a checked branch commit, use
   `gh workflow run deploy.yml`. Vercel’s own Git deploys remain disabled in `vercel.json`.
 
 GitHub suppresses follow-on release events from its built-in token, so the direct reusable call is required for
 automated publication ([trigger behavior](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)).
-The checks use Vercel’s [deployment lookup](https://vercel.com/docs/rest-api/deployments/get-a-deployment-by-id-or-url),
+The checks use Vercel’s [deployment creation](https://vercel.com/docs/rest-api/deployments/create-a-new-deployment), [deployment lookup](https://vercel.com/docs/rest-api/deployments/get-a-deployment-by-id-or-url),
 [alias lookup](https://vercel.com/docs/rest-api/aliases/get-an-alias) and optional
 [automation bypass header](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation).
 

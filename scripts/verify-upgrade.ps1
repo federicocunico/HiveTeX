@@ -40,7 +40,10 @@ function Remove-All {
     elseif ($entry.UninstallString -match '^(?<exe>.+?\.exe)(?:\s|$)') { Invoke-Program $Matches.exe @('/S') }
     else { throw 'Unexpected HiveTeX uninstall registration' }
   }
-  if (@(Get-Installed).Count) { throw 'HiveTeX is still registered after uninstall' }
+  # NSIS first copies the uninstaller to a temporary process; the original exe exits before cleanup finishes.
+  $deadline = [DateTime]::UtcNow.AddSeconds(120)
+  while (@(Get-Installed).Count -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+  if (@(Get-Installed).Count) { throw 'HiveTeX is still registered after uninstall (120-second deadline)' }
 }
 function Assert-One([string]$scenario) {
   $found = @(Get-Installed)
@@ -80,10 +83,13 @@ function Start-Installed {
     $programDir = $key.GetValue('InstallDir')
     if (-not $programDir) { $programDir = $key.GetValue('') }
   }
+  $programDir = $programDir.Trim('"')
   $exe = Join-Path $programDir 'hivetex-desktop.exe'
   if (-not (Test-Path -LiteralPath $exe)) { throw 'Installed executable is missing' }
   Set-Content -LiteralPath (Join-Path $env:APPDATA 'app.hivetex.desktop\startup.json') -Value '{"background":true}'
+  $script:installedExe = $exe
   $app = Start-Process -FilePath $exe -ArgumentList '--background' -WindowStyle Hidden -PassThru
+  $script:installedAppId = $app.Id
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do {
     $workers = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($app.Id) AND Name='node.exe'")
@@ -94,6 +100,11 @@ function Start-Installed {
   throw 'Installed app did not start exactly one worker'
 }
 function Assert-Clean {
+  if ($script:installedExe -and (Test-Path -LiteralPath $script:installedExe)) { throw 'Uninstall left the program executable' }
+  if ($script:installedAppId) {
+    if (Get-Process -Id $script:installedAppId -ErrorAction SilentlyContinue) { throw 'Uninstall left the running app' }
+    if (@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$script:installedAppId AND Name='node.exe'").Count) { throw 'Uninstall left the owned worker' }
+  }
   foreach ($dir in $owned) { if (Test-Path -LiteralPath $dir) { throw "Uninstall left user data: $dir" } }
   if (Has-Credential) { throw 'Uninstall left an app credential' }
   if ((cmdkey.exe "/list:$legacyCredential") -match [regex]::Escape($legacyCredential)) { throw 'Uninstall left a legacy app credential' }
@@ -138,9 +149,13 @@ try {
   Assert-Clean
 
   Invoke-Program $newSetup.FullName @('/S')
+  $setupEntry = @(Get-Installed)[0]
+  $priorSetupDir = $setupEntry.InstallLocation.Trim('"')
   Seed-Data
   Invoke-Program msiexec.exe @('/i', "`"$($newMsi.FullName)`"", '/qn', '/norestart')
   Assert-One 'setup -> MSI'
+  if (Test-Path -LiteralPath (Join-Path $priorSetupDir 'hivetex-desktop.exe')) { throw 'Setup migration left the earlier program' }
+  if (Test-Path -LiteralPath (Join-Path $priorSetupDir 'uninstall.exe')) { throw 'Setup migration left the earlier uninstaller' }
   Assert-Preserved
   Invoke-Program msiexec.exe @('/i', "`"$($newMsi.FullName)`"", '/qn', '/norestart')
   Assert-One 'MSI reinstall'
@@ -149,8 +164,11 @@ try {
   Remove-All
   Assert-Clean
   Write-Host 'All Windows upgrade/uninstall checks passed'
+} catch {
+  Write-Error -Message $_.Exception.Message -ErrorAction Continue
+  throw
 } finally {
-  Remove-All
+  try { Remove-All } catch { Write-Warning "Final runner cleanup failed: $($_.Exception.Message)" }
   # Resolved and checked against the temporary root before recursive removal.
   Remove-Item -LiteralPath $work -Recurse -Force
 }
