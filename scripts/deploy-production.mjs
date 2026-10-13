@@ -182,12 +182,21 @@ function dependencies(options, env) {
       catch (error) { throw new Error(redact((error.stderr || error.stdout || 'Vercel failed').slice(-10000))); }
     },
     health: async url => {
-      const headers = env.VERCEL_AUTOMATION_BYPASS_SECRET ? { 'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET } : {};
+      const bypass = env.VERCEL_AUTOMATION_BYPASS_SECRET;
+      const headers = bypass ? { 'x-vercel-protection-bypass': bypass } : {};
+      // Deployment Protection answers with 401/403 or a redirect to Vercel's SSO page.
+      const isProtected = response => response.status === 401 || response.status === 403
+        || (response.status >= 300 && response.status < 400 && /^https:\/\/vercel\.com\/sso-api/.test(response.headers.get('location') ?? ''));
       for (let i = 0; i < 24; i++) {
         try {
-          const response = await fetch(url + '/api/health', { headers, redirect: 'error', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10_000)]) });
-          if (response.status === 401 || response.status === 403) throw new Error('Health check is protected. Configure VERCEL_AUTOMATION_BYPASS_SECRET without disabling deployment protection.');
-          if (response.ok && (await response.json()).ok === true) return;
+          const response = await fetch(url + '/api/health', { headers, redirect: 'manual', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10_000)]) });
+          if (isProtected(response)) {
+            if (bypass) throw new Error('Health check is protected and VERCEL_AUTOMATION_BYPASS_SECRET was rejected.');
+            // Without a bypass secret, the Vercel CLI authenticates with the deploy token; protection stays enabled.
+            const { stdout } = await exec('npx', ['--yes', 'vercel@latest', 'curl', url + '/api/health', ...(options.token ? ['--token', options.token] : []), '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
+              { timeout: 120_000, signal: abort.signal, windowsHide: true });
+            if (JSON.parse(stdout.trim().split('\n').at(-1)).ok === true) return;
+          } else if (response.ok && (await response.json()).ok === true) return;
         } catch (error) { if (abort.signal.aborted || error.message.includes('Health check is protected')) throw error; }
         if (i !== 23) await new Promise((resolve, reject) => {
           const timer = setTimeout(() => { abort.signal.removeEventListener('abort', stop); resolve(); }, 5_000);
