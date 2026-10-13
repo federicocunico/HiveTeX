@@ -11,8 +11,12 @@ $work = [IO.Path]::GetFullPath($work)
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
 if (-not $work.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test path escaped the temporary directory' }
 New-Item -ItemType Directory -Path $work | Out-Null
-$owned = @((Join-Path $env:APPDATA 'app.hivetex.desktop'), (Join-Path $env:LOCALAPPDATA 'app.hivetex.desktop'))
+$owned = @(
+  (Join-Path $env:APPDATA 'app.hivetex.desktop'), (Join-Path $env:LOCALAPPDATA 'app.hivetex.desktop'),
+  (Join-Path $env:APPDATA 'app.p2platex.desktop'), (Join-Path $env:LOCALAPPDATA 'app.p2platex.desktop')
+)
 $credential = 'hivetex-uninstall-test.app.hivetex.desktop'
+$legacyCredential = 'hivetex-uninstall-test.app.p2platex.desktop'
 $external = Join-Path $work 'external-project'
 New-Item -ItemType Directory -Path $external | Out-Null
 Set-Content -LiteralPath (Join-Path $external 'main.tex') -Value 'external document'
@@ -56,6 +60,8 @@ function Seed-Data {
   }
   cmdkey.exe "/generic:$credential" '/user:hivetex-test' '/pass:fixture-only' | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Could not create the credential fixture' }
+  cmdkey.exe "/generic:$legacyCredential" '/user:hivetex-test' '/pass:fixture-only' | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not create the legacy credential fixture' }
   New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Force | Out-Null
   Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'HiveTeX' -Value 'fixture-only'
 }
@@ -90,6 +96,7 @@ function Start-Installed {
 function Assert-Clean {
   foreach ($dir in $owned) { if (Test-Path -LiteralPath $dir) { throw "Uninstall left user data: $dir" } }
   if (Has-Credential) { throw 'Uninstall left an app credential' }
+  if ((cmdkey.exe "/list:$legacyCredential") -match [regex]::Escape($legacyCredential)) { throw 'Uninstall left a legacy app credential' }
   if (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'HiveTeX' -ErrorAction SilentlyContinue) { throw 'Uninstall left login startup enabled' }
   if ((Get-Content -LiteralPath (Join-Path $external 'main.tex') -Raw).Trim() -ne 'external document') { throw 'Uninstall damaged an external project' }
 }

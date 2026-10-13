@@ -3,6 +3,18 @@ use std::path::Path;
 
 pub static COMPILER_ACTIVITY: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 pub const CACHE_DIRS: &[&str] = &["builds", "tectonic-cache", "texcache", "downloads", "tectonic.tmp", "tinytex.tmp"];
+const APP_ID: &str = "app.hivetex.desktop";
+const LEGACY_ID: &str = "app.p2platex.desktop"; // Published v0.1.0/v0.1.1, before the HiveTeX name.
+
+fn is_link(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        meta.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    { meta.file_type().is_symlink() }
+}
 
 pub fn remove_owned_tree(path: &Path) -> Result<(), String> {
     let meta = match std::fs::symlink_metadata(path) {
@@ -10,18 +22,12 @@ pub fn remove_owned_tree(path: &Path) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(format!("Cannot inspect {}: {e}", path.display())),
     };
-    #[cfg(windows)]
-    let linked = {
-        use std::os::windows::fs::MetadataExt;
-        meta.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT, including directory junctions
-    };
+    let linked = is_link(&meta);
     #[cfg(windows)]
     let directory = {
         use std::os::windows::fs::MetadataExt;
         meta.file_attributes() & 0x10 != 0 // FILE_ATTRIBUTE_DIRECTORY remains set on directory junctions
     };
-    #[cfg(not(windows))]
-    let linked = meta.file_type().is_symlink();
     #[cfg(not(windows))]
     let directory = meta.is_dir();
     if directory && !linked {
@@ -35,7 +41,19 @@ pub fn remove_owned_tree(path: &Path) -> Result<(), String> {
 
 pub fn clear_compiler_cache(root: &Path) -> Result<(), String> {
     let _exclusive = COMPILER_ACTIVITY.try_write().map_err(|_| "A compile or compiler installation is active. Wait for it to finish, then clear the cache.".to_string())?;
-    for name in CACHE_DIRS { remove_owned_tree(&root.join(name))?; }
+    let mut roots = vec![root.to_path_buf()];
+    if root.file_name().is_some_and(|name| name == APP_ID) {
+        if let Some(parent) = root.parent() { roots.push(parent.join(LEGACY_ID)); }
+    }
+    for root in roots {
+        match std::fs::symlink_metadata(&root) {
+            Ok(meta) if is_link(&meta) => return Err("The compiler data folder is linked to another location; cache reset cannot delete through that link.".into()),
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(format!("Cannot inspect {}: {e}", root.display())),
+        }
+        for name in CACHE_DIRS { remove_owned_tree(&root.join(name))?; }
+    }
     crate::tex::forget_engine();
     Ok(())
 }
@@ -49,10 +67,15 @@ pub fn uninstall(identifier: &str, startup_name: &str) -> Result<(), String> {
     stop_apps(identifier)?;
     delete_credentials(identifier)?;
     remove_startup(startup_name)?;
+    if identifier == APP_ID {
+        delete_credentials(LEGACY_ID)?;
+        remove_startup("p2platex")?;
+    }
     for key in ["APPDATA", "LOCALAPPDATA"] {
         let base = std::env::var_os(key).map(std::path::PathBuf::from).ok_or_else(|| format!("{key} is unavailable"))?;
         if !base.is_absolute() { return Err(format!("{key} must be an absolute profile path")); }
         remove_owned_tree(&base.join(identifier))?;
+        if identifier == APP_ID { remove_owned_tree(&base.join(LEGACY_ID))?; }
     }
     Ok(())
 }
@@ -64,7 +87,9 @@ fn stop_apps(identifier: &str) -> Result<(), String> {
     let user = system.process(current).and_then(|p| p.user_id()).ok_or("Cannot identify the uninstalling Windows user")?;
     let executable = std::env::current_exe().map_err(|e| e.to_string())?.canonicalize().map_err(|e| e.to_string())?;
     for (&pid, process) in system.processes() {
-        if pid != current && process.name().eq_ignore_ascii_case("hivetex-desktop.exe") && process.user_id() == Some(user) {
+        let ours = process.name().eq_ignore_ascii_case("hivetex-desktop.exe")
+            || process.name().eq_ignore_ascii_case("p2platex-desktop.exe");
+        if pid != current && ours && process.user_id() == Some(user) {
             // The isolated test identity may never stop a person's installed production app.
             if identifier.ends_with(".e2e") && !process.exe().and_then(|p| p.canonicalize().ok()).is_some_and(|p| p == executable) { continue; }
             if !process.kill() { return Err(format!("Cannot stop HiveTeX process {pid}; quit HiveTeX and retry uninstall")); }
@@ -177,6 +202,23 @@ mod tests {
         assert!(clear_compiler_cache(Path::new("unused")).unwrap_err().contains("active"));
     }
 
+    #[test]
+    fn cache_reset_includes_legacy_builds_and_preserves_legacy_documents() {
+        let base = std::env::temp_dir().join(format!("hivetex-legacy-cache-{}", std::process::id()));
+        remove_owned_tree(&base).unwrap();
+        for id in [APP_ID, LEGACY_ID] {
+            std::fs::create_dir_all(base.join(id).join("builds")).unwrap();
+            std::fs::write(base.join(id).join("builds/output.pdf"), "cache").unwrap();
+            std::fs::write(base.join(id).join("document.tex"), "retain").unwrap();
+        }
+        clear_compiler_cache(&base.join(APP_ID)).unwrap();
+        for id in [APP_ID, LEGACY_ID] {
+            assert!(!base.join(id).join("builds").exists());
+            assert!(base.join(id).join("document.tex").exists());
+        }
+        remove_owned_tree(&base).unwrap();
+    }
+
     #[cfg(windows)]
     #[test]
     fn cleanup_does_not_follow_a_directory_junction() {
@@ -185,10 +227,14 @@ mod tests {
         let external = base.join("external");
         let owned = base.join("owned");
         std::fs::create_dir_all(&external).unwrap();
+        std::fs::create_dir_all(external.join("builds")).unwrap();
+        std::fs::write(external.join("builds/output.pdf"), "keep").unwrap();
         std::fs::create_dir_all(&owned).unwrap();
         std::fs::write(external.join("document.tex"), "preserve").unwrap();
         assert!(crate::proc::background_command("cmd.exe").args(["/c", "mklink", "/J"])
             .arg(owned.join("linked")).arg(&external).status().unwrap().success());
+        assert!(clear_compiler_cache(&owned.join("linked")).unwrap_err().contains("linked"));
+        assert!(external.join("builds/output.pdf").exists());
         remove_owned_tree(&owned).unwrap();
         assert_eq!(std::fs::read_to_string(external.join("document.tex")).unwrap(), "preserve");
         remove_owned_tree(&base).unwrap();

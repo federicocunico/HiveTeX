@@ -39,3 +39,5 @@ Sync master first; preserve untracked user files. Write/validate the change, app
 ## Deployment verification finding
 
 The pre-existing production deploy failed because its source was uploaded through the Vercel CLI and the guard did not read CLI `meta.gitCommitSha`. The authenticated CLI verified the production deployment ID, correct project, READY state and the known ancestor commit b8768d8. Accept this existing metadata field alongside GitHub/HiveTeX fields; preserve project identity, SHA format, ancestry and exact-CI checks. No credential files or tokens are needed for this inspection.
+
+Published v0.1.0/v0.1.1 used `app.p2platex.desktop`; include its app-owned cache/profile/credential namespace in explicit cleanup. Cache reset preserves documents in both namespaces and refuses a linked data root. The isolated test identity never cleans the production or legacy namespaces.

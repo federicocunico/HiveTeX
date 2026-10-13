@@ -178,7 +178,7 @@ function dependencies(options, env) {
     log: message => console.error(redact(message)),
     head: async () => (await exec('git', ['rev-parse', 'HEAD'])).stdout,
     cli: async args => {
-      try { return await exec('npx', ['--yes', 'vercel@latest', ...args], { timeout: 25 * 60_000, signal: abort.signal, maxBuffer: 8 * 1024 * 1024, windowsHide: true }); }
+      try { return await exec('npx', ['--yes', 'vercel@50.25.4', ...args], { timeout: 25 * 60_000, signal: abort.signal, maxBuffer: 8 * 1024 * 1024, windowsHide: true }); }
       catch (error) { throw new Error(redact((error.stderr || error.stdout || 'Vercel failed').slice(-10000))); }
     },
     health: async url => {
@@ -194,7 +194,7 @@ function dependencies(options, env) {
             if (bypass) throw new Error('Health check is protected and VERCEL_AUTOMATION_BYPASS_SECRET was rejected.');
             // Without a bypass secret, the Vercel CLI authenticates with the deploy token; protection stays enabled.
             // --token goes before `curl`: options after the URL are passed through to curl itself.
-            const { stdout } = await exec('npx', ['--yes', 'vercel@latest', ...(options.token ? ['--token', options.token] : []), 'curl', url + '/api/health', '--yes', '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
+            const { stdout } = await exec('npx', ['--yes', 'vercel@50.25.4', ...(options.token ? ['--token', options.token] : []), 'curl', url + '/api/health', '--yes', '--', '--silent', '--show-error', '--fail', '--max-time', '10'],
               { timeout: 120_000, signal: abort.signal, windowsHide: true });
             if (JSON.parse(stdout.trim().split('\n').at(-1)).ok === true) return;
           } else if (response.ok && (await response.json()).ok === true) return;

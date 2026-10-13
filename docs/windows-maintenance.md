@@ -10,7 +10,7 @@ Open **Account > Compiler > Clear compiler caches** when older versions left bui
 
 A setup/MSI upgrade, an installer-format change and a signed update preserve local projects, settings and credentials. Install the new version over the old one when updating.
 
-An **explicit uninstall removes HiveTeX's local data** for the Windows user running uninstall: local and roaming app folders, WebView state, retained/offline project replicas, compiler caches, app-managed TinyTeX/Tectonic, saved credentials and login startup. Back up work that exists only in the app before uninstalling. Linked project folders outside those app folders and separately installed TeX distributions are kept. Cleanup never follows a directory junction into an external folder. Other users' Windows profiles are outside the cleanup boundary.
+An **explicit uninstall removes HiveTeX's local data** for the Windows user running uninstall: local and roaming app folders, WebView state, retained/offline project replicas, compiler caches, app-managed TinyTeX/Tectonic, saved credentials and login startup. Back up work that exists only in the app before uninstalling. Linked project folders outside those app folders and separately installed TeX distributions are kept. Cleanup never follows a directory junction into an external folder. The data and credential namespace `app.p2platex.desktop` from v0.1.0/v0.1.1 is included. Other users' Windows profiles are outside the cleanup boundary.
 
 The installer aborts if cleanup fails; close the app and retry. The setup confirmation explains local data removal. Both uninstallers invoke a maintenance command that starts no tray, editor or worker.
 

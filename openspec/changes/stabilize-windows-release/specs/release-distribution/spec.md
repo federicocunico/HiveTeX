@@ -54,6 +54,10 @@ An explicit uninstall SHALL stop HiveTeX and its owned workers, remove the progr
 - **WHEN** an installer or signed updater removes an earlier version as part of replacement
 - **THEN** documents, preferences and credentials survive
 
+#### Scenario: Residue from the former p2platex name
+- **WHEN** earlier releases left app.p2platex.desktop data, credentials or login startup
+- **THEN** explicit uninstall removes those app-owned residues alongside current HiveTeX state
+
 #### Scenario: External project folder
 - **WHEN** the app previously linked a folder outside its own data directories
 - **THEN** uninstall leaves that folder and its content intact
