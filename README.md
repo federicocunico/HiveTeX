@@ -36,8 +36,8 @@ then on that browser compiles there: faster, with every LaTeX package.
 
 ### The desktop app
 
-Download the installer for your system from the [Releases page](https://github.com/federicocunico/HiveTeX/releases).
-First launch:
+Download the installer from the [Releases page](https://github.com/federicocunico/HiveTeX/releases). Releases currently
+ship Windows installers only; on macOS and Linux build the app from source (`make desktop-build`). First launch:
 
 - **Windows:** SmartScreen shows "Windows protected your PC". Click *More info* → *Run anyway*.
 - **macOS:** open the `.dmg` and drag HiveTeX to Applications. If macOS blocks it, open *System Settings → Privacy &
@@ -217,8 +217,7 @@ Run the commands from the repository root (Git Bash on Windows).
    make release VERSION=0.1.2 CONFIRM=1   # checks CI passed for this commit, then pushes tag v0.1.2
    ```
 
-   After about 30 minutes the release is **published** on the Releases page with the Windows, macOS and Linux
-   installers, already pointing at your server, and installed apps are offered the update. A failed build is re-run
+   After about 30 minutes the release is **published** on the Releases page with the Windows installers, already pointing at your server, and installed apps are offered the update. A failed build is re-run
    automatically (3 attempts); after that the release stays a draft until you re-run the failed job (see [Deployment](docs/deployment.md#5-desktop)).
 
 6. **Invite people:** send them your web link, or the release page for the desktop app.

@@ -1,4 +1,8 @@
 name: Desktop
+# The desktop app. Tests run on Linux and Windows in parallel; installers are built for Windows only (for now):
+# - Tag v* -> draft GitHub Release with the Windows installers and the signed auto-update manifest (latest.json),
+#   published by the Release workflow.
+# - Manual run (Actions -> Desktop -> Run workflow) -> the same installers as workflow artifacts, no release.
 on:
   workflow_dispatch:
   push:
@@ -9,107 +13,91 @@ on:
       - "apps/desktop/**"
       - "apps/web/**"
       - "packages/**"
+      - "server/**"
+      - "e2e/**"
       - ".github/workflows/desktop.yml"
 
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
-  # Runs the Rust tests (real LaTeX compilation, shell-escape hardening, timeouts, folder mirror, OS keychain)
-  # on all three operating systems, with a TeX distribution installed so the TeX detection path is exercised.
+  # Rust tests (real LaTeX compilation, shell-escape hardening, timeouts, folder mirror, OS keychain, native store,
+  # transport, UPnP client and mapping manager) with a TeX distribution installed, plus the patched webrtc-ice suite.
   rust-tests:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/src-tauri
-      - name: Linux system libraries
+          workspaces: |
+            apps/desktop/src-tauri
+            apps/desktop/src-tauri/vendor/webrtc-ice
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - name: Linux system libraries and TeX
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config \
             texlive-latex-base texlive-latex-recommended latexmk
-      - name: macOS TeX (BasicTeX)
-        if: runner.os == 'macOS'
-        run: |
-          brew install --cask basictex
-          echo "/Library/TeX/texbin" >> "$GITHUB_PATH"
-      - name: Windows TeX (MiKTeX)
+      - name: Windows TeX (TinyTeX)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # The Chocolatey feed is sometimes briefly unavailable (503): retry before failing the job.
+          # TinyTeX from GitHub releases, the same archive and checksum the app installs (src/managed.rs): MiKTeX's
+          # Chocolatey package and on-the-fly installs depend on miktex.org mirrors that time out on runners.
+          $url = 'https://github.com/rstudio/tinytex-releases/releases/download/v2026.10/TinyTeX-1-windows-v2026.10.exe'
+          $sfx = Join-Path $env:RUNNER_TEMP 'tinytex.exe'
           for ($i = 1; $i -le 4; $i++) {
-            choco install miktex --no-progress -y
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($i -eq 4) { exit 1 }
-            Start-Sleep -Seconds (30 * $i)
+            try { Invoke-WebRequest $url -OutFile $sfx; break } catch { if ($i -eq 4) { throw }; Start-Sleep -Seconds (15 * $i) }
           }
-          $bin = "C:\Program Files\MiKTeX\miktex\bin\x64"
+          $hash = (Get-FileHash $sfx -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '36c329c644683d981a668419d13c8804696e2816ae4d287ad755788fee231a31') { throw "TinyTeX checksum mismatch: $hash" }
+          7z x $sfx "-o$env:RUNNER_TEMP" -y | Out-Null
+          $bin = Join-Path $env:RUNNER_TEMP 'TinyTeX\bin\windows'
+          if (-not (Test-Path "$bin\pdflatex.exe")) { Get-ChildItem (Join-Path $env:RUNNER_TEMP 'TinyTeX\bin'); throw 'pdflatex not found' }
           $env:PATH = "$bin;$env:PATH"
-          # A fresh MiKTeX refuses to run until its package database exists, and it must be allowed to fetch
-          # missing packages (article.cls, fonts...) without a prompt.
-          initexmf --admin --set-config-value="[MPM]AutoInstall=1"
-          miktex --admin packages update-package-database
-          miktex --admin packages update
-          initexmf --admin --update-fndb
-          initexmf --update-fndb
+          # Warm-up build: a broken TeX fails here, with its log, not in the middle of a test.
+          $warm = Join-Path $env:RUNNER_TEMP 'tex-warmup'
+          New-Item -ItemType Directory -Force $warm | Out-Null
+          Set-Content -Path "$warm\main.tex" -Value '\documentclass{article}\begin{document}Hello \LaTeX{}\end{document}'
+          Push-Location $warm
+          latexmk -pdf -interaction=nonstopmode main.tex
+          if (-not (Test-Path main.pdf)) { Get-Content main.log -ErrorAction SilentlyContinue; exit 1 }
+          Pop-Location
           echo $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Prepare frontend dist (required by tauri::generate_context)
+      - name: Frontend dist and bundled sync worker (required by tauri::generate_context)
         run: |
-          corepack enable
           pnpm install --frozen-lockfile
           pnpm --filter @hivetex/web build
-      - name: Bundled sync worker and pinned Node runtime (tauri resources; checksums verified)
-        run: node apps/desktop/prepare-worker.mjs
+          node apps/desktop/prepare-worker.mjs
+      - name: Rust tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --lib
       - name: Patched webrtc-ice (mapped endpoints on the UDP mux; vendor/PATCHES.md)
         if: runner.os == 'Linux'
         working-directory: apps/desktop/src-tauri/vendor/webrtc-ice
         run: cargo test --lib
-      - name: Detect TeX
-        shell: bash
-        run: |
-          export PATH="$PATH:/Library/TeX/texbin"
-          which pdflatex || true
-          pdflatex --version | head -1 || true
-          # Compile a tiny document the same way the app does, so a broken TeX setup shows its real error here.
-          mkdir -p "$RUNNER_TEMP/texcheck" && cd "$RUNNER_TEMP/texcheck"
-          printf '\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n' > main.tex
-          pdflatex -interaction=nonstopmode -synctex=1 -no-shell-escape main.tex || echo "pdflatex FAILED ($?)"
-          latexmk -pdf -interaction=nonstopmode main.tex || echo "latexmk FAILED ($?)"
-          ls -la
-      - name: Rust tests
-        working-directory: apps/desktop/src-tauri
-        run: cargo test --lib
-
-  # Linux: a desktop instance and a browser instance sync a project (checks WebRTC works inside the webview/engine we ship).
-  e2e-sync:
-    runs-on: ubuntu-latest
-    needs: rust-tests
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with: { node-version: 22, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec playwright test e2e/auth-and-collab.spec.ts e2e/offline-and-compile.spec.ts
-        env: { CI: "true" }
 
   # Router matrix (13.4): Linux namespaces with a UPnP router (miniupnpd), a symmetric NAT, TURN and packet capture;
   # the peers are the app's native stack (rtc_cli). Mapped direct, no-hairpin LAN, unsupported UPnP and relay only.
   router-matrix:
     runs-on: ubuntu-24.04
-    needs: rust-tests
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: apps/desktop/src-tauri }
-      # setup-node reads packageManager (pnpm) from package.json and needs pnpm on PATH, as in the other jobs.
+      # setup-node reads packageManager (pnpm) from package.json and needs pnpm on PATH.
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
@@ -130,18 +118,17 @@ jobs:
         if: always()
         with: { name: router-matrix, path: "${{ runner.temp }}/netlab-result.json", if-no-files-found: ignore }
 
-  # The real desktop app driven over WebDriver (tauri-driver): folders picked through the `test-picker` debug build,
-  # create-from-folder, link/open marker folders, import, external edits. See apps/desktop/e2e.
+  # The real desktop app driven over WebDriver (tauri-driver), with the local server and a Chromium co-author for the
+  # relay, fault-injection and doorbell tests. On Windows also the lifecycle checks without WebDriver (lifecycle.mjs).
   desktop-e2e:
-    needs: rust-tests
     strategy:
       fail-fast: false
       matrix:
         # windows-2022: on windows-2025 WebView2 (>= 133) never opens the DevTools port msedgedriver needs
-        # (https://github.com/actions/runner-images/issues/14738). Kept non-blocking until it has proven stable.
+        # (https://github.com/actions/runner-images/issues/14738).
         os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ startsWith(matrix.os, 'windows') }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v5
@@ -169,7 +156,6 @@ jobs:
           "MSEDGEDRIVER=$dir\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: cargo install tauri-driver --locked
       - run: pnpm install --frozen-lockfile
-      # The relay, 13.7 and doorbell tests pair the desktop app with a real Chromium co-author.
       - name: Browser for the desktop/browser tests
         run: pnpm exec playwright install --with-deps chromium
       - name: Desktop UI tests (Linux, virtual display)
@@ -182,27 +168,15 @@ jobs:
         if: runner.os == 'Windows'
         run: pnpm --filter @hivetex/desktop e2e
 
-  # Desktop installers for Windows (exe/msi), macOS (universal dmg) and Linux (AppImage/deb).
-  # - Tag v* -> draft GitHub Release with installers and the signed auto-update manifest (latest.json).
-  # - Manual run (Actions -> Desktop -> Run workflow) -> the same installers as workflow artifacts, no release.
+  # Windows installers (exe, msi) and the signed update manifest. Installers do not wait for the tests: `make release`
+  # only tags a commit whose CI and Desktop runs already passed, so a flaky test cannot block a release.
   build:
-    # Installers do not wait for the tests: `make release` only tags a commit whose CI and Desktop runs already
-    # passed, so a flaky test or a TeX mirror outage here can never block a release.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Pinned images: a change of the *-latest defaults must not silently break a release.
-          - os: windows-2025
-            args: ""
-          - os: macos-15
-            args: "--target universal-apple-darwin"
-          - os: ubuntu-24.04
-            args: ""
-    runs-on: ${{ matrix.os }}
+    # Pinned image: a change of the -latest default must not silently break a release.
+    runs-on: windows-2025
+    timeout-minutes: 60
     env:
       IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
       HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
@@ -230,39 +204,13 @@ jobs:
             echo '{"bundle":{"createUpdaterArtifacts":false}}' > "$RUNNER_TEMP/no-updater.json"
             extra="--config $RUNNER_TEMP/no-updater.json"
           fi
-          echo "TAURI_ARGS=${{ matrix.args }} $extra" >> "$GITHUB_ENV"
-          # Optional paid code signing: export only what is configured (an empty identity would override ad-hoc signing).
-          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            [ -n "${!k}" ] && echo "$k=${!k}" >> "$GITHUB_ENV" || true
-          done
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          echo "TAURI_ARGS=$extra" >> "$GITHUB_ENV"
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: apps/desktop/src-tauri }
-      - name: Linux system libraries
-        if: runner.os == 'Linux'
-        run: |
-          # mirrors are occasionally unavailable: retry instead of failing the release
-          for i in 1 2 3 4; do
-            sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libdbus-1-dev pkg-config libfuse2 && break
-            [ "$i" = 4 ] && exit 1
-            sleep $((20 * i))
-          done
-          # linuxdeploy's bundled strip cannot read Ubuntu 24.04's .relr.dyn sections, and linuxdeploy (itself an
-          # AppImage) is run extracted instead of through FUSE.
-          echo "NO_STRIP=true" >> "$GITHUB_ENV"
-          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
       - name: Install dependencies
         shell: bash
         run: |
@@ -293,7 +241,7 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
           releaseName: "hivetex ${{ github.ref_name }}"
-          releaseBody: "Installers for Windows, macOS and Linux. See the README section \"Release v0.1 and test with others\" for first-launch notes."
+          releaseBody: "Windows installers. See the README for first-launch notes."
           releaseDraft: true
           args: ${{ env.TAURI_ARGS }}
       - name: Build only (manual run)
@@ -307,49 +255,26 @@ jobs:
           projectPath: apps/desktop
           args: ${{ env.TAURI_ARGS }}
       # The built app starts its own bundled worker with no Node on PATH (a clean machine), then exits.
-      - name: Packaged startup check (Windows)
-        if: runner.os == 'Windows'
+      - name: Packaged startup check
         shell: pwsh
         run: |
           $env:PATH = "$env:SystemRoot\System32"
-          & apps/desktop/src-tauri/target/release/hivetex-desktop.exe --self-check
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-      - name: Packaged startup check (macOS app bundle)
-        if: runner.os == 'macOS'
-        run: |
-          app=$(ls -d apps/desktop/src-tauri/target/*/release/bundle/macos/*.app | head -1)
-          env -i HOME="$HOME" PATH=/usr/bin:/bin "$app/Contents/MacOS/hivetex-desktop" --self-check
-      - name: Packaged startup check (Linux AppImage)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get install -y xvfb
-          img=$(ls apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage | head -1)
-          chmod +x "$img"
-          env -i HOME="$HOME" PATH=/usr/bin:/bin APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a "$img" --self-check
+          # A GUI-subsystem exe: `&` does not wait for it nor set $LASTEXITCODE, Start-Process -Wait does.
+          $p = Start-Process -FilePath apps/desktop/src-tauri/target/release/hivetex-desktop.exe -ArgumentList '--self-check' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { Write-Error "self-check exited with $($p.ExitCode)"; exit 1 }
       - name: Check that a new Windows installer replaces the old version (manual run)
-        if: env.IS_TAG != 'true' && runner.os == 'Windows'
+        if: env.IS_TAG != 'true'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ./scripts/verify-upgrade.ps1 -Bundle apps/desktop/src-tauri/target/release/bundle -Repo "${{ github.repository }}"
       - name: Upload installers (manual run)
         if: env.IS_TAG != 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: hivetex-${{ matrix.os }}
-          # installers only (not the unpacked AppDir / .app folders)
+          name: hivetex-windows
           path: |
             apps/desktop/src-tauri/target/release/bundle/*/*.exe
             apps/desktop/src-tauri/target/release/bundle/*/*.msi
-            apps/desktop/src-tauri/target/release/bundle/*/*.dmg
-            apps/desktop/src-tauri/target/release/bundle/*/*.AppImage
-            apps/desktop/src-tauri/target/release/bundle/*/*.deb
             apps/desktop/src-tauri/target/release/bundle/*/*.sig
-            apps/desktop/src-tauri/target/release/bundle/*/*.app.tar.gz
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.exe
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.msi
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.dmg
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.AppImage
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.deb
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.sig
-            apps/desktop/src-tauri/target/*/release/bundle/*/*.app.tar.gz
           if-no-files-found: error
-          retention-days: 14

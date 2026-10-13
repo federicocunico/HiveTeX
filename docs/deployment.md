@@ -80,7 +80,7 @@ So current clients keep **no connection to the server while idle** (the doorbell
 push service; the server only answers short requests and holds a signaling socket for the seconds an introduction needs.
 
 `pnpm --filter @hivetex/server usage-report` measures the real hub, connection managers, relay router and budget client
-and extrapolates to 30 days (latest output: `openspec/changes/add-desktop-project-seeding/verification.md`). Measured on
+and extrapolates to 30 days (latest output: `openspec/changes/archive/2026-10-12-add-desktop-project-seeding/verification.md`). Measured on
 2026-10-12:
 
 | Load | Invocations | GB-h (2 GB) | Redis commands |
@@ -155,9 +155,9 @@ How the server handles relayed traffic:
 ## 5. Desktop
 
 - **Releases are built and published on GitHub.** Pushing tag `vX.Y.Z` (`make release VERSION=X.Y.Z CONFIRM=1`) runs
-  the *Desktop* workflow's `build` job. It fills a draft release with Windows (exe, msi), macOS (universal dmg, ad-hoc
-  signed) and Linux (AppImage, deb, rpm) installers, plus the signed `latest.json` used by *Account → Check for
-  updates*. When the three builds succeed, the *Release* workflow checks that every file is there, adds download links
+  the *Desktop* workflow's `build` job. It fills a draft release with the Windows installers (exe, msi) and the signed
+  `latest.json` used by *Account → Check for updates*. Installers are Windows-only for now: macOS and Linux are
+  tested in CI (Linux) but not built; build them locally with `make desktop-build`. When the build succeeds, the *Release* workflow checks that every file is there, adds download links
   and first-launch notes, and publishes it (about 30 minutes after the push). A tag like `v0.3.0-beta.1` is published
   as a pre-release, which installed apps don't update to.
 - **A release cannot be blocked by a flaky test or a mirror outage:**
@@ -165,7 +165,7 @@ How the server handles relayed traffic:
     the check);
   - the tag's `build` jobs make only the installers, without waiting for the tests, and retry package downloads;
   - if a build still fails, the *Release* workflow re-runs the failed jobs automatically (3 attempts in all) and
-    publishes as soon as all three succeed.
+    publishes as soon as the build succeeds.
 - **If a build fails,** the release stays a draft and the *Release* run says what's missing. Re-run the failed
   *Desktop* jobs and it publishes on its own. *Actions → Release → Run workflow* (with the tag) publishes a draft by
   hand.
@@ -198,11 +198,12 @@ How the server handles relayed traffic:
 
 **Packaged startup check.** `hivetex-desktop --self-check` verifies the bundled runtime and worker and starts the
 worker. It waits for the handshake and exits 0, or exits 1 with the reason. It opens no window and does not use a
-Node installed on the machine. The *Desktop* `build` job runs it with a minimal `PATH` on all three platforms, on the
-built `.exe`, the macOS `.app` and the Linux AppImage. Run it by hand on a downloaded build the same way. If HiveTeX is
+Node installed on the machine. The *Desktop* `build` job runs it with a minimal `PATH` on the built Windows `.exe`. Run it by
+hand on a downloaded or locally built package the same way (inside an AppImage, where linuxdeploy rewrites bundled
+executables, the runtime is checked by its pinned version instead of its download checksum). If HiveTeX is
 already running for the same user, the second launch hands over to it instead, so quit first.
 
-**Manual macOS checks** (no macOS runner drives the UI):
+**Manual macOS checks** (for a locally built macOS package; CI does not build macOS for now):
 1. Open the `.dmg`, drag HiveTeX to Applications. The first start needs right-click → Open (ad-hoc signature).
 2. `"/Applications/HiveTeX.app/Contents/MacOS/hivetex-desktop" --self-check` prints `self-check: sync worker ready`.
 3. Close the window: the menu-bar icon stays, and *Open HiveTeX* brings it back. Starting the app again from

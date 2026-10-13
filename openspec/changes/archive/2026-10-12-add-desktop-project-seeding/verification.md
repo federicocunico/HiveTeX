@@ -547,3 +547,37 @@ Remaining limitations:
 - real IPv6 paths, physical routers and CGNAT hardware are emulated, not exercised;
 - the soak covers one hour on one machine;
 - the no-tray Linux path is implemented but not driven.
+
+### Desktop CI and packaged startup checks (12.2)
+
+The CI changes are:
+- `rust-tests` prepares the bundled worker resources and runs the patched `webrtc-ice` suite;
+- `desktop-e2e` prepares the pinned Node runtime and worker (`run.mjs` runs `prepare-worker.mjs`), installs Chromium
+  for the desktop/browser tests, and on Windows runs `lifecycle.mjs`;
+- `router-matrix` was added;
+- the release `build` runs `--self-check` with a minimal PATH.
+
+CSP and process guards are unchanged: the e2e config only adds the local server to `connect-src`, and the worker is
+still started through `proc::background_command` with a cleared environment.
+
+Evidence from the `v0.6.0` tag run (Desktop run 38307918523):
+- The Windows, Linux and macOS installers all built and were attached to the draft release: exe, msi, AppImage, deb,
+  rpm, universal dmg and `latest.json`.
+- **macOS:** the packaged `.app` startup check passed.
+- **Windows:** the built `.exe` printed `self-check: sync worker ready`, but the step failed. PowerShell's `&` does
+  not wait for a GUI-subsystem exe and does not set `$LASTEXITCODE`. The step now uses `Start-Process -Wait`, which
+  was verified locally on the release build (exit 0).
+- **Linux:** the AppImage check found a real defect. linuxdeploy rewrites bundled ELF executables, so the Node
+  runtime no longer matched its download checksum, and the worker would not start. Inside an AppImage the runtime is
+  now checked by its pinned version; the worker bundle keeps its exact checksum.
+
+Afterwards, by product decision (2026-10-12), CI builds installers for **Windows only** for now and runs no macOS
+jobs. Linux keeps the tests: Rust, desktop e2e under xvfb, and the router matrix. The workflows were also restructured
+for speed:
+- every job runs in parallel (no `needs` chains);
+- CI is split into secrets, checks, unit and two Playwright shards;
+- CI runs once per commit: pull requests, master and tags;
+- superseded Desktop runs are cancelled;
+- the duplicate `e2e-sync` job was removed.
+
+The Release workflow publishes after the Windows build and requires exe, msi and `latest.json`.

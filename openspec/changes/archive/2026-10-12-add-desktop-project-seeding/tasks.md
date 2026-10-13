@@ -115,7 +115,7 @@ Implementation is authorized. Prefer peer-to-peer content delivery; the applicat
 ## 12. Packaging and release readiness
 
 - [x] 12.1 Package the pinned worker runtime and script resources for every shipped desktop target, including signatures/checksums and license notices; verify a clean machine with no installed Node can launch the worker.
-- [ ] 12.2 Extend desktop CI build/e2e setup for native persistence, patched ICE and worker artifacts without weakening existing CSP/process guards; verify clean Windows/Linux builds and a packaged macOS startup check.
+- [x] 12.2 Extend desktop CI build/e2e setup for native persistence, patched ICE and worker artifacts without weakening existing CSP/process guards; verify clean Windows/Linux builds and a packaged macOS startup check.
 - [x] 12.3 Implement independent rollout switches and safe disable paths for application relay, background demand and UPnP; verify foreground data remains current after feature rollback and a downgrade cannot silently reopen stale IndexedDB.
 - [x] 12.4 Document release packaging, manual macOS checks and rollback commands; verify the procedures on built artifacts and record exact dependency/toolchain versions.
 
