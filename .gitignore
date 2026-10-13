@@ -20,3 +20,6 @@ playwright-report
 
 # ExpressTURN credentials handed over as a loose file: never commit
 expressturn.info
+
+# Installers built locally by make installer
+dist-installer/

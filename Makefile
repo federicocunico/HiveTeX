@@ -23,7 +23,7 @@ HINT_node   := install Node 22: https://nodejs.org
 HINT_git    := install Git: https://git-scm.com/downloads
 
 .PHONY: help install dev dev-local build lint typecheck test size e2e bench check audit clean \
-        desktop-dev desktop-test desktop-e2e desktop-build \
+        desktop-dev desktop-test desktop-e2e desktop-build installer \
         up down ps logs reset migrate-local test-stack setup secrets version release \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
         require-vercel-link
@@ -88,6 +88,9 @@ desktop-test: require-cargo ## Rust tests of the desktop shell
 
 desktop-e2e: require-pnpm require-cargo ## Desktop UI tests: debug app (test-picker) + tauri-driver + WebDriver (see docs/folders.md)
 	$(PNPM) --filter @hivetex/desktop e2e
+
+installer: require-pnpm require-cargo require-node ## Build the installer like the release does and copy it to ./dist-installer (API_BASE=<server>, TAURI_SIGNING_PRIVATE_KEY to sign updates)
+	node scripts/build-installer.mjs
 
 desktop-build: require-pnpm require-cargo ## Build desktop installers for this OS
 	$(PNPM) --filter @hivetex/desktop tauri build

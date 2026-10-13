@@ -93,6 +93,8 @@ exits non-zero otherwise). CI runs it as job *Router matrix* in `.github/workflo
 
 ## 5. Native peer on a real machine
 
+Build the installer to hand to the other machine with `make installer` (output in `dist-installer/`, `HiveTeX_<version>_x64-setup.exe`).
+
 The probes in the Network diagnostics page run from the web view. To check the native stack itself, run the example
 peer on two machines (`apps/desktop/src-tauri/examples/rtc_cli.rs`, built by `cargo build --example rtc_cli` in
 `apps/desktop/src-tauri`) or, simpler, repeat section 1 with the desktop app on at least one side. The **Co-authors**

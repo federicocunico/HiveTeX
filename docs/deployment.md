@@ -205,6 +205,7 @@ How the server handles relayed traffic:
 - **Dry run.** *Actions → Desktop → Run workflow* builds the same installers as workflow artifacts, without a release
   and without needing the key.
 - **Local builds.** `make desktop-build` builds installers on the current machine (needs Rust).
+- **An installer to hand to a tester.** `make installer` builds like the release (production server baked in; `API_BASE=<url>` to change it) and copies the files with `SHA256SUMS.txt` to `dist-installer/` (git-ignored). It takes about 5 minutes. Updater signatures are made only when `TAURI_SIGNING_PRIVATE_KEY` is set. Do not run two builds at once: they share `apps/web/dist` and the second fails with EPERM.
 - **Update notice.** On start, the desktop app asks GitHub for the repository's latest published release (never a
   draft or pre-release; the repository comes from `VITE_SOURCE_URL`, default HiveTeX) and shows a *Version X is
   available* badge with a *Download* button to the release page when it is newer. It stays silent offline.
