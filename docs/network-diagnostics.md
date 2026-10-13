@@ -53,8 +53,8 @@ content. **Show connection trace** on the page shows the latest 200 steps live.
 | Event | Meaning |
 |---|---|
 | `manager.start`, `manager.stop` | Networking for the project started (with the app version) or stopped. |
-| `socket.opening`, `socket.opened`, `socket.challenge`, `server.ready`, `socket.closed` | The signaling connection: opening, open, authenticating, accepted (how many other devices are on the service, the session id), closed (and the retry delay). |
-| `server.err` | The service refused something; `code` says what (for example an expired ticket). |
+| `socket.opening`, `socket.opened`, `socket.challenge`, `server.ready`, `socket.closed` | The signaling connection: opening, open, authenticating, accepted (how many other devices are on the service, the session id), closed (the retry delay, and `reopen=true` when it reconnects because a device is still being connected; `reason=idle` when this device closed it because nothing needs it). On desktop the socket opens on demand: it stays open while a device seen on the service is not yet connected. |
+| `server.err` | The service refused something; `code` says what (for example an expired ticket). `subscription_lost`: the service stopped receiving messages for this device and closed the connection so that it reconnects (before, such a device stayed listed online but received nothing). |
 | `device.learned` | A co-author device became known, from the service or from a peer, with this device's role towards it (offerer: lower device id). |
 | `device.rejected` | A device's ticket was not accepted; `reason` says why. |
 | `peer.join`, `peer.leave` | A co-author connected to or left the service. |
@@ -78,6 +78,10 @@ content. **Show connection trace** on the page shows the latest 200 steps live.
 | `relay.start` | Setup of the application relay started. |
 
 Where the trace is collected:
+
+- `make sandbox-sync` (Windows 11) runs the desktop test build on this PC and in Windows Sandbox, has them share a project
+  and edit it, and writes both traces and the server's signaling log merged by time to
+  `apps/desktop/src-tauri/target/sandbox-sync/<run>/timeline.txt` (see the script header for the server, TURN and fault options).
 
 - Unit and server end-to-end tests record the trace of every participant and print it when a test fails
   (`TraceLog` in `@hivetex/sync/testing`; pass `trace: traceLog().sink` to a manager).

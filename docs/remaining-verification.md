@@ -100,6 +100,29 @@ peer on two machines (`apps/desktop/src-tauri/examples/rtc_cli.rs`, built by `ca
 `apps/desktop/src-tauri`) or, simpler, repeat section 1 with the desktop app on at least one side. The **Co-authors**
 section of the page then shows the native link's candidate types and selected path.
 
+## 6. Two machines on one PC: `make sandbox-sync` (Windows 11)
+
+The desktop test build runs on this PC and inside Windows Sandbox (a VM behind its own NAT). The script registers an
+account on each, shares a project (the sandbox joins as editor), checks a new file and an edit in each direction and
+concurrent edits, runs *Test connection* on both sides at once, and writes everything to
+`apps/desktop/src-tauri/target/sandbox-sync/<run>/` (`summary.json`, `timeline.txt` with both traces and the server's
+signaling log merged by time, per-side diagnostics and logs). The sandbox window opens; the app installed on this PC is
+not touched (the test build has its own identifier and credential store).
+
+```
+make sandbox-sync                                        # local server, STUN only
+set -a; . ./.env.setup; set +a; make sandbox-sync        # local server handing out the TURN relay, like production
+FAULT=deaf-silent make sandbox-sync                      # the production failure: a server session that stopped receiving
+FAULT=deaf make sandbox-sync                             # the same, as the server now handles it (closes, client reconnects)
+SERVER=https://hivetex.vercel.app make sandbox-sync      # against production (creates two test accounts and a project)
+```
+
+Results on 2026-10-13 (this PC behind a VPN, so both public addresses are the same): STUN only fails at
+`checks-failed` (no direct path; the relay is needed, as between two symmetric NATs); with TURN, passes; against
+production, passes; `deaf-silent` reproduces the reported pair (offers sent, never received, the far side never learns
+the device); `deaf` recovers in under a second. Open: with TURN the first attempt sometimes ends at `checks-failed`
+after 20 s and the second connects within 3 s.
+
 ## Reading a trace
 
 Every connection step is recorded per peer, without credentials, keys, addresses or content:
@@ -131,3 +154,5 @@ only `host` on both sides across networks means no STUN result and no relay).
 - [ ] `make desktop-e2e` passes on Windows and Linux (section 3)
 - [ ] Router matrix passes (section 4)
 - [ ] Desktop app tested as one side of a real pair (section 5)
+- [x] Two machines on one PC, local server with TURN, against production, and the deaf-session fault (section 6)
+- [ ] First TURN attempt sometimes times out at `checks-failed` before the second connects (section 6)

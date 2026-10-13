@@ -46,6 +46,29 @@ describe('connection test (probePeer)', () => {
     expect(r.trace.map((e) => e.ev)).toEqual(expect.arrayContaining(['probe.start', 'sig.send', 'sig.recv', 'probe.end']));
   });
 
+  it('on-demand signaling that is closed: the test opens it, learns who is online and connects', async () => {
+    const { auth, lo, hi } = await pair();
+    const rtc = new FakeRtcNetwork();
+    const relay = new Relay({ acks: true });
+    const b = managerFor(hi, auth, PID, rtc, { wsFactory: relay.attach(hi, [] as FakeWs[]), clientInfo: 'test z' });
+    const a = managerFor(lo, auth, PID, rtc, {
+      wsFactory: relay.attach(lo, [] as FakeWs[]), clientInfo: 'test a',
+      zeroIdle: true, doorbell: { ring: async () => false }, introductionWindowMs: 100, introductionMinMs: 10, idleCloseMs: 5,
+    });
+    cleanup.push(() => {
+      a.mgr.stop();
+      b.mgr.stop();
+    });
+    b.mgr.start();
+    a.mgr.start();
+    a.mgr.setDoorbellAvailable(false);
+    expect(a.mgr.socketOpen).toBe(false);
+    const r = await a.mgr.probePeer('z-device');
+    expect(r.steps[0]?.detail).toMatch(/opened for this test/);
+    expect(r.known).toBe(true);
+    expect(r.verdict).toMatch(/^Connected/);
+  });
+
   it('from the answering side: the probe makes the offering side retry at once, and the test reports the new connection', async () => {
     const { auth, lo, hi } = await pair();
     const rtc = new FakeRtcNetwork();

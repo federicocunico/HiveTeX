@@ -531,10 +531,22 @@ export class ConnectionManager {
     const steps: PeerProbeStep[] = [];
     const step = (label: string, ok: boolean | null, detail: string) => steps.push({ at: Date.now() - t0, label, ok, detail });
     const role: 'offerer' | 'answerer' = this.selfDev < dev ? 'offerer' : 'answerer';
+    const socketWasOpen = this.socketOpen;
+    this.tr('probe.start', dev, { role, known: this.known.has(dev), onServer: this.onRelay.has(dev), connectedBefore: this.connected(dev), socketOpen: socketWasOpen });
+    // On-demand signaling (desktop) between introductions: open it for the test and wait for the service's list of
+    // devices, so the test sees who is online now instead of failing on a closed socket.
+    let opened = '';
+    if (!socketWasOpen && (this.doorbellMode || (this.o.doorbell && this.o.zeroIdle))) {
+      const since = this.traceSeq;
+      void this.introduce(false);
+      const ready = () => this.recent.some((r) => r.seq > since && r.e.ev === 'server.ready');
+      const until = Date.now() + (o.replyTimeoutMs ?? 8000);
+      while (!ready() && !this.stopped && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      opened = ready() ? `; opened for this test in ${Date.now() - t0} ms` : '; could not be opened for this test (see socket.* and server.err below)';
+    }
     const known = this.known.has(dev);
     const onServer = this.onRelay.has(dev);
     const connectedBefore = this.connected(dev);
-    this.tr('probe.start', dev, { role, known, onServer, connectedBefore, socketOpen: this.socketOpen });
     const result: PeerProbeResult = {
       dev,
       startedAt: t0,
@@ -560,8 +572,8 @@ export class ConnectionManager {
     };
 
     step('This device and the signaling service', this.socketOpen, this.socketOpen
-      ? 'connected'
-      : `not connected${this.doorbellMode ? ' (connects on demand)' : ''}; setup messages can only go through a connected co-author (${this.o.mesh.peers.length} connected)`);
+      ? `connected${socketWasOpen ? '' : opened}`
+      : `not connected${this.doorbellMode ? ' (connects on demand)' : ''}${opened}; setup messages can only go through a connected co-author (${this.o.mesh.peers.length} connected)`);
     if (!known) {
       step('Co-author device known', false, 'this device holds no valid ticket for it: it is offline, or its credentials were rejected (see device.rejected in the trace)');
       return finish('This device does not see that co-author online, so there is nothing to connect to.');
@@ -923,12 +935,19 @@ export class ConnectionManager {
     // Relay frames travel over the signaling socket: it stays open while any relay attempt or generation exists.
     if (this.relays.size > 0) return true;
     // Doorbell mode: only while introducing, and no longer once every device seen there is linked.
-    if (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle)) return this.introducing() && !this.introductionDone();
+    // Past the window it stays while a device seen there is still unconnected: setup messages to and from it need this
+    // socket (it closes once that device is linked or leaves).
+    if (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle)) return (this.introducing() && !this.introductionDone()) || this.awaitingSeenDevice();
     // A device seen on the server that we are not linked to may be reachable only through the application relay, which
     // needs our socket too: keep it while one is waiting (otherwise a relay-only peer stays cut off from every device
     // that is not the gatekeeper). It closes again once that device is linked or leaves.
     if (this.o.applicationRelay !== false && [...this.onRelay].some((dev) => !this.connected(dev) && !this.gone.has(dev))) return true;
     return this.o.mesh.peers.length === 0 || this.amGatekeeper();
+  }
+
+  /** A device seen on the server is neither linked nor gone: its connection still needs setup messages. */
+  private awaitingSeenDevice() {
+    return [...this.onRelay].some((dev) => !this.connected(dev) && !this.gone.has(dev));
   }
 
   private evaluate() {
@@ -943,7 +962,11 @@ export class ConnectionManager {
         if (!this.wantSocket()) {
           const ws = this.ws;
           this.ws = null;
+          // Presence seen through this socket is no longer current once it is closed.
+          this.onRelay.clear();
+          this.tr('socket.closed', undefined, { reason: 'idle', meshPeers: this.o.mesh.peers.length });
           ws?.close();
+          this.emitState();
         }
       });
     }
@@ -985,7 +1008,10 @@ export class ConnectionManager {
       this.cancel(rotate);
       cancelBeat();
       if (this.ws !== ws) return;
-      this.tr('socket.closed', undefined, { backoffMs: this.backoff });
+      // Decided before the presence it relies on is cleared: a rotation or a lost connection while a device is still
+      // being connected reopens the socket.
+      const wanted = this.wantSocket();
+      this.tr('socket.closed', undefined, { backoffMs: this.backoff, reopen: wanted });
       this.ws = null;
       this.onRelay.clear();
       // Relay sessions are bound to this socket's session id: they end with it (fresh keys after reconnecting).
@@ -997,11 +1023,13 @@ export class ConnectionManager {
         void this.introduce(false);
         return;
       }
-      if (this.stopped || (!this.wantSocket() && !hadRelays)) return;
+      if (this.stopped || (!wanted && !this.wantSocket() && !hadRelays)) return;
       this.cancel(this.retryTimer);
       this.retryTimer = this.later(this.backoff, () => {
         this.retryTimer = null;
-        this.evaluate();
+        // Doorbell mode keeps a socket for a device only once the server listed it again: reopen for an introduction.
+        if (wanted && !this.wantSocket() && (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle))) void this.introduce(false);
+        else this.evaluate();
       });
       this.backoff = Math.min(this.backoff * 2, 30_000);
     };
@@ -1093,6 +1121,8 @@ export class ConnectionManager {
         this.lastCauses.delete(m.dev);
         this.emitState();
       }
+      // The socket may have been kept only for this device.
+      this.evaluate();
     }
     else if (m.t === 'sig' && m.fromTicket && m.env) {
       this.stats.signalsViaServer++;
@@ -1320,7 +1350,11 @@ export class ConnectionManager {
     // passes it one more hop (see onRtcViaMesh). An arbitrary peer that is not linked to the target would drop it.
     const linkedVia = this.o.mesh.peersLinkedTo(to)[0];
     const via = linkedVia ?? this.o.mesh.peers.find((p) => p.deviceId !== to)?.deviceId;
-    if (!via) return unsent(this.socketOpen ? 'target-not-seen-on-server-and-no-peer' : 'no-socket-and-no-peer');
+    if (!via) {
+      // Doorbell mode between introductions: open the socket so the next attempt can reach the device (or learn it left).
+      if (!this.socketOpen && sig.k !== 'ice' && (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle))) void this.introduce(false);
+      return unsent(this.socketOpen ? 'target-not-seen-on-server-and-no-peer' : 'no-socket-and-no-peer');
+    }
     this.stats.signalsViaMesh++;
     this.tr('sig.send', to, {
       k: sig.k,

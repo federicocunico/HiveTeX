@@ -101,13 +101,17 @@ function contract(name: string, make: () => Promise<Harness> | Harness, enabled:
       const got: string[] = [];
       const off = await backend.subscribe(ch, (m) => got.push(m));
       await backend.publish(ch, 'one');
+      // what the hub publishes: JSON with commas, delivered as the same string
+      const sig = JSON.stringify({ t: 'sig', from: 'a', fromTicket: 'x.y.z', to: 'b', env: 'QUJD,REVG', ack: 'offer-1' });
+      await backend.publish(ch, sig);
       await advance(300);
-      expect(got).toEqual(['one']);
+      expect(got).toEqual(['one', sig]);
+      expect(JSON.parse(got[1] as string)).toMatchObject({ t: 'sig', to: 'b' });
       off();
       await advance(300);
       await backend.publish(ch, 'two');
       await advance(300);
-      expect(got).toEqual(['one']);
+      expect(got).toEqual(['one', sig]);
     }, 15_000);
   });
 }

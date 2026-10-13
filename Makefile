@@ -23,7 +23,7 @@ HINT_node   := install Node 22: https://nodejs.org
 HINT_git    := install Git: https://git-scm.com/downloads
 
 .PHONY: help install dev dev-local build lint typecheck test size e2e bench check audit clean \
-        desktop-dev desktop-test desktop-e2e desktop-build installer \
+        desktop-dev desktop-test desktop-e2e desktop-build installer sandbox-sync \
         up down ps logs reset migrate-local test-stack setup secrets version release \
         env-pull deploy-preview deploy-prod migrate-prod seed-admin \
         require-vercel-link
@@ -91,6 +91,9 @@ desktop-e2e: require-pnpm require-cargo ## Desktop UI tests: debug app (test-pic
 
 installer: require-pnpm require-cargo require-node ## Build the installer like the release does and copy it to ./dist-installer (API_BASE=<server>, TAURI_SIGNING_PRIVATE_KEY to sign updates)
 	node scripts/build-installer.mjs
+
+sandbox-sync: require-pnpm require-cargo require-node ## Two-machine sync test: this PC + Windows Sandbox (Windows 11), results and merged trace under apps/desktop/src-tauri/target/sandbox-sync
+	node apps/desktop/e2e/sandbox-sync.mjs
 
 desktop-build: require-pnpm require-cargo ## Build desktop installers for this OS
 	$(PNPM) --filter @hivetex/desktop tauri build

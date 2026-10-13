@@ -40,6 +40,40 @@ describe('connection lifecycle ownership (F10)', () => {
     await vi.waitFor(() => expect(mgr.socketOpen).toBe(false), { timeout: 1000 });
     await flush(30); expect(sockets).toHaveLength(1);
   });
+  /** A zero-idle desktop introduced to `hi` through the server, whose offers `hi` never answers. */
+  async function introducedToSilentPeer() {
+    const { auth, lo, hi } = await pair();
+    const { mgr, sockets } = managerFor(lo, auth, PID, new FakeRtcNetwork(), {
+      zeroIdle: true, doorbell: { ring: async () => false },
+      introductionWindowMs: 100, introductionMinMs: 10, idleCloseMs: 5,
+    });
+    cleanup.push(() => mgr.stop());
+    mgr.start(); mgr.setDoorbellAvailable(false);
+    mgr.reconnectNow(); await flush(30);
+    const ws = sockets[0] as FakeWs;
+    ws.open();
+    ws.say({ t: 'ready', tickets: [hi.ticket] });
+    return { mgr, sockets, ws, hi };
+  }
+
+  it('desktop zero-idle keeps the socket past the introduction while a device seen there is unconnected, and closes it (traced) once that device leaves', async () => {
+    const { mgr, ws, hi } = await introducedToSilentPeer();
+    await flush(300); // well past the 100 ms introduction: the offers still need this socket
+    expect(mgr.socketOpen).toBe(true);
+    expect(ws.sent.some((m) => m.t === 'sig')).toBe(true);
+    ws.say({ t: 'leave', dev: hi.dev });
+    await vi.waitFor(() => expect(mgr.socketOpen).toBe(false), { timeout: 1000 });
+    expect(mgr.trace().some((e) => e.ev === 'socket.closed' && e.data?.reason === 'idle')).toBe(true);
+  });
+
+  it('desktop zero-idle reopens a socket lost while a device seen there is still being connected', async () => {
+    const { mgr, sockets, ws } = await introducedToSilentPeer();
+    await flush(200);
+    ws.close(); // the server or the network ended it (a rotation looks the same)
+    expect(mgr.trace().some((e) => e.ev === 'socket.closed' && e.data?.reopen === true)).toBe(true);
+    await vi.waitFor(() => expect(sockets).toHaveLength(2), { timeout: 3000 });
+  });
+
   it('duplicate announcements while configuration loads share one attempt', async () => {
     const { auth, lo, hi } = await pair();
     const ice = deferred<unknown[]>();

@@ -13,7 +13,11 @@ import type { Deps } from '../deps.js';
 
 export interface SignalBackend {
   publish(channel: string, message: string): Promise<void>;
-  subscribe(channel: string, cb: (message: string) => void): Promise<() => void>;
+  /**
+   * `onLost` runs once if the subscription ends without being unsubscribed (the stream closed or failed): nothing on
+   * that channel reaches `cb` any more.
+   */
+  subscribe(channel: string, cb: (message: string) => void, onLost?: (reason: string) => void): Promise<() => void>;
   /**
    * Presence values are `<session id>|<ticket>`: a device's newer session replaces the entry of its older one. Every
    * device has its own lease of `ttlSec` seconds (an entry never keeps another device's entry alive).
@@ -45,10 +49,14 @@ export class UsageMeter {
 /** Wraps a backend so every call is counted as `signal.<operation>`; behaviour is unchanged. */
 export function meterSignalBackend(backend: SignalBackend, meter: UsageMeter): SignalBackend {
   const counted = <A extends unknown[], R>(name: string, f: (...a: A) => Promise<R>) => (...a: A) => { meter.add(`signal.${name}`); return f(...a); };
+  const subscribe = backend.subscribe.bind(backend);
   const many = backend.renewPresenceMany?.bind(backend);
   return {
     publish: counted('publish', backend.publish.bind(backend)),
-    subscribe: counted('subscribe', backend.subscribe.bind(backend)),
+    subscribe: (channel, cb, onLost) => {
+      meter.add('signal.subscribe');
+      return subscribe(channel, cb, onLost && ((why) => { meter.add('signal.subscriptionLost'); onLost(why); }));
+    },
     setPresence: counted('setPresence', backend.setPresence.bind(backend)),
     renewPresence: counted('renewPresence', backend.renewPresence.bind(backend)),
     ...(many ? { renewPresenceMany: (e: PresenceRenewal[], ttl: number) => { meter.add('signal.renewPresenceMany'); meter.add('signal.renewPresenceMany.entries', e.length); return many(e, ttl); } } : {}),
@@ -130,11 +138,33 @@ export class MemorySignalBackend implements SignalBackend {
     }
     for (const cb of this.subs.get(channel) ?? []) queueMicrotask(() => cb(message));
   }
-  async subscribe(channel: string, cb: (m: string) => void) {
+  private lost = new Map<(m: string) => void, (reason: string) => void>();
+  async subscribe(channel: string, cb: (m: string) => void, onLost?: (reason: string) => void) {
     const s = this.subs.get(channel) ?? new Set();
     s.add(cb);
     this.subs.set(channel, s);
-    return () => void s.delete(cb);
+    if (onLost) this.lost.set(cb, onLost);
+    return () => {
+      s.delete(cb);
+      this.lost.delete(cb);
+    };
+  }
+  /**
+   * Test/dev fault: every subscription stops receiving, as an Upstash stream that ended. With `notify` false they go
+   * deaf silently (the behaviour before subscriptions reported their loss). Returns how many were dropped.
+   */
+  loseSubscriptions(notify = true): number {
+    let n = 0;
+    for (const s of this.subs.values()) {
+      for (const cb of [...s]) {
+        s.delete(cb);
+        const onLost = this.lost.get(cb);
+        this.lost.delete(cb);
+        n++;
+        if (notify) onLost?.('stream ended (injected)');
+      }
+    }
+    return n;
   }
   async setPresence(p: string, d: string, value: string, ttlSec = 90) {
     const m = this.presence.get(p) ?? new Map();
@@ -177,29 +207,95 @@ export function parseLease(stored: string): { exp: number | null; value: string 
   return m ? { exp: Number(m[1]), value: m[2] as string } : { exp: null, value: stored };
 }
 
+/**
+ * One Upstash REST subscription (`POST <url>/subscribe/<channel>`, a server-sent event stream of
+ * `data: <type>,<channel>,<payload>` lines). Resolves once Redis confirmed it: messages published right after we announce
+ * presence (a peer's offer) would otherwise be lost. Unlike @upstash/redis' subscriber, which ends silently when the
+ * stream does, a stream that closes or fails calls `onLost` (and logs it): the session above would otherwise stay
+ * connected and present while every message for it is dropped.
+ */
+export async function subscribeUpstash(
+  url: string,
+  token: string,
+  channel: string,
+  cb: (message: string) => void,
+  onLost?: (reason: string) => void,
+  fetchFn: typeof fetch = fetch,
+  readyMs = 5000,
+): Promise<() => void> {
+  const controller = new AbortController();
+  let stopped = false;
+  let confirm!: () => void;
+  const confirmed = new Promise<void>((resolve) => (confirm = resolve));
+  const res = await fetchFn(`${url.replace(/\/+$/, '')}/subscribe/${encodeURIComponent(channel)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+    body: '[]',
+    signal: controller.signal,
+  });
+  if (!res.ok || !res.body) throw new Error(`subscribe failed: HTTP ${res.status}`);
+  const body = res.body;
+  void (async () => {
+    let why = 'stream ended';
+    try {
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+        if (buf.length > 1 << 20) throw new Error('event larger than 1 MB');
+        for (const raw of lines) {
+          const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trimStart();
+          const a = data.indexOf(',');
+          const b = a < 0 ? -1 : data.indexOf(',', a + 1);
+          if (b < 0) continue;
+          const type = data.slice(0, a);
+          if (type === 'subscribe') confirm();
+          else if (type === 'message') cb(data.slice(b + 1));
+        }
+      }
+    } catch (e) {
+      why = e instanceof Error ? e.message : String(e);
+    }
+    if (stopped) return;
+    stopped = true;
+    console.warn(`[signal] subscription lost (${channel.split(':')[0]}): ${why}`);
+    onLost?.(why);
+  })();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      confirmed,
+      new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('subscription readiness timed out')), readyMs))),
+    ]);
+  } catch (e) {
+    stopped = true;
+    controller.abort();
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  return () => {
+    stopped = true;
+    controller.abort();
+  };
+}
+
 /** Upstash Redis: pub/sub over REST (SSE) for cross-instance delivery; presence in a TTL'd hash. */
-export async function createUpstashSignalBackend(url: string, token: string): Promise<SignalBackend> {
+export async function createUpstashSignalBackend(url: string, token: string, fetchFn: typeof fetch = fetch): Promise<SignalBackend> {
   const { Redis } = await import('@upstash/redis');
   const redis = new Redis({ url, token });
   return {
     async publish(channel, message) {
       await redis.publish(channel, message);
     },
-    async subscribe(channel, cb) {
-      const sub = redis.subscribe(channel);
-      // The SSE subscription becomes active asynchronously: wait for Redis' confirmation, otherwise messages
-      // published right after we announce presence (e.g. a peer's offer) are silently lost.
-      const ready = new Promise<void>((resolve, reject) => {
-        const t = setTimeout(() => { void sub.unsubscribe(); reject(new Error('subscription readiness timed out')); }, 5000);
-        sub.on('subscribe', () => {
-          clearTimeout(t);
-          resolve();
-        });
-      });
-      sub.on('message', (d: { message: unknown }) => cb(typeof d.message === 'string' ? d.message : JSON.stringify(d.message)));
-      await ready;
-      return () => void sub.unsubscribe();
-    },
+    subscribe: (channel, cb, onLost) => subscribeUpstash(url, token, channel, cb, onLost, fetchFn),
     async setPresence(projectId, deviceId, value, ttlSec) {
       const key = `presence:${projectId}`;
       await redis.hset(key, { [deviceId]: `${Date.now() + ttlSec * 1000};${value}` });
@@ -414,6 +510,13 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
       } else if (m.t === 'join' || m.t === 'leave') {
         if (m.dev !== c.dev) send(m);
       }
+    }, () => {
+      // Deaf but still present: peers would keep sending to a session that receives nothing. End it; the client
+      // reconnects with a fresh subscription.
+      if (closed) return;
+      send({ t: 'err', code: 'subscription_lost' });
+      void cleanup();
+      sock.close(1012, 'subscription lost');
     });
     if (closed) { unsub?.(); return; }
     if (sid.startsWith(RELAY_SESSION_PREFIX) && deps.applicationRelay) {

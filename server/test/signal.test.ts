@@ -2,7 +2,7 @@ import { type StoredDeviceKeys, generateDeviceKeys, open, seal, sign, toB64u } f
 import { signalAuthMessage } from '@hivetex/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cloudflareTurn } from '../src/signal/turn.js';
-import { MemorySignalBackend, createSignalSession, parseLease } from '../src/signal/hub.js';
+import { MemorySignalBackend, createSignalSession, parseLease, subscribeUpstash } from '../src/signal/hub.js';
 import { Client, type TestEnv, makeEnv, register } from './helpers.js';
 
 let env: TestEnv;
@@ -153,12 +153,85 @@ describe('signaling relay (5.1)', () => {
     env.deps.now = real;
   });
 
+  it('a session whose subscription is lost says so and closes, instead of staying present and deaf', async () => {
+    const { a, b } = await setup();
+    const backend = new MemorySignalBackend();
+    const sa = connect(backend);
+    const sb = connect(backend);
+    await sa.auth(a);
+    await sa.until((m) => m.t === 'ready');
+    await sb.auth(b);
+    await sb.until((m) => m.t === 'ready');
+    expect(backend.loseSubscriptions()).toBeGreaterThan(0);
+    expect(await sb.until((m) => m.t === 'err')).toMatchObject({ code: 'subscription_lost' });
+    await expect.poll(() => sb.closed?.code).toBe(1012);
+    expect(sa.closed?.code).toBe(1012);
+    // its presence went with it: a reconnecting peer does not see a deaf device
+    expect(Object.keys(await backend.getPresence(PID.value))).toEqual([]);
+  });
+
   it('rate limits chatty sockets', async () => {
     const { a } = await setup();
     const s = connect(new MemorySignalBackend());
     await s.auth(a);
     for (let i = 0; i < 70; i++) await s.say({ t: 'ping' });
     expect(s.closed?.code).toBe(4429);
+  });
+});
+
+describe('Upstash subscription stream', () => {
+  /** A fake Upstash REST endpoint: the subscribe request gets an event stream whose chunks the test pushes. */
+  function upstash() {
+    let ctl!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start: (c) => void (ctl = c) });
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      requests.push({ url, ...(init ? { init } : {}) });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }) as unknown as typeof fetch;
+    const push = (s: string) => ctl.enqueue(new TextEncoder().encode(s));
+    return { fetchFn, requests, push, end: () => ctl.close(), fail: () => ctl.error(new Error('socket hang up')) };
+  }
+
+  it('waits for the confirmation, delivers messages split across chunks, and reports the end of the stream', async () => {
+    const u = upstash();
+    const got: string[] = [];
+    const lost: string[] = [];
+    const sub = subscribeUpstash('https://redis.example/', 'tok', 'sig:p1', (m) => got.push(m), (why) => lost.push(why), u.fetchFn);
+    u.push('data: subscribe,sig:p1,1\n\n');
+    const unsubscribe = await sub;
+    expect(u.requests[0]?.url).toBe('https://redis.example/subscribe/sig%3Ap1');
+    const msg = JSON.stringify({ t: 'sig', to: 'b', env: 'x,y'.repeat(2000) });
+    u.push(`data: message,sig:p1,${msg.slice(0, 1000)}`);
+    u.push(`${msg.slice(1000)}\r\n\n`);
+    await expect.poll(() => got).toEqual([msg]);
+    expect(lost).toEqual([]);
+    u.end();
+    await expect.poll(() => lost).toEqual(['stream ended']);
+    unsubscribe();
+  });
+
+  it('reports a failed stream once, and nothing after an unsubscribe', async () => {
+    const u = upstash();
+    const lost: string[] = [];
+    const sub = subscribeUpstash('https://redis.example', 'tok', 'sig:p1', () => {}, (why) => lost.push(why), u.fetchFn);
+    u.push('data: subscribe,sig:p1,1\n');
+    await sub;
+    u.fail();
+    await expect.poll(() => lost).toEqual(['socket hang up']);
+
+    const v = upstash();
+    const lost2: string[] = [];
+    const sub2 = subscribeUpstash('https://redis.example', 'tok', 'sig:p1', () => {}, (why) => lost2.push(why), v.fetchFn);
+    v.push('data: subscribe,sig:p1,1\n');
+    (await sub2)();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(lost2).toEqual([]);
+  });
+
+  it('fails when Redis never confirms the subscription', async () => {
+    const u = upstash();
+    await expect(subscribeUpstash('https://redis.example', 'tok', 'sig:p1', () => {}, undefined, u.fetchFn, 50)).rejects.toThrow('readiness');
   });
 });
 
