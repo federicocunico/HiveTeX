@@ -169,6 +169,17 @@ describe('per-peer details, peer test and report', () => {
     for (const forbidden of [SECRET, 'user-abc', '203.0.113.9', 'relay.example.org', 'a1a1a1a1a1a1a1a1']) expect(text).not.toContain(forbidden);
   });
 
+  it('desktop: the native stack\'s own lines appear in the report and in the test details, bounded and without addresses', () => {
+    const native = Array.from({ length: 150 }, (_, i) => `1791900000${i} WARN webrtc_ice: pair ${i} 192.0.2.${i % 200}:50${i % 10}0 <-> [2001:db8::${i}]:3478 failed at 12:30:45`);
+    const self = { dev: 'a1a1a1a1a1a1a1a1', client: 'desktop 0.7.3', socketOpen: true, doorbellMode: true, meshPeers: 0, knownDevices: 1, onServer: 1, stats: { socketOpens: 1, signalsViaServer: 2, signalsViaMesh: 0, relaySetups: 0, relayFailures: 0, rings: 0, answers: 0 }, nativeLog: native };
+    const text = buildReport({ results: [], ice: null, rows: [], app: 'desktop', when: new Date('2026-10-13T12:00:00Z'), self, probes: [{ name: 'bea', result: { ...probe(), nativeLog: native.slice(0, 3) } }] });
+    expect(text).toContain('Native connection stack (desktop; last 80 lines, addresses masked)');
+    expect(text).toContain('Native connection stack during the test (3 of 3 lines)');
+    expect(text).toContain('WARN webrtc_ice: pair 149 <ip> <-> <ip> failed at 12:30:45');
+    expect(text).not.toContain('pair 69 '); // only the latest 80 lines
+    expect(text).not.toMatch(/192\.0\.2\.|2001:db8/);
+  });
+
   it('the report ends with the connection trace, device ids shortened, so a stuck pair shows where it stopped', async () => {
     const text = buildReport({
       results: [],

@@ -141,6 +141,47 @@ async function bridgeLink(muxed: boolean) {
   return { a: transports.a as PeerTransport, b: transports.b as PeerTransport, peers };
 }
 
+describe.skipIf(!bin)('native stack state in the connection trace', () => {
+  it('reports the ICE agent state and the selected pair (types only) for a native link', async () => {
+    const [pa, pb] = [bridgeProcess(), bridgeProcess()];
+    const trace: Array<{ ev: string; data?: Record<string, unknown> }> = [];
+    const links: { a?: RtcLink; b?: RtcLink } = {};
+    const up = new Promise<void>((resolve) => {
+      let n = 0;
+      links.a = new RtcLink({
+        factory: tauriRtcFactory(pa.invoke, pa.listen), iceServers: [], initiator: true, send: (s) => void links.b?.handle(s),
+        onTransport: () => ++n === 2 && resolve(), onFail: () => {}, trace: (ev, data) => trace.push({ ev, ...(data ? { data } : {}) }),
+      });
+      links.b = new RtcLink({
+        factory: tauriRtcFactory(pb.invoke, pb.listen), iceServers: [], initiator: false, send: (s) => void links.a?.handle(s),
+        onTransport: () => ++n === 2 && resolve(), onFail: () => {},
+      });
+    });
+    await links.a?.start();
+    await Promise.race([up, new Promise((_, rej) => setTimeout(() => rej(new Error('bridge link timed out')), 30_000))]);
+    await expect.poll(() => trace.some((e) => e.ev === 'pair'), { timeout: 5000 }).toBe(true);
+    const states = trace.filter((e) => e.ev === 'ice-state').map((e) => e.data?.state);
+    expect(states).toEqual(expect.arrayContaining(['checking', 'connected']));
+    const pair = trace.find((e) => e.ev === 'pair')?.data;
+    expect(pair).toMatchObject({ local: 'host', protocol: 'udp' });
+    expect(JSON.stringify(pair)).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
+    links.a?.close();
+    links.b?.close();
+  }, 60_000);
+
+  it('gathers relay candidates only with the relay policy (none without a TURN server)', async () => {
+    const p = bridgeProcess();
+    const peer = tauriRtcFactory(p.invoke, p.listen)([], { policy: 'relay' });
+    const gathered: unknown[] = [];
+    peer.onicecandidate = (e) => e.candidate && gathered.push(e.candidate);
+    peer.createDataChannel('sync');
+    await peer.setLocalDescription(await peer.createOffer());
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(gathered).toEqual([]);
+    peer.close();
+  }, 30_000);
+});
+
 describe.skipIf(!bin)('native RTC parity on the shared muxed listener (9.1)', () => {
   it('keeps per-channel ordering under backpressure, reports the selected pair, and settles on cancellation', async () => {
     const { a, b, peers } = await bridgeLink(true);
@@ -207,6 +248,34 @@ function scriptedBridge(sendImpl: (n: number) => Promise<number>) {
 
 const settle = <T>(ps: Promise<T>[], ms = 300) =>
   Promise.race([Promise.allSettled(ps), new Promise<'hung'>((r) => setTimeout(() => r('hung'), ms))]);
+
+describe('native RTC options and events', () => {
+  it('passes the relay policy to the native peer and reflects its ICE state', async () => {
+    const created: Array<Record<string, unknown> | undefined> = [];
+    let events: ((e: BridgeEvent) => void) | null = null;
+    const inv = (async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === 'rtc_create') created.push(args);
+      return undefined;
+    }) as Parameters<typeof tauriRtcFactory>[0];
+    const lis: Parameters<typeof tauriRtcFactory>[1] = async (_e, cb) => ((events = cb), () => {});
+    const factory = tauriRtcFactory(inv, lis);
+    const relayOnly = factory([], { policy: 'relay' });
+    const ordinary = factory([]);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(created[0]).toMatchObject({ policy: 'relay' });
+    expect(created[1]).not.toHaveProperty('policy');
+    const seen: string[] = [];
+    ordinary.oniceconnectionstatechange = () => seen.push(ordinary.iceConnectionState ?? '');
+    const pairs: unknown[] = [];
+    ordinary.onselectedpairchange = (p) => pairs.push(p);
+    (events as unknown as (e: BridgeEvent) => void)({ kind: 'ice-state', state: 'Checking' });
+    (events as unknown as (e: BridgeEvent) => void)({ kind: 'pair', local: 'relay', remote: 'srflx', protocol: 'udp' });
+    expect(seen).toEqual(['checking']);
+    expect(pairs).toEqual([{ local: 'relay', remote: 'srflx', protocol: 'udp' }]);
+    relayOnly.close();
+    ordinary.close();
+  });
+});
 
 describe('native RTC send failures and cancellation (F11)', () => {
   it('closes the owning transport when an IPC send fails, instead of reporting delivery', async () => {

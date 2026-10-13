@@ -881,10 +881,10 @@ export class ProjectSession {
     const noPath = import.meta.env.VITE_E2E === '1' && localStorage.getItem('hivetex.e2e.noWebrtc') === '1';
     if (useRust) {
       // The factory is synchronous; the Tauri imports resolve lazily inside the wrapper's async setup.
-      return (ice) => lazyTauriRtc()(ice);
+      return (ice, opts) => lazyTauriRtc()(ice, opts);
     }
-    return (ice) =>
-      new RTCPeerConnection(noPath ? { iceServers: [], iceTransportPolicy: 'relay' } : { iceServers: ice as RTCIceServer[] }) as unknown as ReturnType<RtcFactory>;
+    return (ice, opts) =>
+      new RTCPeerConnection(noPath ? { iceServers: [], iceTransportPolicy: 'relay' } : { iceServers: ice as RTCIceServer[], iceTransportPolicy: opts?.policy ?? 'all' }) as unknown as ReturnType<RtcFactory>;
   }
 
   revoked = $state(false);
@@ -910,8 +910,9 @@ export class ProjectSession {
    * fetch what is missing. Returns the message shown to the user.
    */
   /** Connection test towards one co-author device (signaling round trip, then a fresh connection attempt). */
-  async probePeer(dev: string): Promise<PeerProbeResult | null> {
-    return (await this.runtime.probePeer(dev)) ?? null;
+  /** Connection test; `relayOnly` restricts its WebRTC attempt to relay (TURN) candidates. */
+  async probePeer(dev: string, o: { relayOnly?: boolean } = {}): Promise<PeerProbeResult | null> {
+    return (await this.runtime.probePeer(dev, o)) ?? null;
   }
 
   async syncNow(): Promise<string> {
@@ -1291,9 +1292,9 @@ function lazyTauriRtc(): RtcFactory {
       invoke: core.invoke as TauriInvoke,
       listen: (event: string, cb: (p: never) => void) => ev.listen(event, (e) => cb(e.payload as never)),
     })));
-  return (ice) =>
+  return (ice, opts) =>
     tauriRtcFactory(
       (cmd, args) => apis().then((a) => a.invoke(cmd, args)),
       (event, cb) => apis().then((a) => a.listen(event, cb as (p: never) => void)),
-    )(ice);
+    )(ice, opts);
 }

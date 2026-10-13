@@ -87,6 +87,26 @@ export class FakePc implements RtcPeerLike {
     }
   }
   async addIceCandidate() {}
+  /**
+   * The network path dies under an open connection (a NAT mapping expired, a VPN path stopped answering): channels stay
+   * open but deliver nothing in either direction, and both sides report disconnected, as a real stack does.
+   */
+  cut() {
+    for (const c of this.created) {
+      c.lost = true;
+      if (c.peer) c.peer.lost = true;
+    }
+    const other = this.peerPc();
+    for (const pc of [this, other]) {
+      if (!pc || pc.connectionState !== 'connected') continue;
+      pc.connectionState = 'disconnected';
+      pc.onconnectionstatechange?.();
+    }
+  }
+  private peerPc() {
+    const id = /a=x-pcid:(\S+)/.exec(this.remoteDescription?.sdp ?? '')?.[1];
+    return id ? this.net.get(id) : undefined;
+  }
   close() {
     this.connectionState = 'closed';
     for (const c of this.created) c.close();

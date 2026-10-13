@@ -10,7 +10,7 @@ import {
   SyncTracker,
   type WebSocketLike,
 } from "@hivetex/sync";
-import { FakeRtcNetwork, inProcessSocket } from "@hivetex/sync/testing";
+import { FakePc, FakeRtcNetwork, inProcessSocket } from "@hivetex/sync/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { schema } from "../src/db/client.js";
 import type { Deps } from "../src/deps.js";
@@ -118,6 +118,7 @@ async function makeDevice(
     maxBackoffMs: 300,
     relayAfterMs: 200,
     directRetryMs: 300,
+    directProbationMs: 300,
     relayTransport: { rtoMs: 200 },
     ...extra,
   });
@@ -224,16 +225,17 @@ describe("application relay between current clients (3.x)", () => {
     );
   }, 90_000);
 
-  it("starts relay setup within 10 s without WebRTC or TURN and syncs text and an image as ciphertext", async () => {
+  it("syncs through the relay within 5 s without WebRTC or TURN, independently of attempt timeouts, as ciphertext", async () => {
     const { owner, bob, pid } = await project("relay-e2e-1");
-    // The default relay deadline (8 s), to check the 10-second contract; WebRTC never completes.
-    const a = await makeDevice(owner, pid, "a", { relayAfterMs: 8000, linkTimeoutMs: 20_000 });
-    const b = await makeDevice(bob, pid, "b", { relayAfterMs: 8000, linkTimeoutMs: 20_000 });
+    // Default relay start (at once) and the default 30 s WebRTC attempt, which never completes here.
+    const defaults = { relayAfterMs: 0, linkTimeoutMs: 30_000, directProbationMs: 8000 };
+    const a = await makeDevice(owner, pid, "a", defaults);
+    const b = await makeDevice(bob, pid, "b", defaults);
     const started = Date.now();
     a.mgr.start();
     b.mgr.start();
-    await waitFor(() => a.mesh.peers.length === 1 && b.mesh.peers.length === 1, 12_000);
-    expect(Date.now() - started).toBeLessThan(10_000);
+    await waitFor(() => a.mesh.peers.length === 1 && b.mesh.peers.length === 1, 6000);
+    expect(Date.now() - started).toBeLessThan(5000);
     expect(Object.values(a.mgr.routes())).toEqual([{ route: "relay", limited: null }]);
 
     const SECRET = "RELAY-SECRET-PARAGRAPH-9917";
@@ -321,6 +323,8 @@ describe("application relay between current clients (3.x)", () => {
     b.mgr.start();
     await waitFor(() => a.mesh.peers.length === 1 && b.mesh.peers.length === 1);
     expect(Object.values(a.mgr.routes())[0]?.route).toBe("relay");
+    // The relay route needs the signaling socket on both sides, also on the device that is not the gatekeeper.
+    expect(a.mgr.socketOpen && b.mgr.socketOpen).toBe(true);
     const id = await a.model.createTextNow("handover.tex", "");
     await waitFor(() => b.model.files.has(id));
     await b.mesh.openDoc(`f:${id}`);
@@ -343,6 +347,9 @@ describe("application relay between current clients (3.x)", () => {
         ta.toString() === tb.toString() && ta.toString().split(" ").filter(Boolean).length === 80,
       10_000,
     );
+    // Direct route: the device that is not the gatekeeper (higher id) releases its socket (zero idle once linked directly).
+    const notGatekeeper = a.dev > b.dev ? a : b;
+    await waitFor(() => !notGatekeeper.mgr.socketOpen, 3000);
   }, 30_000);
 
   it("hands over during simultaneous edits and an asset transfer with one owner, unchanged authorization and nothing lost (13.8)", async () => {
@@ -498,22 +505,90 @@ describe("application relay between current clients (3.x)", () => {
     expect(s.lastSyncAt).toBeNull();
   }, 30_000);
 
-  it("waits for a configured TURN attempt before starting the relay (3B.5)", async () => {
+  it("starts the relay at once even with TURN configured: relay first, WebRTC in the background", async () => {
     const { owner, bob, pid } = await project("relay-e2e-9");
     const turn = {
       getIceServers: async () => [
         { urls: "turn:turn.example:3478", username: "u", credential: "c" },
       ],
-      linkTimeoutMs: 1500,
-      relayAfterMs: 100,
+      linkTimeoutMs: 20_000,
+      relayAfterMs: 0,
     };
     const a = await makeDevice(owner, pid, "a", turn);
     const b = await makeDevice(bob, pid, "b", turn);
     a.mgr.start();
     b.mgr.start();
-    await sleep(900);
-    expect(a.mgr.stats.relaySetups + b.mgr.stats.relaySetups).toBe(0); // TURN is still being tried
-    await waitFor(() => a.mesh.peers.length === 1 && b.mesh.peers.length === 1, 15_000);
+    // The TURN attempt is still running (20 s): the relay does not wait for it.
+    await waitFor(() => a.mesh.peers.length === 1 && b.mesh.peers.length === 1, 3000);
+    expect(Object.values(a.mgr.routes())[0]?.route).toBe("relay");
+    expect(a.mgr.candidates()[0]?.linking ?? true).toBe(true);
+  }, 30_000);
+
+  it("the connection test measures a round trip through the application relay when it is the route", async () => {
+    const { owner, bob, pid } = await project("relay-e2e-12");
+    const a = await makeDevice(owner, pid, "a");
+    const b = await makeDevice(bob, pid, "b");
+    a.mgr.start();
+    b.mgr.start();
+    await waitFor(() => Object.values(a.mgr.routes())[0]?.route === "relay" && Object.values(b.mgr.routes())[0]?.route === "relay");
+    const r = await a.mgr.probePeer(b.dev, { attemptTimeoutMs: 1500 });
+    const step = r.steps.find((s) => s.label === "Application relay");
+    expect(step?.ok).toBe(true);
+    expect(step?.detail).toMatch(/went to the other device and back through the HiveTeX server in \d+ ms/);
+    expect(r.verdict).toMatch(/^Connected through the application relay/);
+  }, 30_000);
+
+  it("a direct link that drops during its probation never becomes the route; edits keep flowing through the relay", async () => {
+    const { owner, bob, pid } = await project("relay-e2e-10");
+    const pcs: FakePc[] = [];
+    const watched = (ice: unknown[]) => {
+      const pc = rtc.factory(ice);
+      pcs.push(pc as FakePc);
+      return pc;
+    };
+    const opts = { rtcFactory: watched, directProbationMs: 1500 };
+    const a = await makeDevice(owner, pid, "a", opts);
+    const b = await makeDevice(bob, pid, "b", opts);
+    a.mgr.start();
+    b.mgr.start();
+    await waitFor(() => Object.values(a.mgr.routes())[0]?.route === "relay" && Object.values(b.mgr.routes())[0]?.route === "relay");
+    rtc.stallNext = 0; // a direct path appears ...
+    await waitFor(() => pcs.some((pc) => pc.connectionState === "connected"), 6000);
+    rtc.stallNext = 1_000_000; // ... and is gone again for every later attempt
+    for (const pc of pcs.filter((p) => p.connectionState === "connected")) pc.cut(); // dies seconds after connecting, as in the lab
+    await sleep(2500); // past the probation
+    expect(Object.values(a.mgr.routes())[0]?.route).toBe("relay");
+    expect(Object.values(b.mgr.routes())[0]?.route).toBe("relay");
+    const id = await a.model.createTextNow("probation.tex", "still through the relay");
+    await waitFor(() => b.model.files.has(id));
+    await b.mesh.openDoc(`f:${id}`);
+    await waitFor(async () => (await b.model.openText(id)).toString() === "still through the relay");
+  }, 30_000);
+
+  it("hands back to the relay within 2 s when the direct route goes silent", async () => {
+    const { owner, bob, pid } = await project("relay-e2e-11");
+    rtc.stallNext = 0;
+    const pcs: FakePc[] = [];
+    const watched = (ice: unknown[]) => {
+      const pc = rtc.factory(ice);
+      pcs.push(pc as FakePc);
+      return pc;
+    };
+    const a = await makeDevice(owner, pid, "a", { rtcFactory: watched });
+    const b = await makeDevice(bob, pid, "b", { rtcFactory: watched });
+    a.mgr.start();
+    b.mgr.start();
+    await waitFor(() => Object.values(a.mgr.routes())[0]?.route === "direct" && Object.values(b.mgr.routes())[0]?.route === "direct", 10_000);
+    const id = await a.model.createTextNow("handback.tex", "");
+    await waitFor(() => b.model.files.has(id));
+    await b.mesh.openDoc(`f:${id}`);
+    const tb = await b.model.openText(id);
+    rtc.stallNext = 1_000_000; // no new direct path
+    const dropped = Date.now();
+    for (const pc of pcs.filter((p) => p.connectionState === "connected")) pc.cut(); // the path stops answering on both sides
+    (await a.model.openText(id)).insert(0, "after the drop");
+    await waitFor(() => tb.toString().includes("after the drop"), 4000);
+    expect(Date.now() - dropped).toBeLessThan(2000);
     expect(Object.values(a.mgr.routes())[0]?.route).toBe("relay");
   }, 30_000);
 

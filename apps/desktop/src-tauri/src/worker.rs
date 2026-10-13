@@ -279,9 +279,50 @@ pub type StateSink = std::sync::Arc<dyn Fn(SupervisorState) + Send + Sync>;
 struct Shared {
     stopped: bool,
     gen: u64,
-    stdin: Option<ChildStdin>,
+    stdin: Option<WorkerInput>,
     pid: Option<u32>,
     policy: RestartPolicy,
+}
+
+/// Frames queued for the worker beyond this (bytes) mean it stopped reading: sends fail instead of growing memory.
+const INPUT_QUEUE_MAX: usize = 64 << 20;
+
+/// The worker's stdin, written by a thread of its own. Writing to the pipe from the callers (under the supervisor lock)
+/// deadlocked: a full pipe blocked the writer while holding the lock, the frame reader then waited for that lock, the
+/// worker's own synchronous stdout writes blocked because nobody read them, so it never read its stdin again. Callers
+/// now only enqueue; dropping the input closes the queue, and the thread then closes stdin (EOF) after the queued frames.
+struct WorkerInput {
+    tx: std::sync::mpsc::Sender<Vec<u8>>,
+    queued: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl WorkerInput {
+    fn start(mut stdin: ChildStdin) -> WorkerInput {
+        use std::sync::atomic::Ordering;
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let queued = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let left = queued.clone();
+        std::thread::spawn(move || {
+            while let Ok(bytes) = rx.recv() {
+                let ok = stdin.write_all(&bytes).and_then(|_| stdin.flush()).is_ok();
+                left.fetch_sub(bytes.len(), Ordering::SeqCst);
+                if !ok {
+                    break;
+                }
+            }
+        });
+        WorkerInput { tx, queued }
+    }
+
+    fn send(&self, msg: &Value) -> io::Result<()> {
+        use std::sync::atomic::Ordering;
+        let bytes = encode(msg)?;
+        if self.queued.load(Ordering::SeqCst) + bytes.len() > INPUT_QUEUE_MAX {
+            return Err(io::Error::new(io::ErrorKind::WouldBlock, "worker is not reading its input"));
+        }
+        self.queued.fetch_add(bytes.len(), Ordering::SeqCst);
+        self.tx.send(bytes).map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "worker input closed"))
+    }
 }
 
 /// Keeps one worker generation running: forwards its frames (current generation only), restarts it after a crash with
@@ -322,7 +363,7 @@ impl Supervisor {
             };
             {
                 let mut s = shared.lock().unwrap();
-                s.stdin = w.stdin.take();
+                s.stdin = w.stdin.take().map(WorkerInput::start);
                 s.pid = Some(w.child.id());
                 if s.stopped {
                     s.stdin = None; // EOF: the worker exits by itself
@@ -407,11 +448,11 @@ impl Supervisor {
         }
     }
 
-    /// Sends a frame to the current generation.
+    /// Sends a frame to the current generation: queued for its writer thread, never blocking on the pipe.
     pub fn send(&self, msg: &Value) -> io::Result<()> {
-        let mut s = self.shared.lock().unwrap();
-        let stdin = s.stdin.as_mut().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "worker not running"))?;
-        send(stdin, msg)
+        let s = self.shared.lock().unwrap();
+        let input = s.stdin.as_ref().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "worker not running"))?;
+        input.send(msg)
     }
 
     pub fn generation(&self) -> u64 {
@@ -543,6 +584,55 @@ mod tests {
         assert!(wait_for(|| states.lock().unwrap().last() == Some(&SupervisorState::Stopped), 10));
         assert!(wait_for(|| !alive(pid1) && !alive(pid2), 5), "no orphan worker");
         assert!(states.lock().unwrap().iter().any(|s| matches!(s, SupervisorState::Restarting { gen: 1, .. })));
+    }
+
+    /// The deadlock seen in a long relay session: the app sends frames under a lock while the worker is busy writing and
+    /// does not read; the frame reader needs the same lock. Sends must never block on the pipe, so the worker's frames
+    /// keep flowing.
+    #[test]
+    fn sending_never_blocks_the_frame_reader_when_the_worker_stops_reading() {
+        let Some(node) = which("node") else { return };
+        let dir = std::env::temp_dir().join(format!("hivetex-flood-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("flood.mjs");
+        // A worker that never reads its stdin and keeps writing events.
+        std::fs::write(&script, r#"
+const gen = Number(process.env.HIVETEX_WORKER_GEN);
+let n = 0;
+const frame = (o) => { const b = Buffer.from(JSON.stringify(o)); const h = Buffer.alloc(4); h.writeUInt32BE(b.length); return Buffer.concat([h, b]); };
+setInterval(() => { for (let i = 0; i < 20; i++) process.stdout.write(frame({ v: 1, gen, kind: 'evt', event: 'tick', data: { n: n++, pad: 'x'.repeat(4000) } })); }, 5);
+"#).unwrap();
+        let gate = std::sync::Arc::new(std::sync::Mutex::new(()));
+        let ticks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (g2, t2) = (gate.clone(), ticks.clone());
+        // As WorkerService does: the frame handler takes the lock the senders hold while sending.
+        let sup = std::sync::Arc::new(Supervisor::start(
+            WorkerSpec { node, script },
+            std::sync::Arc::new(move |_, _| {
+                let _held = g2.lock().unwrap();
+                t2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+            std::sync::Arc::new(|_| {}),
+            0.01,
+        ));
+        assert!(wait_for(|| ticks.load(std::sync::atomic::Ordering::SeqCst) > 100, 10), "the worker writes");
+        let (s2, g3) = (sup.clone(), gate.clone());
+        let sender = std::thread::spawn(move || {
+            let big = json!({ "v": 1, "gen": 1, "kind": "evt", "event": "flood", "data": "y".repeat(60_000) });
+            let started = Instant::now();
+            let mut refused = 0;
+            for _ in 0..2_000 {
+                let _held = g3.lock().unwrap();
+                if s2.send(&big).is_err() { refused += 1; }
+            }
+            (started.elapsed(), refused)
+        });
+        let (took, refused) = sender.join().unwrap();
+        assert!(took < Duration::from_secs(10), "sends blocked for {took:?}");
+        assert!(refused > 0, "a worker that reads nothing makes sends fail once its queue is full");
+        let before = ticks.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(wait_for(|| ticks.load(std::sync::atomic::Ordering::SeqCst) > before + 100, 10), "the worker's frames still flow");
+        sup.stop();
     }
 
     #[test]

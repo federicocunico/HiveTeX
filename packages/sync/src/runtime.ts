@@ -49,6 +49,8 @@ export interface RuntimeAdapters {
   saveTrusted?: (keys: TrustedKey[]) => void;
   /** "desktop 0.7.2", "web 0.7.2": sent to co-authors in connection tests. */
   clientInfo?: string;
+  /** Desktop: the native WebRTC stack log after a sequence number (see ManagerOptions.nativeLog). */
+  nativeLog?: (since: number) => Promise<Array<{ seq: number; line: string }>>;
 }
 
 export interface RuntimeEvents {
@@ -504,6 +506,7 @@ export class ProjectRuntime {
       getIceServers: () => a.iceServers(),
       trace: (e) => this.recordTrace(e),
       ...(a.clientInfo ? { clientInfo: a.clientInfo } : {}),
+      ...(a.nativeLog ? { nativeLog: a.nativeLog } : {}),
       ...(this.doorbellInfo ? { doorbell: { ring: () => this.ringProject() }, ensureTicket: () => this.ensureTicket() } : {}),
     };
     const manager = (a.createManager ?? ((o) => new ConnectionManager(o)))(options);
@@ -529,8 +532,8 @@ export class ProjectRuntime {
    * fetch what is missing. Null when offline or paused (nothing is attempted).
    */
   /** Connection test towards one co-author device (see ConnectionManager.probePeer); null when not networking. */
-  async probePeer(dev: string): Promise<PeerProbeResult | null> {
-    return this.manager ? this.manager.probePeer(dev) : null;
+  async probePeer(dev: string, o: { relayOnly?: boolean } = {}): Promise<PeerProbeResult | null> {
+    return this.manager ? this.manager.probePeer(dev, o) : null;
   }
 
   async syncNow(): Promise<{ outcome: SyncOutcome; snapshot: SyncSnapshot } | null> {

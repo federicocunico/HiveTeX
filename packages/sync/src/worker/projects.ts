@@ -323,7 +323,7 @@ export class WorkerProjects {
       if (project) await this.o.pause?.(project, p.paused === true);
     });
     handle("project.sync", async (p) => (await this.actor(p.attachment)).runtime.syncNow());
-    handle("project.probe", async (p) => (await this.actor(p.attachment)).runtime.probePeer(String(p.dev)));
+    handle("project.probe", async (p) => (await this.actor(p.attachment)).runtime.probePeer(String(p.dev), { relayOnly: p.relayOnly === true }));
     handle("project.refresh", async (p) =>
       (await this.actor(p.attachment)).runtime.refreshTicketNow(),
     );

@@ -46,6 +46,20 @@ describe('connection test (probePeer)', () => {
     expect(r.trace.map((e) => e.ev)).toEqual(expect.arrayContaining(['probe.start', 'sig.send', 'sig.recv', 'probe.end']));
   });
 
+  it('desktop: the native stack lines written during the test are in its result and in this device\'s diagnostics', async () => {
+    const { auth, lo, hi } = await pair();
+    const log: Array<{ seq: number; line: string }> = [{ seq: 1, line: 'INFO webrtc_ice: before the test' }];
+    const nativeLog = async (since: number) => log.filter((l) => l.seq > since);
+    const { a } = start(auth, lo, hi, new FakeRtcNetwork(), new Relay({ acks: true }), { nativeLog });
+    await vi.waitFor(() => expect(lo.mesh.peers.length).toBe(1), { timeout: 3000 });
+    // what the stack had logged before is read first (a failure or an earlier test), so the test shows only its own lines
+    await a.probePeer('z-device');
+    log.push({ seq: 2, line: 'WARN webrtc_ice: pair <ip> <-> <ip> failed' });
+    const r = await a.probePeer('z-device');
+    expect(r.nativeLog).toEqual(['WARN webrtc_ice: pair <ip> <-> <ip> failed']);
+    expect(a.selfDiagnostics().nativeLog).toEqual(['INFO webrtc_ice: before the test', 'WARN webrtc_ice: pair <ip> <-> <ip> failed']);
+  });
+
   it('on-demand signaling that is closed: the test opens it, learns who is online and connects', async () => {
     const { auth, lo, hi } = await pair();
     const rtc = new FakeRtcNetwork();
@@ -80,6 +94,49 @@ describe('connection test (probePeer)', () => {
     expect(r.remote?.role).toBe('offerer');
     expect(r.signaling.delivery).toMatchObject({ via: 'server', accepted: true, targetOnline: true, delivered: true });
     expect(r.attempt.outcome).toBe('connected');
+  });
+
+  it('relay-only variant: the test\'s attempt asks the stack for relay candidates only, on the side that runs it', async () => {
+    const { auth, lo, hi } = await pair();
+    const rtc = new FakeRtcNetwork();
+    rtc.stallNext = 1; // no link yet when the test starts
+    const policies: Array<string | undefined> = [];
+    const factory = (ice: unknown[], opts?: { policy?: 'all' | 'relay' }) => {
+      policies.push(opts?.policy);
+      return rtc.factory(ice, opts);
+    };
+    const { a } = start(auth, lo, hi, rtc, new Relay({ acks: true }), { linkTimeoutMs: 60_000, maxBackoffMs: 60_000, rtcFactory: factory });
+    await vi.waitFor(() => expect(a.candidates()[0]?.attempts ?? 0).toBe(0), { timeout: 3000 });
+    await vi.waitFor(() => expect(policies.length).toBeGreaterThan(0), { timeout: 3000 });
+    const before = policies.length;
+    const r = await a.probePeer('z-device', { relayOnly: true, attemptTimeoutMs: 5000 });
+    expect(policies.slice(before)).toContain('relay');
+    expect(r.trace.some((e) => e.ev === 'link.policy' && e.data?.policy === 'relay')).toBe(true);
+    expect(r.attempt.outcome).toBe('connected');
+    expect(r.steps.find((s) => s.label === 'Application relay')).toMatchObject({ ok: null, detail: 'not offered by the signaling service' });
+    // the restriction belonged to that test only
+    expect((a as unknown as { attemptPolicy: Map<string, string> }).attemptPolicy.size).toBe(0);
+  });
+
+  it('with TURN configured, every other attempt after failed checks is relay-only; without TURN never', async () => {
+    for (const turn of [true, false]) {
+      const { auth, lo, hi } = await pair();
+      const rtc = new FakeRtcNetwork();
+      rtc.stallNext = 1_000_000; // checks never succeed
+      const policies: Array<string | undefined> = [];
+      const factory = (ice: unknown[], opts?: { policy?: 'all' | 'relay' }) => {
+        policies.push(opts?.policy);
+        return rtc.factory(ice, opts);
+      };
+      const ice = turn ? [{ urls: 'turn:turn.example:3478', username: 'u', credential: 'c' }] : [{ urls: 'stun:stun.example:3478' }];
+      const { a } = start(auth, lo, hi, rtc, new Relay({ acks: true }), { linkTimeoutMs: 150, maxBackoffMs: 100, rtcFactory: factory, getIceServers: async () => ice });
+      await vi.waitFor(() => expect(policies.length).toBeGreaterThanOrEqual(8), { timeout: 8000 });
+      a.stop();
+      const offerer = policies.filter((_, i) => i % 2 === 0).slice(0, 4); // a and b alternate creating their links
+      if (turn) expect(policies).toContain('relay');
+      else expect(policies).not.toContain('relay');
+      expect(offerer.length).toBeGreaterThan(0);
+    }
   });
 
   it('a failing connection: names the stage, keeps the other side\'s view and the step-by-step trace', async () => {

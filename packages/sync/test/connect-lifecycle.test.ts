@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { attemptCause } from '../src/connect.js';
+import { LINK_TIMEOUT_MS, attemptCause } from '../src/connect.js';
 import { FakePc, FakeRtcNetwork } from '../src/testing.js';
 import { TestAuthority } from '../src/testkit.js';
 import { type FakeWs, Relay, deferred, flush, flushMicro, makeDev, managerFor } from './connect-helpers.js';
@@ -72,6 +72,31 @@ describe('connection lifecycle ownership (F10)', () => {
     ws.close(); // the server or the network ended it (a rotation looks the same)
     expect(mgr.trace().some((e) => e.ev === 'socket.closed' && e.data?.reopen === true)).toBe(true);
     await vi.waitFor(() => expect(sockets).toHaveLength(2), { timeout: 3000 });
+  });
+
+  it('a signaling socket that stops answering pings is treated as lost and reopened (a path dropped without a close)', async () => {
+    const { auth, lo } = await pair();
+    const { mgr, sockets } = managerFor(lo, auth, PID, new FakeRtcNetwork(), { heartbeatMs: 40, pongTimeoutMs: 60 });
+    cleanup.push(() => mgr.stop());
+    mgr.start();
+    await flush(10);
+    const ws = sockets[0] as FakeWs;
+    ws.open();
+    ws.say({ t: 'ready', tickets: [] });
+    // answered pings keep it
+    ws.onSend = (m) => m.t === 'ping' && ws.say({ t: 'pong' });
+    await flush(250);
+    expect(sockets).toHaveLength(1);
+    // the path goes silent: no answer, no close event
+    ws.onSend = null;
+    await vi.waitFor(() => expect(sockets.length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    expect(mgr.trace().some((e) => e.ev === 'socket.silent')).toBe(true);
+    expect(mgr.trace().some((e) => e.ev === 'socket.closed' && e.data?.code === 4000)).toBe(true);
+  });
+
+  it('an attempt outlives the native stack\'s ICE failure timeout (20 s) by default', () => {
+    // Relay pairs are checked last: abandoning the attempt at the stack's own failure time would cut them off.
+    expect(LINK_TIMEOUT_MS).toBeGreaterThanOrEqual(25_000);
   });
 
   it('duplicate announcements while configuration loads share one attempt', async () => {
@@ -283,6 +308,7 @@ describe('signaling heartbeat and session ids (F08)', () => {
     mgr.start();
     await flushMicro();
     const ws = sockets[0] as FakeWs;
+    ws.onSend = (m) => m.t === 'ping' && ws.say({ t: 'pong' }); // the service answers every ping
     await vi.advanceTimersByTimeAsync(31_000);
     expect(pings(ws)).toBe(0); // nothing before the relay accepted us (an early ping would close the socket)
     ws.say({ t: 'ready', tickets: [] });

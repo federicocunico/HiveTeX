@@ -206,6 +206,17 @@ async function serverSettings({ ticketsOnly = false } = {}) {
     await want('TURN_CREDENTIAL', 'Its credential', { secret: true });
     await want('TURN_SERVER', 'Its server as host:port (empty = free.expressturn.com:3478)', { secret: false, optional: true });
   }
+  // The application relay (docs/deployment.md#application-relay): members sync through the server first, so it is what
+  // guarantees sync when WebRTC fails. Its budget is sized from the Redis plan (Upstash free: 500,000 commands a month)
+  // and the measured baseline (USAGE_LOG=1 prints it per minute and instance).
+  if (missing('APPLICATION_RELAY') && !given('APPLICATION_RELAY')) note('Application relay: recommended (sync when WebRTC fails); needs the Redis plan size');
+  await want('APPLICATION_RELAY', 'Enable the application relay? 1 = yes', { secret: false, optional: true });
+  if (given('APPLICATION_RELAY') || !missing('APPLICATION_RELAY')) {
+    await want('RELAY_PROVIDER_COMMANDS', 'Redis commands per month of your plan, minus other uses (Upstash free: 500000)', { secret: false });
+    await want('RELAY_BASELINE_COMMANDS', 'Measured commands per month without relay traffic (unknown: 150000)', { secret: false });
+    await want('RELAY_ENVELOPES', 'Relayed frames per month (at most (provider - baseline) / 5; e.g. 60000)', { secret: false, optional: true });
+    await want('USAGE_LOG', 'Log Redis usage per minute to measure the baseline? 1 = yes', { secret: false, optional: true });
+  }
   if (needed.length) {
     throw new Error(`Missing values: ${needed.join(', ')}. Run in a terminal to be asked, or put them in .env.setup (see .env.example).`);
   }

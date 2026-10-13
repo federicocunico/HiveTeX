@@ -7,6 +7,10 @@ export type Listen = (event: string, cb: (payload: BridgeEvent) => void) => Prom
 export type BridgeEvent =
   | { kind: 'ice'; candidate: unknown }
   | { kind: 'state'; state: string }
+  /** The ICE agent's own state (checking, connected, disconnected, failed ...). */
+  | { kind: 'ice-state'; state: string }
+  /** The selected candidate pair changed: candidate types and protocol only. */
+  | { kind: 'pair'; local: string; remote: string; protocol: string }
   | { kind: 'datachannel'; label: string }
   | { kind: 'open'; label: string }
   | { kind: 'close'; label: string }
@@ -91,6 +95,9 @@ class TauriPeer implements RtcPeerLike {
   onicecandidate: RtcPeerLike['onicecandidate'] = null;
   ondatachannel: RtcPeerLike['ondatachannel'] = null;
   onconnectionstatechange: RtcPeerLike['onconnectionstatechange'] = null;
+  iceConnectionState = 'new';
+  oniceconnectionstatechange: (() => void) | null = null;
+  onselectedpairchange: ((p: { local: string; remote: string; protocol: string }) => void) | null = null;
   private channels = new Map<string, BridgeChannel>();
   private ready: Promise<void>;
   private unlisten: (() => void) | null = null;
@@ -101,11 +108,12 @@ class TauriPeer implements RtcPeerLike {
     private invoke: Invoke,
     listen: Listen,
     iceServers: unknown[],
+    policy?: 'all' | 'relay',
   ) {
     this.ready = (async () => {
       this.unlisten = await listen(`rtc://${this.id}`, (e) => this.onEvent(e));
       if (this.closed) { this.unlisten(); return; }
-      await this.invoke('rtc_create', { id: this.id, ice: iceServers });
+      await this.invoke('rtc_create', { id: this.id, ice: iceServers, ...(policy === 'relay' ? { policy } : {}) });
       if (this.closed) await this.invoke('rtc_close', {id:this.id});
     })();
     this.ready.catch(() => this.fail());
@@ -128,6 +136,10 @@ class TauriPeer implements RtcPeerLike {
   private onEvent(e: BridgeEvent) {
     if (this.closed) return;
     if (e.kind === 'ice') this.onicecandidate?.({ candidate: e.candidate });
+    else if (e.kind === 'ice-state') {
+      this.iceConnectionState = e.state.toLowerCase();
+      this.oniceconnectionstatechange?.();
+    } else if (e.kind === 'pair') this.onselectedpairchange?.({ local: e.local, remote: e.remote, protocol: e.protocol });
     else if (e.kind === 'state') {
       this.connectionState = e.state.toLowerCase();
       // The native connection is gone: nothing queued on its channels will ever be delivered.
@@ -199,5 +211,5 @@ class TauriPeer implements RtcPeerLike {
 
 /** An RtcFactory backed by the Rust WebRTC stack (used when the webview lacks `RTCPeerConnection`). */
 export function tauriRtcFactory(invoke: Invoke, listen: Listen): RtcFactory {
-  return (iceServers) => new TauriPeer(invoke, listen, iceServers);
+  return (iceServers, opts) => new TauriPeer(invoke, listen, iceServers, opts?.policy);
 }

@@ -17,6 +17,9 @@ export interface RtcPeerLike {
   onconnectionstatechange: (() => void) | null;
   /** ICE agent state, when the implementation reports it. */
   iceConnectionState?: string;
+  oniceconnectionstatechange?: (() => void) | null;
+  /** Native stack only: the selected candidate pair changed (types and protocol, never addresses). */
+  onselectedpairchange?: ((p: { local: string; remote: string; protocol: string }) => void) | null;
   /** Standard RTCPeerConnection statistics, when the implementation has them (used to tell TURN from direct). */
   getStats?(): Promise<{ forEach(cb: (s: Record<string, unknown>) => void): void }>;
 }
@@ -33,7 +36,7 @@ export async function selectedPath(pc: RtcPeerLike): Promise<'direct' | 'turn' |
 }
 
 /** The candidate types (host, srflx, prflx, relay) of the selected pair, or null when not reported. No addresses. */
-export async function selectedPair(pc: RtcPeerLike): Promise<{ local: string; remote: string } | null> {
+export async function selectedPair(pc: RtcPeerLike): Promise<{ local: string; remote: string; relayProtocol?: string } | null> {
   if (!pc.getStats) return null;
   try {
     const report = await pc.getStats();
@@ -50,7 +53,11 @@ export async function selectedPair(pc: RtcPeerLike): Promise<{ local: string; re
       const t = byId.get(String(id))?.candidateType;
       return typeof t === 'string' ? t : 'unknown';
     };
-    return { local: type(pair.localCandidateId), remote: type(pair.remoteCandidateId) };
+    // A relay candidate names how it reaches the TURN server (udp, tcp, tls); other types have no such protocol (the
+    // native stack fills the field anyway).
+    const local = type(pair.localCandidateId);
+    const relayProtocol = local === 'relay' ? byId.get(String(pair.localCandidateId))?.relayProtocol : undefined;
+    return { local, remote: type(pair.remoteCandidateId), ...(typeof relayProtocol === 'string' && relayProtocol ? { relayProtocol } : {}) };
   } catch {
     return null;
   }
@@ -77,7 +84,8 @@ export function candidateType(c: unknown): string {
   return typeof o === 'object' && o && typeof o.type === 'string' ? o.type : 'unknown';
 }
 
-export type RtcFactory = (iceServers: unknown[]) => RtcPeerLike;
+/** `policy: 'relay'` restricts gathering and checks to relay candidates (the connection test's relay-only variant). */
+export type RtcFactory = (iceServers: unknown[], opts?: { policy?: 'all' | 'relay' }) => RtcPeerLike;
 
 export type LinkSignal =
   | { k: 'offer'; sdp: string }
@@ -104,6 +112,11 @@ export class RtcLink {
   private grace: ReturnType<typeof setTimeout> | null = null;
   private seen: LinkDiag = { state: 'new', offerReceived: false, offerSent: false, answerReceived: false, localCandidates: [], remoteCandidates: [] };
 
+  /** The connection's current state (new, connecting, connected, disconnected, failed, closed). */
+  get connectionState(): string {
+    return this.pc.connectionState;
+  }
+
   /** What this link has seen so far (for the attempt's failure cause and the diagnostics page). */
   diag(): LinkDiag {
     return { ...this.seen, state: this.pc.iceConnectionState ?? this.pc.connectionState, localCandidates: [...this.seen.localCandidates], remoteCandidates: [...this.seen.remoteCandidates] };
@@ -121,9 +134,16 @@ export class RtcLink {
       trace?: (ev: string, data?: Record<string, string | number | boolean>) => void;
       /** After the link is up: how long `disconnected` may last before the transport is ended (default 10 s). */
       disconnectGraceMs?: number;
+      /** `relay`: relay candidates only (connection test variant). */
+      policy?: 'all' | 'relay';
+      /** After the link is up: it reported disconnected (it may recover within the grace period, or be ended). */
+      onDegraded?: () => void;
     },
   ) {
-    this.pc = o.factory(o.iceServers);
+    this.pc = o.policy ? o.factory(o.iceServers, { policy: o.policy }) : o.factory(o.iceServers);
+    // The ICE agent's own state and the selected pair, where the implementation reports them (the native stack).
+    this.pc.oniceconnectionstatechange = () => o.trace?.('ice-state', { state: this.pc.iceConnectionState ?? 'n/a' });
+    this.pc.onselectedpairchange = (p) => o.trace?.('pair', { local: p.local, remote: p.remote, protocol: p.protocol });
     this.pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
       this.seen.localCandidates.push(candidateType(ev.candidate));
@@ -142,6 +162,7 @@ export class RtcLink {
         } else if (state === 'failed' || state === 'closed') {
           this.lose(state);
         } else if (state === 'disconnected' && !this.grace) {
+          o.onDegraded?.();
           this.grace = setTimeout(() => {
             this.grace = null;
             if (this.pc.connectionState !== 'connected') this.lose('disconnected');

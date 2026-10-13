@@ -147,8 +147,11 @@ sockets share an instance is up to the platform, so size for the spread-out figu
 
 ### Application relay
 
-Peers that cannot connect directly (and have no TURN) can exchange end-to-end encrypted frames through the signaling
-WebSocket. It stays **off until the deployment enables it**:
+Members exchange end-to-end encrypted frames through the signaling WebSocket: with the relay enabled, clients start on
+it as soon as both are online and move to a direct or TURN link once that link has stayed up for 8 s
+([protocol.md](protocol.md#route-selection-and-the-application-relay)). It is what guarantees sync when WebRTC fails
+(measured: [decisions/native-webrtc.md](decisions/native-webrtc.md)). It stays **off until the deployment enables it**
+(recommended):
 
 | Variable | Meaning | Default |
 |---|---|---|
@@ -164,6 +167,24 @@ WebSocket. It stays **off until the deployment enables it**:
 
 The server refuses to start when `RELAY_BASELINE_COMMANDS + 5 × RELAY_ENVELOPES` (scaled to a month) exceeds
 `RELAY_PROVIDER_COMMANDS`; lower `RELAY_ENVELOPES` until it fits. These are application caps, not provider guarantees.
+
+**Sizing on the Upstash free plan** (500,000 commands a month; profile checked against `relayLimitsFromEnv`):
+
+| Variable | Value | Why |
+|---|---|---|
+| `APPLICATION_RELAY` | `1` | |
+| `RELAY_PROVIDER_COMMANDS` | `500000` | the plan |
+| `RELAY_BASELINE_COMMANDS` | `150000` | a cautious guess until measured; replace it with the measured figure |
+| `RELAY_ENVELOPES` | `60000` | (500,000 − 150,000) / 5 = 70,000, minus a margin; the default 100,000 does not fit and the server would not start |
+| `USAGE_LOG` | `1` | one counters line per minute and instance (`[usage]` in the Vercel logs): sum `signal.*` and `relay.*` over a typical day to measure the baseline |
+
+What it costs: about 5 Redis commands per relayed frame (publish, presence check, a budget `eval` every 4 frames;
+measured 4.63), so the free plan carries 60,000 frames a month, a few hours of relay-only editing. A relay session also
+holds a function's socket (Vercel provisioned memory while open, rotated every 300 s). TURN traffic costs no Redis
+commands: with TURN configured, clients alternate relay-only TURN attempts after failed checks, so pairs that can reach
+the TURN server move off the application relay within seconds. When the budget is spent, sends get `relay_limited` and
+edits stay pending on the devices; nothing is lost. **Rollback:** remove `RELAY_PROVIDER_COMMANDS` (or set
+`APPLICATION_RELAY` to anything but 1) and redeploy: clients go back to WebRTC only.
 
 How the server handles relayed traffic:
 

@@ -191,7 +191,7 @@ export interface PeerRow {
   lastError?: string | null;
 }
 
-const ROUTE_NAME: Record<string, string> = { direct: 'direct', turn: 'through the relay (TURN)', relay: 'through the application relay' };
+const ROUTE_NAME: Record<string, string> = { direct: 'direct', turn: 'through the relay (TURN)', relay: 'through the HiveTeX server (application relay, encrypted)' };
 
 /** One row per co-author, from the live connection diagnostics. */
 export function peerRows(
@@ -255,7 +255,25 @@ export function formatProbe(name: string, p: PeerProbeResult): string[] {
     const t0 = p.trace[0]?.t ?? 0;
     for (const e of p.trace) lines.push(`    ${traceLine(e, t0)}`);
   }
+  if (p.nativeLog?.length) {
+    const last = p.nativeLog.slice(-NATIVE_LINES);
+    lines.push(`  Native connection stack during the test (${last.length} of ${p.nativeLog.length} lines):`);
+    for (const l of last) lines.push(`    ${maskAddresses(l)}`);
+  }
   return lines;
+}
+
+/** Native stack lines in a report: the latest ones (the app keeps more). */
+const NATIVE_LINES = 80;
+
+/**
+ * IPv4 and IPv6 addresses as `<ip>`. The native log is masked where it is written; this is the report's own guarantee.
+ * Times such as 12:30:45 are kept (two colons and no "::").
+ */
+export function maskAddresses(line: string): string {
+  return line
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '<ip>')
+    .replace(/\[?\b(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:%\w+)?\]?(?::\d+)?/gi, (m) => (m.includes('::') || (m.match(/:/g) ?? []).length >= 3 ? '<ip>' : m));
 }
 
 /** Where the report comes from: app, version and platform (no account, project or address). */
@@ -307,6 +325,11 @@ export function buildReport(input: {
       : `- ${p.name} (${shortId(p.dev)}): not connected, attempt ${(p.attempts ?? 0) + 1}${p.linking ? ' (in progress)' : ''}, ${p.onServer ? 'seen on the service' : 'NOT seen on the service (known through another co-author)'}, state ${p.linkState ?? 'n/a'}, cause ${p.cause ?? 'none yet'}${p.lastError ? `, last error "${p.lastError}"` : ''}; local candidates: ${p.local ?? 'n/a'}; remote candidates: ${p.remote ?? 'n/a'}. ${p.explanation ?? ''}`);
   }
   for (const pr of input.probes ?? []) lines.push('', ...formatProbe(pr.name, pr.result));
+  if (s?.nativeLog?.length) {
+    const last = s.nativeLog.slice(-NATIVE_LINES);
+    lines.push('', `Native connection stack (desktop; last ${last.length} lines, addresses masked)`);
+    for (const l of last) lines.push(maskAddresses(l));
+  }
   if (input.trace && input.trace.length > 0) {
     const last = input.trace.slice(-(input.traceLimit ?? 400));
     const start = last[0]?.t ?? 0;
