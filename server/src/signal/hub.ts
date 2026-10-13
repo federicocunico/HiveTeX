@@ -311,6 +311,9 @@ export async function verifyServerTicket(deps: Pick<Deps, 'config' | 'now'>, tic
  * Drives one WebSocket. Returns handlers the transport adapter wires to the socket's events.
  * Protocol (JSON): server first sends {t:'challenge',nonce}; client {t:'auth',ticket,sig} | {t:'sig',to,env} | {t:'ping'};
  * server {t:'ready',tickets} | {t:'join',ticket,sid} | {t:'leave',dev,sid} | {t:'sig',from,fromTicket,env} | {t:'err',code}.
+ * A client may add `ack` (an id of at most 64 characters) to a `sig`: the server then answers {t:'sig-ack',ack,online}
+ * (whether the target device has a live presence entry) and, once a server instance has handed the message to the
+ * target's socket, {t:'sig-delivered',ack}. Clients that never send `ack` see neither (additive, for diagnostics).
  * Every socket is a session with a random id `sid`. When a device reconnects quickly (a page reload), the old session's
  * cleanup may run after the new session joined: it then neither removes the new presence entry nor announces a leave,
  * and clients ignore a leave whose sid is not the latest one they saw joining for that device.
@@ -397,9 +400,17 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     }, Math.max(0, c.exp * 1000 - deps.now().getTime()));
     unsub = await backend.subscribe(`sig:${c.pid}`, (raw) => {
       if (closed) return;
-      const m = JSON.parse(raw) as { t: string; to?: string; from?: string; dev?: string };
+      const m = JSON.parse(raw) as { t: string; to?: string; from?: string; dev?: string; ack?: string };
       if (m.t === 'sig') {
-        if (m.to === c.dev && m.from !== c.dev) send(m);
+        if (m.to === c.dev && m.from !== c.dev) {
+          send(m);
+          // Delivery receipt for the sender's diagnostics: published back, any instance holding the sender forwards it.
+          if (typeof m.ack === 'string' && m.from) {
+            void backend.publish(`sig:${c.pid}`, JSON.stringify({ t: 'sig-delivered', ack: m.ack, to: m.from })).catch(() => {});
+          }
+        }
+      } else if (m.t === 'sig-delivered') {
+        if (m.to === c.dev && typeof m.ack === 'string') send({ t: 'sig-delivered', ack: m.ack });
       } else if (m.t === 'join' || m.t === 'leave') {
         if (m.dev !== c.dev) send(m);
       }
@@ -428,7 +439,7 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
     async onMessage(data: string) {
       if (closed) return;
       if (Buffer.byteLength(data, 'utf8') > MAX_MSG) return void sock.close(1009, 'too large');
-      let m: { t?: string; ticket?: string; sig?: string; to?: string; env?: string; capabilities?: unknown };
+      let m: { t?: string; ticket?: string; sig?: string; to?: string; env?: string; ack?: unknown; capabilities?: unknown };
       try {
         m = JSON.parse(data);
       } catch {
@@ -472,10 +483,15 @@ export function createSignalSession(sock: SocketLike, deps: Deps, backend: Signa
         return;
       }
       if (m.t === 'sig' && typeof m.to === 'string' && typeof m.env === 'string') {
+        const ack = typeof m.ack === 'string' && m.ack.length > 0 && m.ack.length <= 64 ? m.ack : undefined;
         await backend.publish(
           `sig:${claims.pid}`,
-          JSON.stringify({ t: 'sig', from: claims.dev, fromTicket: ticketStr, to: m.to, env: m.env }),
+          JSON.stringify({ t: 'sig', from: claims.dev, fromTicket: ticketStr, to: m.to, env: m.env, ...(ack ? { ack } : {}) }),
         );
+        if (ack) {
+          const presence = await backend.getPresence(claims.pid).catch(() => null);
+          if (!closed) send({ t: 'sig-ack', ack, online: presence ? Object.hasOwn(presence, m.to) : null });
+        }
       } else if (m.t === 'ping') {
         // Clients do not wait for the pong; the renewal joins this instance's batch and never overlaps itself.
         send({ t: 'pong' });

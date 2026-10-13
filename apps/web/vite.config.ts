@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 
 // Server the dev UI talks to through this proxy (`make dev` sets the hosted one; e2e and `make dev-local` use the
@@ -15,7 +16,11 @@ export default defineConfig({
   plugins: [svelte(), svelteTesting()],
   // Unit tests (vitest): see packages/sync/vitest.config.ts for why CI needs generous limits and fewer workers.
   test: { testTimeout: 30_000, hookTimeout: 30_000, ...(process.env.CI ? { maxWorkers: 2, minWorkers: 1 } : {}) },
-  define: { 'import.meta.env.VITE_DEV_PROXY_TARGET': JSON.stringify(target) },
+  define: {
+    'import.meta.env.VITE_DEV_PROXY_TARGET': JSON.stringify(target),
+    // Reported to co-authors in connection tests and shown in the network report.
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version),
+  },
   server: {
     port: 1420,
     strictPort: true,

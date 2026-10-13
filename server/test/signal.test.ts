@@ -88,6 +88,32 @@ describe('signaling relay (5.1)', () => {
     expect(backend.log.join('\n')).not.toContain('sdp');
   });
 
+  it('acknowledges a signal on request: target online, then delivered to its socket (diagnostics)', async () => {
+    const { a, b } = await setup();
+    const backend = new MemorySignalBackend();
+    const sa = connect(backend);
+    const sb = connect(backend);
+    await sa.auth(a);
+    await sa.until((m) => m.t === 'ready');
+    await sb.auth(b);
+    await sb.until((m) => m.t === 'ready');
+    await sa.say({ t: 'sig', to: b.dev, env: 'AAAA', ack: 'probe-1' });
+    expect(await sa.until((m) => m.t === 'sig-ack')).toMatchObject({ ack: 'probe-1', online: true });
+    expect(await sb.until((m) => m.t === 'sig')).toMatchObject({ from: a.dev, env: 'AAAA' });
+    expect(await sa.until((m) => m.t === 'sig-delivered')).toMatchObject({ ack: 'probe-1' });
+    // to a device that is not connected: accepted, reported offline, never delivered
+    await sa.say({ t: 'sig', to: 'nobody', env: 'AAAA', ack: 'probe-2' });
+    expect(await sa.until((m) => m.t === 'sig-ack' && m.ack === 'probe-2')).toMatchObject({ online: false });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sa.inbox.some((m) => m.t === 'sig-delivered' && m.ack === 'probe-2')).toBe(false);
+    // without ack nothing extra is sent (older clients)
+    const before = sa.inbox.length;
+    await sa.say({ t: 'sig', to: b.dev, env: 'BBBB' });
+    await sb.until((m) => m.t === 'sig' && m.env === 'BBBB');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sa.inbox.slice(before).some((m) => m.t === 'sig-ack' || m.t === 'sig-delivered')).toBe(false);
+  });
+
   it('rejects bad tickets and unauthenticated messages', async () => {
     const backend = new MemorySignalBackend();
     const s1 = connect(backend);

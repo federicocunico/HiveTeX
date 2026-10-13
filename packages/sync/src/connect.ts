@@ -36,6 +36,8 @@ export interface ManagerOptions {
   random?: () => number;
   /** Receives every connection step (see TraceEvent). Never gets credentials, keys, addresses or content. */
   trace?: (e: TraceEvent) => void;
+  /** "desktop 0.7.2", "web 0.7.2": reported to a co-author's connection test so version mismatches are visible. */
+  clientInfo?: string;
   now?: () => Date;
   /** The relay closes sockets after ~300 s; reconnect slightly earlier. */
   reconnectAfterMs?: number;
@@ -126,6 +128,93 @@ export interface TraceEvent {
   data?: Record<string, string | number | boolean>;
 }
 
+/** How a setup message left this device and what the signaling service said about it (diagnostics only). */
+export interface SignalDelivery {
+  via: 'server' | 'mesh' | 'unsent';
+  /** Why it could not be sent (via 'unsent'). */
+  reason?: string;
+  /** Server path: the service acknowledged it (null: no acknowledgement, e.g. an older service or a lost message). */
+  accepted: boolean | null;
+  /** Server path: whether the service saw the target device connected when it accepted the message. */
+  targetOnline: boolean | null;
+  /** Server path: the service handed the message to the target device's connection. */
+  delivered: boolean;
+}
+
+/** What a device reports about itself and its view of the asking device, in answer to a connection test. */
+export interface PeerSelfReport {
+  client: string | null;
+  socketOpen: boolean;
+  /** It holds a valid ticket of the asking device. */
+  knowsYou: boolean;
+  /** It sees the asking device connected to the signaling service. */
+  seesYouOnServer: boolean;
+  /** Its role towards the asking device: the lower device id offers. */
+  role: 'offerer' | 'answerer';
+  connected: boolean;
+  route: PeerRoute | null;
+  linking: boolean;
+  attempts: number;
+  lastError: string | null;
+  cause: AttemptCause | null;
+  link: LinkDiag | null;
+  ice: IceInfo;
+  meshPeers: number;
+}
+
+export interface PeerProbeStep {
+  /** Milliseconds since the test started. */
+  at: number;
+  label: string;
+  /** true: fine, false: the problem, null: information. */
+  ok: boolean | null;
+  detail: string;
+}
+
+/** The outcome of a connection test towards one co-author device. */
+export interface PeerProbeResult {
+  dev: string;
+  startedAt: number;
+  durationMs: number;
+  role: 'offerer' | 'answerer';
+  socketOpen: boolean;
+  known: boolean;
+  onServer: boolean;
+  connectedBefore: boolean;
+  signaling: { delivery: SignalDelivery | null; replyMs: number | null };
+  remote: PeerSelfReport | null;
+  attempt: {
+    outcome: 'connected' | 'failed' | 'timeout' | 'skipped';
+    route: PeerRoute | null;
+    pair: { local: string; remote: string } | null;
+    cause: AttemptCause | null;
+    error: string | null;
+    link: LinkDiag | null;
+    ms: number | null;
+  };
+  steps: PeerProbeStep[];
+  /** One sentence: the most likely reason, or the route that works. */
+  verdict: string;
+  /** Every connection step towards this device (and of the signaling socket) during the test. */
+  trace: TraceEvent[];
+}
+
+/** What this device itself looks like to the connection layer, for diagnostics. */
+export interface SelfDiagnostics {
+  dev: string;
+  client: string | null;
+  socketOpen: boolean;
+  doorbellMode: boolean;
+  meshPeers: number;
+  knownDevices: number;
+  onServer: number;
+  stats: ConnectionManager['stats'];
+}
+
+/** A signaling-only round trip (connection test): independent of WebRTC, carried exactly like the setup messages. */
+type ProbeSignal = { k: 'probe'; id: string; retry: boolean } | { k: 'probe-reply'; id: string; state: PeerSelfReport };
+type WireSignal = LinkSignal | ProbeSignal;
+
 /** What the last credential request told us, for the diagnostics page. */
 export interface IceInfo {
   /** Never asked yet, answered, or failed/timed out (then only STUN servers are used). */
@@ -167,6 +256,47 @@ export type AttemptCause =
   /** The link failed for another reason (the error text says which). */
   | 'link-error';
 
+const routeName = (r: PeerRoute | null | undefined) => (r === 'turn' ? 'through the TURN relay' : r === 'relay' ? 'through the application relay' : 'directly');
+
+/** One line about the other device's own view, for a connection test. */
+function describeRemote(r: PeerSelfReport): string {
+  const parts = [
+    r.client ?? 'unknown app version',
+    r.socketOpen ? 'connected to the signaling service' : 'NOT connected to the signaling service',
+    r.knowsYou ? 'knows this device' : 'does NOT know this device',
+    r.seesYouOnServer ? 'sees this device on the service' : 'does not see this device on the service',
+    `role ${r.role}`,
+    r.connected ? `connected ${routeName(r.route)}` : `${r.attempts} failed attempt(s)${r.cause ? `, last stopped at ${r.cause}` : ''}${r.lastError ? ` (${r.lastError})` : ''}`,
+    `connection servers ${r.ice.state}${r.ice.relay ? `, relay ${r.ice.relay.available ? 'available' : `unavailable (${r.ice.relay.reason})`}` : ''}`,
+  ];
+  return parts.join('; ');
+}
+
+/** The most likely explanation of a connection test, in one sentence. */
+export function probeVerdict(p: PeerProbeResult): string {
+  if (p.attempt.outcome === 'connected') return `Connected ${routeName(p.attempt.route)}.`;
+  if (!p.known) return 'The co-author is not online for this device.';
+  const d = p.signaling.delivery;
+  if (d?.via === 'unsent') return `Setup messages cannot leave this device (${d.reason}): ${p.socketOpen ? 'the co-author is not seen on the signaling service' : 'this device is not connected to the signaling service'}.`;
+  if (d?.via === 'server' && d.accepted && d.targetOnline === false) return 'The signaling service does not see the co-author connected: their app is closed, offline, or connected to a different server.';
+  if (d?.via === 'server' && d.accepted && !d.delivered) return 'The signaling service accepted the message but did not deliver it to the co-author: a problem in the service (message forwarding between its instances).';
+  if (!p.remote) {
+    if (d?.via === 'server' && d.delivered) return 'The co-author\'s connection received the message but their app did not answer: they run an older version, or their app drops messages from this device (their report shows why).';
+    if (d?.via === 'mesh') return 'Setup messages go through another co-author and get no answer: this device does not see the co-author on the signaling service.';
+    return 'No answer from the co-author and no confirmation from the signaling service (service older than 0.7.2, or messages are lost).';
+  }
+  const r = p.remote;
+  if (!r.knowsYou) return 'The co-author\'s app does not know this device (it rejected or has not received this device\'s ticket).';
+  if (!r.socketOpen && d?.via !== 'mesh') return 'The co-author answered, but is not connected to the signaling service right now.';
+  switch (p.attempt.cause) {
+    case 'no-setup-reply': return 'Signaling works both ways, but the WebRTC offer got no answer: the answering side failed to set up its connection (see its report and trace).';
+    case 'no-candidates': return 'Offer and answer were exchanged but no network candidates arrived from the co-author.';
+    case 'checks-failed': return 'Both sides exchanged addresses and none worked, including the relay: a firewall blocks UDP and TCP to the relay on at least one side.';
+    case 'link-error': return `The connection failed with an error: ${p.attempt.error ?? 'unknown'}.`;
+    default: return p.attempt.outcome === 'timeout' ? 'Signaling works, but no connection attempt finished in time.' : 'The connection did not come up.';
+  }
+}
+
 /** Names the stage an unsuccessful link stopped at from what it saw. */
 export function attemptCause(d: LinkDiag, initiator: boolean): AttemptCause {
   if (initiator && !d.answerReceived) return 'no-setup-reply';
@@ -203,6 +333,9 @@ interface Known {
  */
 /** Most candidates kept for one device while its link is being created. */
 const EARLY_SIGNALS_MAX = 64;
+/** Connection steps kept in memory for diagnostics and connection tests. */
+const TRACE_KEEP = 800;
+const shortId = (id: string) => id.slice(0, 8);
 
 export class ConnectionManager {
   private ws: WebSocketLike | null = null;
@@ -222,7 +355,16 @@ export class ConnectionManager {
   private attempts = new Map<string, number>();
   private lastErrors = new Map<string, string>();
   private iceInfoValue: IceInfo = { state: 'unknown', relay: null, servers: 0 };
-  private lastCauses = new Map<string, { cause: AttemptCause; link: LinkDiag }>();
+  private lastCauses = new Map<string, { cause: AttemptCause; link: LinkDiag; at: number }>();
+  /** Recent connection steps (always kept, whether or not a trace sink is set), numbered for slicing. */
+  private recent: Array<{ seq: number; e: TraceEvent }> = [];
+  private traceSeq = 0;
+  /** Server acknowledgements awaited for setup messages and probes, by ack id. */
+  private acks = new Map<string, { onAck: (online: boolean | null) => void; onDelivered: () => void }>();
+  /** Connection-test replies awaited, by probe id. */
+  private probes = new Map<string, (r: PeerSelfReport) => void>();
+  /** Devices for which "waiting for their offer" was already traced. */
+  private waitTraced = new Set<string>();
   /** Candidates that reached us before the link they belong to exists (its configuration is still loading). */
   private earlySignals = new Map<string, LinkSignal[]>();
   /** Devices that left the relay (and are not linked): not retried until they are announced again. */
@@ -324,6 +466,188 @@ export class ConnectionManager {
   /** What the last ICE configuration request returned (STUN/relay availability), for diagnostics. */
   iceInfo(): IceInfo {
     return { ...this.iceInfoValue };
+  }
+
+  /** What this device reports about itself towards `dev` (answer to a connection test). */
+  private selfReport(dev: string): PeerSelfReport {
+    const cause = this.lastCauses.get(dev);
+    return {
+      client: this.o.clientInfo ?? null,
+      socketOpen: this.socketOpen,
+      knowsYou: this.known.has(dev),
+      seesYouOnServer: this.onRelay.has(dev),
+      role: this.selfDev < dev ? 'offerer' : 'answerer',
+      connected: this.connected(dev),
+      route: this.routes()[dev]?.route ?? null,
+      linking: this.links.has(dev) || this.opening.has(dev),
+      attempts: this.attempts.get(dev) ?? 0,
+      lastError: this.lastErrors.get(dev) ?? null,
+      cause: cause?.cause ?? null,
+      link: this.links.get(dev)?.diag() ?? cause?.link ?? null,
+      ice: this.iceInfo(),
+      meshPeers: this.o.mesh.peers.length,
+    };
+  }
+
+  private async answerProbe(dev: string, p: { id: string; retry: boolean }) {
+    this.tr('probe.received', dev, { retry: p.retry });
+    if (p.retry) this.retryNow(dev);
+    const { delivery } = await this.sendSignal(dev, { k: 'probe-reply', id: p.id, state: this.selfReport(dev) });
+    this.tr('probe.replied', dev, { via: delivery.via });
+  }
+
+  /**
+   * Retry `dev` right now: forget its backoff and drop a link that is still being set up (a connection test). The
+   * offering side starts a new attempt; the answering side waits for the next offer.
+   */
+  retryNow(dev: string): boolean {
+    const k = this.known.get(dev);
+    if (!k || this.stopped) return false;
+    this.attempts.delete(dev);
+    this.earlySignals.delete(dev);
+    if (!this.connectedDirect(dev)) {
+      const stale = this.links.get(dev);
+      if (stale && !this.authenticating.has(dev)) {
+        stale.close();
+        this.links.delete(dev);
+        this.tr('link.abandoned', dev, { reason: 'connection test' });
+      }
+    }
+    this.gone.delete(dev);
+    this.tr('attempt.retry-now', dev, { role: this.selfDev < dev ? 'offerer' : 'answerer' });
+    this.maybeConnect(k);
+    this.emitState();
+    return true;
+  }
+
+  /**
+   * Connection test towards one co-author device. 1) Signaling round trip: a probe sealed and carried exactly like
+   * an offer; the other device answers with its own state and, when it offers, starts a fresh attempt. 2) A fresh
+   * WebRTC attempt, watched until it connects, fails or times out. Every step is reported with what it means.
+   */
+  async probePeer(dev: string, o: { attemptTimeoutMs?: number; replyTimeoutMs?: number } = {}): Promise<PeerProbeResult> {
+    const t0 = Date.now();
+    const firstSeq = this.traceSeq + 1;
+    const steps: PeerProbeStep[] = [];
+    const step = (label: string, ok: boolean | null, detail: string) => steps.push({ at: Date.now() - t0, label, ok, detail });
+    const role: 'offerer' | 'answerer' = this.selfDev < dev ? 'offerer' : 'answerer';
+    const known = this.known.has(dev);
+    const onServer = this.onRelay.has(dev);
+    const connectedBefore = this.connected(dev);
+    this.tr('probe.start', dev, { role, known, onServer, connectedBefore, socketOpen: this.socketOpen });
+    const result: PeerProbeResult = {
+      dev,
+      startedAt: t0,
+      durationMs: 0,
+      role,
+      socketOpen: this.socketOpen,
+      known,
+      onServer,
+      connectedBefore,
+      signaling: { delivery: null, replyMs: null },
+      remote: null,
+      attempt: { outcome: 'skipped', route: null, pair: null, cause: null, error: null, link: null, ms: null },
+      steps,
+      verdict: '',
+      trace: [],
+    };
+    const finish = (verdict: string) => {
+      result.verdict = verdict;
+      result.durationMs = Date.now() - t0;
+      this.tr('probe.end', dev, { verdict: verdict.slice(0, 120) });
+      result.trace = this.recent.filter((r) => r.seq >= firstSeq && (!r.e.dev || r.e.dev === dev)).map((r) => r.e);
+      return result;
+    };
+
+    step('This device and the signaling service', this.socketOpen, this.socketOpen
+      ? 'connected'
+      : `not connected${this.doorbellMode ? ' (connects on demand)' : ''}; setup messages can only go through a connected co-author (${this.o.mesh.peers.length} connected)`);
+    if (!known) {
+      step('Co-author device known', false, 'this device holds no valid ticket for it: it is offline, or its credentials were rejected (see device.rejected in the trace)');
+      return finish('This device does not see that co-author online, so there is nothing to connect to.');
+    }
+    step('Co-author device known', true, onServer ? 'seen connected to the signaling service' : 'known only through another co-author, not seen on the signaling service');
+    step('Who offers', null, role === 'offerer' ? 'this device sends the offer (lower device id)' : 'the other device sends the offer (lower device id)');
+
+    // 1) signaling round trip
+    const id = Math.random().toString(36).slice(2, 12);
+    const replyTimeout = o.replyTimeoutMs ?? 8000;
+    const reply = new Promise<PeerSelfReport | null>((resolve) => {
+      this.probes.set(id, resolve);
+      setTimeout(() => {
+        if (this.probes.delete(id)) resolve(null);
+      }, replyTimeout);
+    });
+    const sentAt = Date.now();
+    const { delivery, settled } = await this.sendSignal(dev, { k: 'probe', id, retry: !connectedBefore });
+    result.signaling.delivery = delivery;
+    const remote = await reply;
+    // Acknowledgement and delivery receipt: at most the delivery timeout, already elapsed when the reply timed out.
+    await Promise.race([settled, new Promise((r) => setTimeout(r, remote ? 6500 : 1500))]);
+    if (delivery.via === 'unsent') {
+      step('Setup message sent', false, `could not be sent: ${delivery.reason}`);
+    } else if (delivery.via === 'mesh') {
+      step('Setup message sent', null, 'through a connected co-author (the signaling service is not used for this device)');
+    } else {
+      step('Setup message sent', true, 'to the signaling service');
+      step('Accepted by the service', delivery.accepted, delivery.accepted === null
+        ? 'no acknowledgement (service older than 0.7.2, or the message was lost before reaching it)'
+        : delivery.targetOnline === false ? 'accepted, but the service does not see the other device connected' : 'accepted; the other device is connected to the service');
+      if (delivery.accepted !== null || delivery.delivered) {
+        step('Delivered to the other device', delivery.delivered, delivery.delivered
+          ? 'the service handed it to the other device\'s connection'
+          : 'the service accepted it but did not hand it to the other device\'s connection');
+      }
+    }
+    if (remote) {
+      result.remote = remote;
+      result.signaling.replyMs = Date.now() - sentAt;
+      step('Answer from the other device', true, `in ${result.signaling.replyMs} ms; ${describeRemote(remote)}`);
+    } else {
+      step('Answer from the other device', false, delivery.delivered
+        ? 'none: its connection got the message but its app did not answer (older app version, or it dropped the message; its own report says why)'
+        : `none within ${replyTimeout / 1000} s`);
+    }
+
+    // 2) a fresh connection attempt
+    if (connectedBefore || this.connected(dev)) {
+      const r = this.routes()[dev];
+      result.attempt = { outcome: 'connected', route: r?.route ?? null, pair: r?.pair ?? null, cause: null, error: null, link: null, ms: 0 };
+      step('Connection', true, `already connected ${routeName(r?.route)}${r?.pair ? ` (${r.pair.local} to ${r.pair.remote})` : ''}`);
+    } else {
+      const attemptStart = Date.now();
+      if (!remote) this.retryNow(dev); // the probe did not reach it: still try from this side
+      const limit = o.attemptTimeoutMs ?? (this.o.linkTimeoutMs ?? 20_000) + 5000;
+      const outcome = await new Promise<'connected' | 'failed' | 'timeout'>((resolve) => {
+        const tick = () => {
+          if (this.stopped) return resolve('failed');
+          if (this.connected(dev)) return resolve('connected');
+          const c = this.lastCauses.get(dev);
+          if (c && c.at >= attemptStart) return resolve('failed');
+          if (Date.now() - attemptStart > limit) return resolve('timeout');
+          setTimeout(tick, 200);
+        };
+        tick();
+      });
+      const r = this.routes()[dev];
+      const c = this.lastCauses.get(dev);
+      result.attempt = {
+        outcome,
+        route: outcome === 'connected' ? (r?.route ?? null) : null,
+        pair: outcome === 'connected' ? (r?.pair ?? null) : null,
+        cause: outcome === 'connected' ? null : (c?.cause ?? null),
+        error: outcome === 'connected' ? null : (this.lastErrors.get(dev) ?? null),
+        link: outcome === 'connected' ? null : (this.links.get(dev)?.diag() ?? c?.link ?? null),
+        ms: Date.now() - attemptStart,
+      };
+      if (outcome === 'connected') {
+        step('Connection', true, `connected ${routeName(r?.route)} in ${result.attempt.ms} ms${r?.pair ? ` (${r.pair.local} to ${r.pair.remote})` : ''}`);
+      } else {
+        const l = result.attempt.link;
+        step('Connection', false, `${outcome === 'timeout' ? 'no result' : 'failed'} after ${result.attempt.ms} ms; stage: ${result.attempt.cause ?? 'not started'}${l ? `; offer sent ${l.offerSent}, offer received ${l.offerReceived}, answer received ${l.answerReceived}, candidates here ${l.localCandidates.length}, from them ${l.remoteCandidates.length}, ICE ${l.state}` : ''}`);
+      }
+    }
+    return finish(probeVerdict(result));
   }
 
   /** Timestamps of the stages reached per device (relay seen, first attempt, link up), for diagnostics. */
@@ -434,6 +758,7 @@ export class ConnectionManager {
   start() {
     if (!this.stopped) return;
     this.stopped = false;
+    this.tr('manager.start', undefined, { client: this.o.clientInfo ?? 'unknown', doorbell: Boolean(this.o.doorbell), zeroIdle: Boolean(this.o.zeroIdle) });
     const mesh = this.o.mesh;
     this.unsubs.push(
       mesh.onPeerJoin((p) => this.onPeerJoin(p)),
@@ -457,6 +782,7 @@ export class ConnectionManager {
 
   /** Cancels everything this manager owns: timers, socket, links, pending setup and mesh handlers. */
   stop() {
+    if (!this.stopped) this.tr('manager.stop');
     this.stopped = true;
     this.gen++;
     for (const t of this.timers) clearTimeout(t);
@@ -478,12 +804,34 @@ export class ConnectionManager {
   }
 
   private tr(ev: string, dev?: string, data?: Record<string, string | number | boolean>) {
+    const e: TraceEvent = { t: Date.now(), self: this.selfDev, ev, ...(dev !== undefined ? { dev } : {}), ...(data ? { data } : {}) };
+    this.recent.push({ seq: ++this.traceSeq, e });
+    if (this.recent.length > TRACE_KEEP) this.recent.splice(0, this.recent.length - TRACE_KEEP);
     if (!this.o.trace) return;
     try {
-      this.o.trace({ t: this.nowMs(), self: this.selfDev, ev, ...(dev !== undefined ? { dev } : {}), ...(data ? { data } : {}) });
+      this.o.trace(e);
     } catch {
       /* a broken trace sink must never affect connecting */
     }
+  }
+
+  /** The latest connection steps of this manager (oldest first). */
+  trace(): TraceEvent[] {
+    return this.recent.map((r) => r.e);
+  }
+
+  /** This device as the connection layer sees it. */
+  selfDiagnostics(): SelfDiagnostics {
+    return {
+      dev: this.selfDev,
+      client: this.o.clientInfo ?? null,
+      socketOpen: this.socketOpen,
+      doorbellMode: this.doorbellMode,
+      meshPeers: this.o.mesh.peers.length,
+      knownDevices: this.known.size,
+      onServer: this.onRelay.size,
+      stats: { ...this.stats },
+    };
   }
 
   private nowMs() {
@@ -502,7 +850,10 @@ export class ConnectionManager {
    */
   private iceConfig(): Promise<unknown[]> {
     const now = this.nowMs();
-    if (this.ice && now < this.ice.expiresAt - ICE_REFRESH_MARGIN_MS) return Promise.resolve(this.ice.servers);
+    if (this.ice && now < this.ice.expiresAt - ICE_REFRESH_MARGIN_MS) {
+      this.tr('ice.cached', undefined, { servers: this.ice.servers.length, expiresInS: Math.round((this.ice.expiresAt - now) / 1000) });
+      return Promise.resolve(this.ice.servers);
+    }
     if (this.iceFetch) return this.iceFetch;
     if (now < this.iceRetryAt) return Promise.resolve(this.stunOnly());
     const gen = this.gen;
@@ -659,7 +1010,7 @@ export class ConnectionManager {
   }
 
   private async onServerMessage(raw: string, ws?: WebSocketLike) {
-    let m: { t: string; nonce?: string; tickets?: string[]; sessions?: Record<string, unknown>; ticket?: string; dev?: string; sid?: string; from?: string; fromSid?: string; fromTicket?: string; env?: string; capabilities?: unknown; code?: string; retryAfterMs?: number };
+    let m: { t: string; nonce?: string; tickets?: string[]; sessions?: Record<string, unknown>; ticket?: string; dev?: string; sid?: string; from?: string; fromSid?: string; fromTicket?: string; env?: string; capabilities?: unknown; code?: string; retryAfterMs?: number; ack?: unknown; online?: unknown };
     try {
       m = JSON.parse(raw);
     } catch {
@@ -677,6 +1028,15 @@ export class ConnectionManager {
       (ws ?? this.ws)?.send(JSON.stringify({ t: 'auth', ticket, sig: toB64u(sig), ...capabilities }));
       return;
     }
+    if (m.t === 'sig-ack' && typeof m.ack === 'string') {
+      this.acks.get(m.ack)?.onAck(typeof m.online === 'boolean' ? m.online : null);
+      return;
+    }
+    if (m.t === 'sig-delivered' && typeof m.ack === 'string') {
+      this.acks.get(m.ack)?.onDelivered();
+      return;
+    }
+    if (m.t === 'pong') return;
     if (m.t === 'app-relay') return void this.onRelayMessage(m);
     if (m.t === 'relay-error') {
       if (typeof m.code === 'string' && RELAY_LIMIT_CODES.has(m.code)) {
@@ -686,7 +1046,11 @@ export class ConnectionManager {
       return;
     }
     if (m.t === 'ready') {
-      this.tr('server.ready', undefined, { others: (m.tickets ?? []).length });
+      this.tr('server.ready', undefined, {
+        others: (m.tickets ?? []).length,
+        session: String(m.sid ?? 'n/a').slice(0, 12),
+        relayCapable: Array.isArray(m.capabilities) && m.capabilities.includes(APPLICATION_RELAY_CAPABILITY),
+      });
       this.onRelay.clear();
       this.sessions.clear();
       const caps = Array.isArray(m.capabilities) && m.capabilities.includes(APPLICATION_RELAY_CAPABILITY);
@@ -715,7 +1079,7 @@ export class ConnectionManager {
       // The leave of an older session of a device that already reconnected (quick reload): not a departure.
       const latest = this.sessions.get(m.dev);
       if (latest && m.sid && m.sid !== latest) return;
-      this.tr('peer.leave', m.dev);
+      this.tr('peer.leave', m.dev, { connected: this.connected(m.dev) });
       this.sessions.delete(m.dev);
       this.onRelay.delete(m.dev);
       const relay = this.relays.get(m.dev);
@@ -743,10 +1107,23 @@ export class ConnectionManager {
     let claims: TicketClaims;
     try {
       claims = await verifyTicket(raw, this.o.trusted, this.o.now ? { now: this.o.now() } : {});
-    } catch {
+    } catch (e) {
+      this.tr('device.rejected', undefined, { reason: (e instanceof Error ? e.message : 'invalid').slice(0, 80), via: viaRelay ? 'server' : 'peer' });
       return null;
     }
-    if (claims.pid !== this.o.projectId || claims.dev === this.selfDev) return null;
+    if (claims.pid !== this.o.projectId) {
+      this.tr('device.rejected', claims.dev, { reason: 'other project', via: viaRelay ? 'server' : 'peer' });
+      return null;
+    }
+    if (claims.dev === this.selfDev) return null;
+    if (!this.known.has(claims.dev)) {
+      this.tr('device.learned', claims.dev, {
+        via: viaRelay ? 'server' : 'peer',
+        role: this.selfDev < claims.dev ? 'offerer' : 'answerer',
+        validForS: Math.round((claims.exp * 1000 - Date.now()) / 1000),
+        memberRole: claims.role,
+      });
+    }
     if (this.stopped || gen !== this.gen) return null;
     const k = { claims, raw };
     // A linked device announced with another ticket than its link's: a new session of it (routine peer exchange repeats
@@ -798,8 +1175,12 @@ export class ConnectionManager {
   private maybeConnect(k: Known) {
     const dev = k.claims.dev;
     if (this.stopped || this.busy(dev)) return;
+    if (this.selfDev > dev && !this.waitTraced.has(dev)) {
+      this.waitTraced.add(dev);
+      this.tr('attempt.wait', dev, { role: 'answerer', note: 'the other device sends the offer' });
+    }
     if (this.selfDev < dev) {
-      this.tr('attempt.start', dev, { role: 'offerer' });
+      this.tr('attempt.start', dev, { role: 'offerer', attempt: (this.attempts.get(dev) ?? 0) + 1 });
       void this.attempt(dev, true)
         .then((l) => l?.start())
         .catch(() => this.retryLater(dev));
@@ -849,7 +1230,11 @@ export class ConnectionManager {
         this.authenticating.add(dev);
         this.o.mesh
           .addTransport(t)
-          .catch(() => this.retryLater(dev))
+          .then(() => this.tr('mesh.auth-ok', dev, { route: (t as { path?: string }).path ?? 'unknown' }))
+          .catch((e: unknown) => {
+            this.tr('mesh.auth-failed', dev, { error: (e instanceof Error ? e.message : 'refused').slice(0, 120) });
+            this.retryLater(dev);
+          })
           .finally(() => {
             if (gen === this.gen) this.authenticating.delete(dev);
           });
@@ -873,7 +1258,7 @@ export class ConnectionManager {
   private recordCause(dev: string, link: RtcLink, initiator: boolean, why: string) {
     const d = link.diag();
     const signalError = !/^(timeout|connection (failed|closed|disconnected))$/.test(why);
-    this.lastCauses.set(dev, { cause: signalError ? 'link-error' : attemptCause(d, initiator), link: d });
+    this.lastCauses.set(dev, { cause: signalError ? 'link-error' : attemptCause(d, initiator), link: d, at: Date.now() });
   }
 
   /**
@@ -906,30 +1291,93 @@ export class ConnectionManager {
     return `${this.o.projectId}|${from}|${to}`;
   }
 
-  private async sendSignal(to: string, sig: LinkSignal) {
+  /**
+   * Seals and sends one setup message. Offers, answers and probes ask the service for an acknowledgement and a delivery
+   * receipt (diagnostics only: nothing waits for them except a connection test); `settled` resolves when both arrived
+   * or timed out.
+   */
+  private async sendSignal(to: string, sig: WireSignal): Promise<{ delivery: SignalDelivery; settled: Promise<void> }> {
+    const unsent = (reason: string) => {
+      this.tr('sig.unsent', to, { k: sig.k, reason });
+      return { delivery: { via: 'unsent' as const, reason, accepted: null, targetOnline: null, delivered: false }, settled: Promise.resolve() };
+    };
     const peer = this.known.get(to);
-    if (!peer || this.stopped) {
-      if (!this.stopped) this.tr('sig.unsent', to, { reason: 'unknown-device' });
-      return;
-    }
+    if (this.stopped) return { delivery: { via: 'unsent', reason: 'stopped', accepted: null, targetOnline: null, delivered: false }, settled: Promise.resolve() };
+    if (!peer) return unsent('unknown-device');
     const gen = this.gen;
     const env = await seal(this.o.keys, peer.claims.devX, utf8(JSON.stringify(sig)), this.aad(this.selfDev, to));
-    if (this.stopped || gen !== this.gen) return; // stopped while sealing: transmit nothing
-    this.tr('sig.send', to, { k: sig.k, via: this.socketOpen && (this.onRelay.has(to) || this.o.mesh.peers.length === 0) ? 'server' : 'mesh' });
+    if (this.stopped || gen !== this.gen) return unsent('stopped'); // stopped while sealing: transmit nothing
     if (this.socketOpen && (this.onRelay.has(to) || this.o.mesh.peers.length === 0)) {
       this.stats.signalsViaServer++;
-      this.ws?.send(JSON.stringify({ t: 'sig', to, env: b64(env) }));
-      return;
+      const delivery: SignalDelivery = { via: 'server', accepted: null, targetOnline: null, delivered: false };
+      const ack = sig.k === 'ice' ? undefined : `${sig.k}-${Math.random().toString(36).slice(2, 10)}`;
+      this.tr('sig.send', to, { k: sig.k, via: 'server', targetSeenOnServer: this.onRelay.has(to), ...(ack ? { ack } : {}) });
+      const settled = ack ? this.watchAck(ack, to, sig.k, delivery) : Promise.resolve();
+      this.ws?.send(JSON.stringify({ t: 'sig', to, env: b64(env), ...(ack ? { ack } : {}) }));
+      return { delivery, settled };
     }
     // No socket: relay through a peer. Prefer one that announced a direct link to the target; any other peer
     // passes it one more hop (see onRtcViaMesh). An arbitrary peer that is not linked to the target would drop it.
-    const via = this.o.mesh.peersLinkedTo(to)[0] ?? this.o.mesh.peers.find((p) => p.deviceId !== to)?.deviceId;
-    if (!via) {
-      this.tr('sig.unsent', to, { reason: this.socketOpen ? 'target-not-on-server' : 'no-socket-and-no-peer' });
-      return;
-    }
+    const linkedVia = this.o.mesh.peersLinkedTo(to)[0];
+    const via = linkedVia ?? this.o.mesh.peers.find((p) => p.deviceId !== to)?.deviceId;
+    if (!via) return unsent(this.socketOpen ? 'target-not-seen-on-server-and-no-peer' : 'no-socket-and-no-peer');
     this.stats.signalsViaMesh++;
+    this.tr('sig.send', to, {
+      k: sig.k,
+      via: 'mesh',
+      peer: shortId(via),
+      peerLinkedToTarget: Boolean(linkedVia),
+      socketOpen: this.socketOpen,
+      targetSeenOnServer: this.onRelay.has(to),
+    });
     await this.o.mesh.sendApp(via, 'rtc', { to, from: this.selfDev, fromTicket: this.o.getTicket(), env: b64(env), hops: RTC_HOPS } satisfies RtcEnvelope);
+    return { delivery: { via: 'mesh', accepted: null, targetOnline: null, delivered: false }, settled: Promise.resolve() };
+  }
+
+  /** Records the service's acknowledgement and delivery receipt of one message (or their absence). */
+  private watchAck(ack: string, to: string, k: string, delivery: SignalDelivery): Promise<void> {
+    // Settled once both the acknowledgement and the delivery receipt are known (arrived, or given up on). They may
+    // arrive in either order: the service publishes the message before it answers the sender.
+    return new Promise<void>((resolve) => {
+      let ackKnown = false;
+      let deliveryKnown = false;
+      const settle = () => {
+        if (!ackKnown || !deliveryKnown) return;
+        this.acks.delete(ack);
+        resolve();
+      };
+      const ackTimer = this.later(4000, () => {
+        if (ackKnown) return;
+        ackKnown = true;
+        this.tr('sig.no-server-ack', to, { k, ack, note: 'older service, or the message was lost before the service' });
+        settle();
+      });
+      const deliveryTimer = this.later(6000, () => {
+        if (deliveryKnown) return;
+        deliveryKnown = true;
+        this.tr('sig.not-delivered', to, { k, ack, accepted: delivery.accepted ?? 'unknown', targetOnline: delivery.targetOnline ?? 'unknown' });
+        settle();
+      });
+      this.acks.set(ack, {
+        onAck: (online) => {
+          if (ackKnown) return;
+          ackKnown = true;
+          this.cancel(ackTimer);
+          delivery.accepted = true;
+          delivery.targetOnline = online;
+          this.tr('sig.server-ack', to, { k, ack, targetOnline: online ?? 'unknown' });
+          settle();
+        },
+        onDelivered: () => {
+          if (deliveryKnown) return;
+          deliveryKnown = true;
+          this.cancel(deliveryTimer);
+          delivery.delivered = true;
+          this.tr('sig.delivered', to, { k, ack });
+          settle();
+        },
+      });
+    });
   }
 
   private async onEnvelope(fromTicket: string, env: Uint8Array) {
@@ -939,15 +1387,25 @@ export class ConnectionManager {
       if (!k && !this.stopped) this.tr('sig.dropped', undefined, { reason: 'sender-ticket-rejected' });
       return;
     }
-    let sig: LinkSignal;
+    let wire: WireSignal;
     try {
-      sig = JSON.parse(fromUtf8(await open(this.o.keys, k.claims.devX, env, this.aad(k.claims.dev, this.selfDev)))) as LinkSignal;
+      wire = JSON.parse(fromUtf8(await open(this.o.keys, k.claims.devX, env, this.aad(k.claims.dev, this.selfDev)))) as WireSignal;
     } catch {
       this.tr('sig.dropped', k.claims.dev, { reason: 'cannot-decrypt' });
       return; // not for us / tampered
     }
     if (this.stopped || gen !== this.gen) return;
-    this.tr('sig.recv', k.claims.dev, { k: sig.k });
+    this.tr('sig.recv', k.claims.dev, { k: wire.k });
+    if (wire.k === 'probe') return void this.answerProbe(k.claims.dev, wire);
+    if (wire.k === 'probe-reply') {
+      const waiter = this.probes.get(wire.id);
+      if (waiter) {
+        this.probes.delete(wire.id);
+        waiter(wire.state);
+      }
+      return;
+    }
+    const sig: LinkSignal = wire;
     let link: RtcLink | null | undefined = this.links.get(k.claims.dev);
     // An offer from a device we still think is connected means it restarted: answer it; the mesh replaces the old link.
     // (An attempt already in setup is shared, not duplicated.)
@@ -980,7 +1438,12 @@ export class ConnectionManager {
       // Not linked to the target: pass it to a peer that is (bounded, so a stale neighbour list cannot loop it).
       const hops = Math.min(RTC_HOPS, Number(body.hops ?? 0)) - 1;
       const next = this.o.mesh.peersLinkedTo(body.to).find((d) => d !== _from.deviceId && d !== body.from);
-      if (hops > 0 && next) await this.o.mesh.sendApp(next, 'rtc', { ...body, hops });
+      if (hops > 0 && next) {
+        this.tr('sig.forwarded', body.to, { from: shortId(body.from), next: shortId(next), hops });
+        await this.o.mesh.sendApp(next, 'rtc', { ...body, hops });
+      } else {
+        this.tr('sig.forward-dropped', body.to, { from: shortId(body.from), reason: hops > 0 ? 'no peer linked to the target' : 'hop limit' });
+      }
     }
   }
 

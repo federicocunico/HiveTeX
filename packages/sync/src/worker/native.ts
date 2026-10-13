@@ -119,6 +119,7 @@ export function nativeProjects(
           request<TicketAnswer>("POST", "/projects/" + p.project + "/ticket", { deviceId: dev }),
         ring: (dev) => request("POST", "/projects/" + p.project + "/ring", { deviceId: dev }),
         iceServers: () => request("POST", "/turn", { projectId: p.project }),
+        clientInfo: "desktop " + (process.env.HIVETEX_VERSION ?? "dev"),
         signalUrl: url.origin.replace(/^http/, "ws") + "/api/signal",
         wsFactory: (u) => new WebSocket(u) as any,
         rtcFactory: () =>

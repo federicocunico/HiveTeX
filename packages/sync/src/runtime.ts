@@ -2,9 +2,9 @@ import type { StoredDeviceKeys } from '@hivetex/crypto';
 import { type DoorbellInfo, ROOT_DOC_ID, type Role, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
 import { BlobManager } from './blobs.js';
 import { ChangeLog } from './changelog.js';
-import { type Candidate, ConnectionManager, type IceConfig, type ManagerOptions, type PeerRoute, type TraceEvent, type WebSocketLike } from './connect.js';
+import { type Candidate, ConnectionManager, type IceConfig, type ManagerOptions, type PeerProbeResult, type PeerRoute, type TraceEvent, type WebSocketLike } from './connect.js';
 
-const TRACE_RING_MAX = 500;
+const TRACE_RING_MAX = 1500;
 import { Doorbell, ntfyChannel, type PushChannel, type PushState } from './doorbell.js';
 import { forkMeshOptions, listenForkStatus, type MergeConflict, type MergeReport, OfflineFork } from './fork.js';
 import { Mesh, type MeshOptions } from './mesh.js';
@@ -47,6 +47,8 @@ export interface RuntimeAdapters {
   pushChannel?: (url: string) => PushChannel;
   /** Persists trusted keys for the next offline start (an optimisation only). */
   saveTrusted?: (keys: TrustedKey[]) => void;
+  /** "desktop 0.7.2", "web 0.7.2": sent to co-authors in connection tests. */
+  clientInfo?: string;
 }
 
 export interface RuntimeEvents {
@@ -167,7 +169,7 @@ export class ProjectRuntime {
     return this.ticket;
   }
   get managerDiagnostics() {
-    return { candidates: this.manager?.candidates() ?? [], stages: this.manager?.diagnostics() ?? {}, socketOpen:this.manager?.socketOpen ?? false, doorbellMode:this.manager?.doorbellMode ?? false, answers:this.manager?.stats?.answers ?? 0, ice: this.manager?.iceInfo() ?? null, routes: this.manager?.routes() ?? {}, trace: [...this.traceRing] };
+    return { candidates: this.manager?.candidates() ?? [], stages: this.manager?.diagnostics() ?? {}, socketOpen:this.manager?.socketOpen ?? false, doorbellMode:this.manager?.doorbellMode ?? false, answers:this.manager?.stats?.answers ?? 0, ice: this.manager?.iceInfo() ?? null, routes: this.manager?.routes() ?? {}, trace: [...this.traceRing], self: this.manager?.selfDiagnostics() ?? null };
   }
 
   /** The latest connection steps, kept so a failing test (or a bug report) can show where connecting stopped. */
@@ -501,6 +503,7 @@ export class ProjectRuntime {
       // The answer carries the relay credentials' expiry: the manager refreshes them before they run out.
       getIceServers: () => a.iceServers(),
       trace: (e) => this.recordTrace(e),
+      ...(a.clientInfo ? { clientInfo: a.clientInfo } : {}),
       ...(this.doorbellInfo ? { doorbell: { ring: () => this.ringProject() }, ensureTicket: () => this.ensureTicket() } : {}),
     };
     const manager = (a.createManager ?? ((o) => new ConnectionManager(o)))(options);
@@ -525,6 +528,11 @@ export class ProjectRuntime {
    * "Sync now": retry the connection to co-authors that are online, ask every connected peer again for every file and
    * fetch what is missing. Null when offline or paused (nothing is attempted).
    */
+  /** Connection test towards one co-author device (see ConnectionManager.probePeer); null when not networking. */
+  async probePeer(dev: string): Promise<PeerProbeResult | null> {
+    return this.manager ? this.manager.probePeer(dev) : null;
+  }
+
   async syncNow(): Promise<{ outcome: SyncOutcome; snapshot: SyncSnapshot } | null> {
     if (this.paused || this.offline) return null;
     this.manager?.reconnectNow();

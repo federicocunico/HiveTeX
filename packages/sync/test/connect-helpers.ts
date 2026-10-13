@@ -103,6 +103,11 @@ export function managerFor(
 export class Relay {
   private socks = new Map<string, FakeWs>();
   private tickets = new Map<string, string>();
+  /**
+   * acks: answer `ack` like the 0.7.2 service (sig-ack, sig-delivered). undelivered: devices whose messages the
+   * service accepts but never hands over (a broken forwarding path between service instances).
+   */
+  constructor(private opts: { acks?: boolean; undelivered?: Set<string>; deliveredFirst?: boolean } = {}) {}
   /** A `wsFactory` for `dev` that registers its sockets here. */
   attach(dev: Dev, sockets: FakeWs[]) {
     return (): FakeWs => {
@@ -111,7 +116,14 @@ export class Relay {
       ws.onSend = (m) => {
         if (m.t === 'sig') {
           const to = this.socks.get(String(m.to));
-          to?.say({ t: 'sig', from: dev.dev, fromTicket: dev.ticket, env: m.env });
+          const ack = this.opts.acks && typeof m.ack === 'string' ? m.ack : undefined;
+          // the real service publishes first, so the receipt can come before the acknowledgement (deliveredFirst)
+          if (ack && !this.opts.deliveredFirst) ws.say({ t: 'sig-ack', ack, online: Boolean(to) });
+          if (!this.opts.undelivered?.has(String(m.to))) {
+            to?.say({ t: 'sig', from: dev.dev, fromTicket: dev.ticket, env: m.env });
+            if (ack && to) ws.say({ t: 'sig-delivered', ack });
+          }
+          if (ack && this.opts.deliveredFirst) setTimeout(() => ws.say({ t: 'sig-ack', ack, online: Boolean(to) }), 30);
         }
       };
       queueMicrotask(() => {

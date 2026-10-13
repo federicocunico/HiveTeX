@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Candidate } from '@hivetex/sync';
-import { type NetEnv, buildReport, parseCandidate, peerRows, peerVerdict, runChecks, splitServers } from '../src/lib/netdiag.js';
+import type { PeerProbeResult } from '@hivetex/sync';
+import { type NetEnv, buildReport, formatProbe, parseCandidate, peerRows, platformOf, runChecks, splitServers } from '../src/lib/netdiag.js';
 
 const SECRET = 'turn-secret-credential-123';
 const TURN = { urls: ['turn:relay.example.org:3478?transport=udp', 'turns:relay.example.org:443?transport=tcp'], username: 'user-abc', credential: SECRET };
@@ -74,6 +75,31 @@ describe('network checks', () => {
   });
 });
 
+/** A connection test whose messages the service accepted but never delivered. */
+const probe = (): PeerProbeResult => ({
+  dev: 'd2d2d2d2d2d2d2d2',
+  startedAt: Date.parse('2026-10-13T12:00:00Z'),
+  durationMs: 31000,
+  role: 'offerer',
+  socketOpen: true,
+  known: true,
+  onServer: true,
+  connectedBefore: false,
+  signaling: { delivery: { via: 'server', accepted: true, targetOnline: true, delivered: false }, replyMs: null },
+  remote: null,
+  attempt: { outcome: 'timeout', route: null, pair: null, cause: 'no-setup-reply', error: 'connection attempt timed out', link: null, ms: 25000 },
+  steps: [
+    { at: 3, label: 'Setup message sent', ok: true, detail: 'to the signaling service' },
+    { at: 40, label: 'Accepted by the service', ok: true, detail: 'accepted; the other device is connected to the service' },
+    { at: 6040, label: 'Delivered to the other device', ok: false, detail: 'the service accepted it but did not hand it over' },
+  ],
+  verdict: 'The signaling service accepted the message but did not deliver it to the co-author: a problem in the service (message forwarding between its instances).',
+  trace: [
+    { t: 1000, self: 'a1a1a1a1a1a1a1a1', ev: 'sig.send', dev: 'd2d2d2d2d2d2d2d2', data: { k: 'probe', via: 'server' } },
+    { t: 7040, self: 'a1a1a1a1a1a1a1a1', ev: 'sig.not-delivered', dev: 'd2d2d2d2d2d2d2d2', data: { k: 'probe', accepted: true } },
+  ],
+});
+
 const cand = (over: Partial<Candidate> = {}): Candidate => ({
   dev: 'd2', uname: 'bea', attempts: 2, linking: false, lastError: 'connection attempt timed out', cause: 'checks-failed', onRelay: true,
   link: { state: 'checking', offerReceived: true, offerSent: false, answerReceived: false, localCandidates: ['host', 'srflx', 'srflx'], remoteCandidates: ['host'] },
@@ -89,11 +115,22 @@ describe('per-peer details, peer test and report', () => {
     expect(peerRows([], [cand({ cause: 'no-candidates' })], {})[0]?.explanation).toMatch(/No network candidates were received/);
   });
 
-  it('judges a peer test from live state', () => {
-    expect(peerVerdict('d1', [{ dev: 'd1' }], [], { d1: { route: 'direct', limited: null } }, 0, 25000)).toMatchObject({ ok: true, route: 'direct' });
-    expect(peerVerdict('d2', [], [cand()], {}, 1000, 25000)).toBeNull();
-    expect(peerVerdict('d2', [], [cand()], {}, 26000, 25000)).toMatchObject({ ok: false, reason: 'timeout', cause: 'checks-failed' });
-    expect(peerVerdict('dx', [], [], {}, 0, 25000)).toMatchObject({ ok: false, reason: 'offline' });
+  it('formats a connection test: verdict, marked steps, the other side\'s view, the attempt and its steps', () => {
+    const lines = formatProbe('bea', probe());
+    const text = lines.join('\n');
+    expect(lines[0]).toMatch(/^Connection test with bea \(d2d2d2d2\)/);
+    expect(text).toContain('Verdict: The signaling service accepted the message but did not deliver it');
+    expect(text).toContain('[OK  ] +3 ms Setup message sent');
+    expect(text).toContain('[FAIL] +6040 ms Delivered to the other device');
+    expect(text).toContain('Signaling: via server, accepted true, target online true, delivered false, reply none');
+    expect(text).toContain('The other device did not report its state.');
+    expect(text).toContain('Attempt: timeout in 25000 ms, stopped at no-setup-reply');
+    expect(text).toContain('a1a1a1a1 -> d2d2d2d2 sig.not-delivered k=probe');
+  });
+
+  it('describes the platform without account or address details', () => {
+    expect(platformOf('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0')).toBe('Windows NT 10.0; Edg/140');
+    expect(platformOf('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15')).toBe('Mac OS X 10.15.7; Version/18.0 Safari');
   });
 
   it('the report carries results and causes but no credential, token or public address', async () => {
@@ -105,10 +142,31 @@ describe('per-peer details, peer test and report', () => {
       app: 'web',
       when: new Date('2026-10-13T12:00:00Z'),
     });
-    expect(text).toContain('bea: not connected');
+    expect(text).toContain('bea (d2): not connected');
     expect(text).toContain('cause checks-failed');
     expect(text).toContain('Public address (hidden)');
     for (const forbidden of [SECRET, 'user-abc', '203.0.113.9', 'relay.example.org']) expect(text).not.toContain(forbidden);
+  });
+
+  it('the full report carries environment, this device, the connection tests and the trace, and still no secret', async () => {
+    const text = buildReport({
+      results: await runChecks(env()),
+      ice: { state: 'ok', relay: { available: true, reason: 'ok' }, servers: 3 },
+      rows: peerRows([], [cand()], {}),
+      app: 'desktop',
+      when: new Date('2026-10-13T12:00:00Z'),
+      environment: { app: 'desktop', version: '0.7.2', platform: 'Windows NT 10.0; Edg/140' },
+      self: { dev: 'a1a1a1a1a1a1a1a1', client: 'desktop 0.7.2', socketOpen: true, doorbellMode: false, meshPeers: 0, knownDevices: 1, onServer: 1, stats: { socketOpens: 2, signalsViaServer: 14, signalsViaMesh: 0, relaySetups: 0, relayFailures: 0, rings: 0, answers: 0 } },
+      probes: [{ name: 'bea', result: probe() }],
+      trace: probe().trace,
+    });
+    expect(text).toContain('App desktop 0.7.2; Windows NT 10.0; Edg/140');
+    expect(text).toContain('This device a1a1a1a1: desktop 0.7.2; signaling connected');
+    expect(text).toContain('setup messages via service 14');
+    expect(text).toContain('seen on the service');
+    expect(text).toContain('Connection test with bea');
+    expect(text).toContain('Connection trace (last 2 of 2 steps');
+    for (const forbidden of [SECRET, 'user-abc', '203.0.113.9', 'relay.example.org', 'a1a1a1a1a1a1a1a1']) expect(text).not.toContain(forbidden);
   });
 
   it('the report ends with the connection trace, device ids shortened, so a stuck pair shows where it stopped', async () => {
@@ -124,8 +182,8 @@ describe('per-peer details, peer test and report', () => {
         { t: 1200, self: 'abcdef0123456789', ev: 'link.timeout', dev: '123456fedcba9876', data: { cause: 'no-setup-reply' } },
       ],
     });
-    expect(text).toContain('Connection trace (last 3 steps');
-    expect(text).toContain('+    50 ms abcdef -> 123456 sig.send k=offer via=server');
+    expect(text).toContain('Connection trace (last 3 of 3 steps');
+    expect(text).toContain('+     50 ms abcdef01 -> 123456fe sig.send k=offer via=server');
     expect(text).toContain('link.timeout cause=no-setup-reply');
     expect(text).not.toContain('abcdef0123456789');
   });

@@ -29,6 +29,7 @@ import {
   type Persistence,
   Mesh,
   ProjectModel,
+  type PeerProbeResult,
   type PeerRoute,
   type RtcFactory,
   type WebSocketLike,
@@ -787,6 +788,7 @@ export class ProjectSession {
         fetchTicket: (deviceId) => api('POST', `/projects/${pid}/ticket`, { deviceId }),
         ring: (deviceId) => api('POST', `/projects/${pid}/ring`, { deviceId }),
         iceServers: () => api<{ iceServers: unknown[]; expiresAt?: number }>('POST', '/turn', { projectId: pid }),
+        clientInfo: `${isDesktop ? 'desktop page' : 'web'} ${import.meta.env.VITE_APP_VERSION ?? 'dev'}`,
         signalUrl: `${wsBase()}/api/signal`,
         wsFactory: (url) => new WebSocket(url) as unknown as WebSocketLike,
         rtcFactory: () => this.rtcFactory(),
@@ -895,6 +897,11 @@ export class ProjectSession {
    * "Sync now": retry the connection to co-authors that are online, ask every connected peer again for every file and
    * fetch what is missing. Returns the message shown to the user.
    */
+  /** Connection test towards one co-author device (signaling round trip, then a fresh connection attempt). */
+  async probePeer(dev: string): Promise<PeerProbeResult | null> {
+    return (await this.runtime.probePeer(dev)) ?? null;
+  }
+
   async syncNow(): Promise<string> {
     if (this.syncingNow) return this.syncNowResult;
     this.syncingNow = true;

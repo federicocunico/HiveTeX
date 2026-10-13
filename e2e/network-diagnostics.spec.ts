@@ -32,14 +32,27 @@ test('network diagnostics: checks, per-co-author details, peer test and a report
   // the co-author is connected, and the peer test says so with the route
   await expect(dialog.getByTestId(`net-peer-${g.username}`)).toHaveAttribute('data-state', 'connected');
   await dialog.getByTestId(`net-test-${g.username}`).click();
-  await expect(dialog.getByTestId(`net-verdict-${g.username}`)).toContainText(/Connected/, { timeout: 30_000 });
+  await expect(dialog.getByTestId(`net-verdict-${g.username}`)).toContainText(/Connected/, { timeout: 40_000 });
+  // the test went through every stage: signaling round trip confirmed by the service, the other side's own view
+  const probe = dialog.getByTestId(`net-probe-${g.username}`);
+  await expect(probe).toHaveAttribute('data-outcome', 'connected');
+  for (const label of ['Setup message sent', 'Accepted by the service', 'Delivered to the other device', 'Answer from the other device', 'Connection']) {
+    await expect(probe).toContainText(label);
+  }
+  await expect(probe).toContainText(/knows this device; sees this device on the service/);
 
-  // the report is copyable and holds no credentials
+  // the live trace is shown on request
+  await dialog.getByTestId('net-trace-toggle').click();
+  await expect(dialog.getByTestId('net-trace')).toContainText('probe.end');
+
+  // the report is copyable, holds the connection test and the trace, and no credentials
   await dialog.getByTestId('net-copy').click();
   const report = await o.page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
   if (report) {
     expect(report).toContain('HiveTeX network report');
     expect(report).toContain(g.username);
+    expect(report).toContain(`Connection test with ${g.username}`);
+    expect(report).toContain('Connection trace (last');
     expect(report).not.toMatch(/credential|password|token/i);
   }
   await ownerCtx.close();

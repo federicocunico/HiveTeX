@@ -186,7 +186,7 @@ impl WorkerService {
 fn renderer_method(m: &str) -> bool {
     if matches!(m, "blob.has" | "blob.held" | "blob.begin" | "blob.chunk" | "blob.commit" | "blob.abort" | "project.recovery") { return true; }
     if m == "catalog.pause" || m == "account.freeze" { return true; }
-    matches!(m, "catalog.activate" | "catalog.list" | "catalog.select" | "catalog.settings" | "project.open" | "project.detach" | "account.stop" | "project.status" | "project.pause" | "project.sync" | "project.refresh" | "project.flush" | "doc.attach" | "doc.edit" | "project.command" | "conflict.text" | "conflict.file" | "project.history" | "project.snapshots" | "project.snapshot" | "project.docs" | "blob.read" | "blob.add" | "project.meta" | "project.metaSet" | "project.merge" | "project.folderConflict" | "project.presence" | "mesh.app" | "mesh.reconcile" | "mesh.openDoc")
+    matches!(m, "catalog.activate" | "catalog.list" | "catalog.select" | "catalog.settings" | "project.open" | "project.detach" | "account.stop" | "project.status" | "project.pause" | "project.sync" | "project.probe" | "project.refresh" | "project.flush" | "doc.attach" | "doc.edit" | "project.command" | "conflict.text" | "conflict.file" | "project.history" | "project.snapshots" | "project.snapshot" | "project.docs" | "blob.read" | "blob.add" | "project.meta" | "project.metaSet" | "project.merge" | "project.folderConflict" | "project.presence" | "mesh.app" | "mesh.reconcile" | "mesh.openDoc")
 }
 
 #[tauri::command]

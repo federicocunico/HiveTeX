@@ -1,4 +1,4 @@
-import type { AttemptCause, Candidate, IceInfo, LinkDiag, RouteState } from '@hivetex/sync';
+import type { AttemptCause, Candidate, IceInfo, LinkDiag, PeerProbeResult, RouteState, SelfDiagnostics, TraceEvent } from '@hivetex/sync';
 import { type MappingState, mappingText } from './sync-view.js';
 
 /** One ICE server as returned by the service. Credentials are only ever passed to the probes, never shown or copied. */
@@ -154,10 +154,6 @@ export async function runChecks(env: NetEnv, onUpdate: (r: CheckResult[]) => voi
   return out;
 }
 
-export type PeerVerdict =
-  | { ok: true; route: string; pair: string | null }
-  | { ok: false; reason: 'offline' | 'timeout'; cause: AttemptCause | null; detail: string };
-
 /** Plain-language explanation for a recorded failure stage. */
 export function causeText(cause: AttemptCause | null, link: LinkDiag | null, error: string | null): string {
   switch (cause) {
@@ -189,6 +185,10 @@ export interface PeerRow {
   linkState?: string | undefined;
   local?: string | undefined;
   remote?: string | undefined;
+  /** Seen connected to the signaling service (as opposed to known only through another co-author). */
+  onServer?: boolean;
+  linking?: boolean;
+  lastError?: string | null;
 }
 
 const ROUTE_NAME: Record<string, string> = { direct: 'direct', turn: 'through the relay (TURN)', relay: 'through the application relay' };
@@ -211,6 +211,9 @@ export function peerRows(
       state: 'connecting',
       attempts: c.attempts,
       cause: c.cause,
+      onServer: c.onRelay,
+      linking: c.linking,
+      lastError: c.lastError,
       linkState: c.link?.state,
       local: c.link ? list(c.link.localCandidates) : undefined,
       remote: c.link ? list(c.link.remoteCandidates) : undefined,
@@ -220,19 +223,54 @@ export function peerRows(
   return rows;
 }
 
-/**
- * The outcome of a peer test, judged from the live state: connected if the device is among the peers, otherwise the
- * failure stage of its latest attempt. `waitedMs` is how long the test has been running.
- */
-export function peerVerdict(dev: string, peers: Array<{ dev: string }>, connecting: Candidate[], routes: Record<string, RouteState>, waitedMs: number, timeoutMs: number): PeerVerdict | null {
-  if (peers.some((p) => p.dev === dev)) {
-    const r = routes[dev];
-    return { ok: true, route: ROUTE_NAME[r?.route ?? 'direct'] ?? 'direct', pair: r?.pair ? `${r.pair.local} ↔ ${r.pair.remote}` : null };
+const shortId = (id: string) => id.slice(0, 8);
+
+/** One trace line: `+  1234 ms a1b2c3d4 -> e5f6a7b8 sig.send k=offer via=server`. */
+export function traceLine(e: TraceEvent, start: number): string {
+  const data = e.data ? ` ${Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}` : '';
+  return `+${String(e.t - start).padStart(7)} ms ${shortId(e.self)}${e.dev ? ` -> ${shortId(e.dev)}` : ''} ${e.ev}${data}`;
+}
+
+const MARK = (ok: boolean | null) => (ok === true ? 'OK  ' : ok === false ? 'FAIL' : 'INFO');
+
+/** The connection test towards one co-author, as text: verdict, steps, the other side's view, the attempt and its trace. */
+export function formatProbe(name: string, p: PeerProbeResult): string[] {
+  const lines = [`Connection test with ${name} (${shortId(p.dev)}), ${new Date(p.startedAt).toISOString()}, ${p.durationMs} ms`, `  Verdict: ${p.verdict}`];
+  lines.push(`  This device: role ${p.role}, signaling ${p.socketOpen ? 'connected' : 'not connected'}, co-author ${p.known ? (p.onServer ? 'seen on the service' : 'known only through another co-author') : 'not known'}, ${p.connectedBefore ? 'already connected' : 'not connected'} before the test`);
+  for (const st of p.steps) lines.push(`  [${MARK(st.ok)}] +${st.at} ms ${st.label}: ${st.detail}`);
+  const d = p.signaling.delivery;
+  if (d) lines.push(`  Signaling: via ${d.via}${d.reason ? ` (${d.reason})` : ''}, accepted ${d.accepted ?? 'no ack'}, target online ${d.targetOnline ?? 'unknown'}, delivered ${d.delivered}, reply ${p.signaling.replyMs === null ? 'none' : `${p.signaling.replyMs} ms`}`);
+  const r = p.remote;
+  if (r) {
+    lines.push(`  The other device reports: app ${r.client ?? 'unknown'}; signaling ${r.socketOpen ? 'connected' : 'NOT connected'}; knows this device ${r.knowsYou}; sees this device on the service ${r.seesYouOnServer}; role ${r.role}; connected ${r.connected}${r.route ? ` (${r.route})` : ''}; setting up ${r.linking}; failed attempts ${r.attempts}; last cause ${r.cause ?? 'none'}${r.lastError ? ` (${r.lastError})` : ''}; connection servers ${r.ice.state}, ${r.ice.servers} server(s), relay ${r.ice.relay ? `${r.ice.relay.available ? 'available' : 'unavailable'} (${r.ice.relay.reason})` : 'unknown'}; connected co-authors ${r.meshPeers}`);
+    if (r.link) lines.push(`    its link: ICE ${r.link.state}, offer sent ${r.link.offerSent}, offer received ${r.link.offerReceived}, answer received ${r.link.answerReceived}, candidates there ${list(r.link.localCandidates)}, received from this device ${list(r.link.remoteCandidates)}`);
+  } else {
+    lines.push('  The other device did not report its state.');
   }
-  const c = connecting.find((x) => x.dev === dev);
-  if (!c) return { ok: false, reason: 'offline', cause: null, detail: 'That co-author is not online.' };
-  if (waitedMs >= timeoutMs) return { ok: false, reason: 'timeout', cause: c.cause, detail: causeText(c.cause, c.link, c.lastError) };
-  return null;
+  const a = p.attempt;
+  lines.push(`  Attempt: ${a.outcome}${a.ms !== null ? ` in ${a.ms} ms` : ''}${a.route ? `, route ${a.route}` : ''}${a.pair ? `, selected pair ${a.pair.local} to ${a.pair.remote}` : ''}${a.cause ? `, stopped at ${a.cause}` : ''}${a.error ? ` (${a.error})` : ''}`);
+  if (a.link) lines.push(`    this link: ICE ${a.link.state}, offer sent ${a.link.offerSent}, offer received ${a.link.offerReceived}, answer received ${a.link.answerReceived}, candidates here ${list(a.link.localCandidates)}, received ${list(a.link.remoteCandidates)}`);
+  if (p.trace.length) {
+    lines.push(`  Steps during the test (${p.trace.length}):`);
+    const t0 = p.trace[0]?.t ?? 0;
+    for (const e of p.trace) lines.push(`    ${traceLine(e, t0)}`);
+  }
+  return lines;
+}
+
+/** Where the report comes from: app, version and platform (no account, project or address). */
+export interface ReportEnvironment {
+  app: string;
+  version: string;
+  platform: string;
+}
+
+/** A short platform description from a user agent: OS and engine only. */
+export function platformOf(ua: string): string {
+  const os = /Windows NT [\d.]+|Mac OS X [\d_]+|Android [\d.]+|iPhone OS [\d_]+|Linux/.exec(ua)?.[0] ?? 'unknown OS';
+  // Edge also says Chrome, and Chrome also says Safari: the most specific name first.
+  const engine = /Edg\/\d+/.exec(ua)?.[0] ?? /Firefox\/\d+|Chrome\/\d+|Version\/[\d.]+ Safari/.exec(ua)?.[0] ?? 'unknown engine';
+  return `${os.replace(/_/g, '.')}; ${engine}`;
 }
 
 /** Text for *Copy report*. Built from an allow-list of fields: no credentials, tokens, keys, addresses or content. */
@@ -242,29 +280,38 @@ export function buildReport(input: {
   rows: PeerRow[];
   app: string;
   when: Date;
+  environment?: ReportEnvironment;
+  self?: SelfDiagnostics | null;
+  probes?: Array<{ name: string; result: PeerProbeResult }>;
   /** The latest connection steps (types and counts only, no addresses or credentials). */
-  trace?: Array<{ t: number; self: string; ev: string; dev?: string; data?: Record<string, string | number | boolean> }>;
+  trace?: TraceEvent[];
+  traceLimit?: number;
 }): string {
-  const lines = [`HiveTeX network report (${input.app})`, input.when.toISOString(), ''];
-  lines.push('Checks');
+  const lines = [`HiveTeX network report (${input.app})`, input.when.toISOString()];
+  if (input.environment) lines.push(`App ${input.environment.app} ${input.environment.version}; ${input.environment.platform}`);
+  const s = input.self;
+  if (s) {
+    lines.push(
+      `This device ${shortId(s.dev)}: ${s.client ?? 'unknown app'}; signaling ${s.socketOpen ? 'connected' : 'not connected'}${s.doorbellMode ? ' (on demand)' : ''}; connected co-authors ${s.meshPeers}; known devices ${s.knownDevices}, seen on the service ${s.onServer}`,
+      `  Counters: signaling connections opened ${s.stats.socketOpens}, setup messages via service ${s.stats.signalsViaServer}, via co-authors ${s.stats.signalsViaMesh}, relay setups ${s.stats.relaySetups} (failed ${s.stats.relayFailures}), rings ${s.stats.rings}, answers ${s.stats.answers}`,
+    );
+  }
+  lines.push('', 'Checks');
   for (const r of input.results) lines.push(`- ${r.label}: ${r.status}${r.ms !== undefined ? ` (${r.ms} ms)` : ''}. ${r.detail.replace(/Public address \S+:/, 'Public address (hidden):')}`);
   if (input.ice) lines.push('', `Connection servers: ${input.ice.state}, ${input.ice.servers} server(s), relay ${input.ice.relay ? `${input.ice.relay.available ? 'available' : 'unavailable'} (${input.ice.relay.reason})` : 'unknown'}`);
   lines.push('', 'Co-authors');
   if (input.rows.length === 0) lines.push('- none online');
   for (const p of input.rows) {
     lines.push(p.state === 'connected'
-      ? `- ${p.name}: connected ${p.route}${p.pair ? ` [${p.pair}]` : ''}`
-      : `- ${p.name}: not connected, attempt ${(p.attempts ?? 0) + 1}, state ${p.linkState ?? 'n/a'}, cause ${p.cause ?? 'none yet'}; local candidates: ${p.local ?? 'n/a'}; remote candidates: ${p.remote ?? 'n/a'}. ${p.explanation ?? ''}`);
+      ? `- ${p.name} (${shortId(p.dev)}): connected ${p.route}${p.pair ? ` [${p.pair}]` : ''}`
+      : `- ${p.name} (${shortId(p.dev)}): not connected, attempt ${(p.attempts ?? 0) + 1}${p.linking ? ' (in progress)' : ''}, ${p.onServer ? 'seen on the service' : 'NOT seen on the service (known through another co-author)'}, state ${p.linkState ?? 'n/a'}, cause ${p.cause ?? 'none yet'}${p.lastError ? `, last error "${p.lastError}"` : ''}; local candidates: ${p.local ?? 'n/a'}; remote candidates: ${p.remote ?? 'n/a'}. ${p.explanation ?? ''}`);
   }
+  for (const pr of input.probes ?? []) lines.push('', ...formatProbe(pr.name, pr.result));
   if (input.trace && input.trace.length > 0) {
-    const short = (id: string) => id.slice(0, 6);
-    const last = input.trace.slice(-100);
+    const last = input.trace.slice(-(input.traceLimit ?? 400));
     const start = last[0]?.t ?? 0;
-    lines.push('', `Connection trace (last ${last.length} steps; device ids shortened)`);
-    for (const e of last) {
-      const data = e.data ? ` ${Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}` : '';
-      lines.push(`+${String(e.t - start).padStart(6)} ms ${short(e.self)}${e.dev ? ` -> ${short(e.dev)}` : ''} ${e.ev}${data}`);
-    }
+    lines.push('', `Connection trace (last ${last.length} of ${input.trace.length} steps; device ids shortened)`);
+    for (const e of last) lines.push(traceLine(e, start));
   }
   return lines.join('\n');
 }
