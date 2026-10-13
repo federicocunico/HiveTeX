@@ -297,11 +297,24 @@ fn tail(s: &str, max: usize) -> String {
 
 /// Runs a command with limits; returns (exit_success, timed_out).
 fn run_limited(cmd: Command, timeout: Duration, memory_mb: u64) -> std::io::Result<(bool, bool)> {
-    run_limited_io(cmd, timeout, memory_mb, None)
+    run_limited_io(cmd, timeout, memory_mb, None, None)
 }
 
-/// `run_limited`, with stderr written to `stderr` when given (Tectonic reports its downloads there).
-fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: Option<fs::File>) -> std::io::Result<(bool, bool)> {
+/// Overall limit for a build whose deadline is pushed back by downloads (the quick compiler's first build).
+const DOWNLOAD_CAP: Duration = Duration::from_secs(15 * 60);
+
+/// Milliseconds since the build started at which the compiler last downloaded something (0 = never).
+pub(crate) type Activity = std::sync::Arc<std::sync::atomic::AtomicU64>;
+
+/// Whether a build has run too long: `timeout` counts from the last download (or the start), within `cap` overall.
+fn timed_out(elapsed: Duration, last_download: Option<Duration>, timeout: Duration, cap: Duration) -> bool {
+    let since = elapsed.saturating_sub(last_download.unwrap_or(Duration::ZERO));
+    since > timeout || elapsed > cap.max(timeout)
+}
+
+/// `run_limited`, with stderr written to `stderr` when given (Tectonic reports its downloads there), and the time limit
+/// counted from the latest download recorded in `activity` when given.
+fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: Option<fs::File>, activity: Option<Activity>) -> std::io::Result<(bool, bool)> {
     // Both streams go to the file when given (Tectonic prints its `note:` lines on stdout).
     let stdout = stderr.as_ref().and_then(|f| f.try_clone().ok());
     cmd.stdin(Stdio::null())
@@ -331,7 +344,9 @@ fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: O
         if let Some(status) = child.try_wait()? {
             return Ok((status.success(), false));
         }
-        if start.elapsed() > timeout {
+        let last = activity.as_ref().map(|a| a.load(std::sync::atomic::Ordering::SeqCst)).filter(|&ms| ms > 0).map(Duration::from_millis);
+        let cap = if activity.is_some() { DOWNLOAD_CAP } else { timeout };
+        if timed_out(start.elapsed(), last, timeout, cap) {
             #[cfg(unix)]
             unsafe {
                 libc::kill(-(child.id() as i32), libc::SIGKILL);
@@ -649,10 +664,13 @@ fn compile_tectonic(
         resp.log = "! cannot create the build log".into();
         return resp;
     };
-    // Report packages as Tectonic downloads them (`note: downloading <file>` on stderr).
+    // Follow Tectonic's downloads (`note: downloading <file>` on stderr): reported to the UI when it listens, and each
+    // one pushes the time limit back, so a first build that fetches its support files is not cut off (design D5).
     let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let watcher = on_download.map(|cb| {
-        let (path, done) = (err_path.clone(), done.clone());
+    let activity: Activity = Default::default();
+    let started = Instant::now();
+    let watcher = {
+        let (path, done, activity) = (err_path.clone(), done.clone(), activity.clone());
         std::thread::spawn(move || {
             let mut seen = 0usize;
             loop {
@@ -660,7 +678,10 @@ fn compile_tectonic(
                 if let Ok(text) = fs::read_to_string(&path) {
                     for line in text.lines().skip(seen) {
                         if let Some(f) = line.strip_prefix("note: downloading ") {
-                            cb(f.trim());
+                            activity.store((started.elapsed().as_millis() as u64).max(1), std::sync::atomic::Ordering::SeqCst);
+                            if let Some(cb) = &on_download {
+                                cb(f.trim());
+                            }
                         }
                         seen += 1;
                     }
@@ -671,13 +692,11 @@ fn compile_tectonic(
                 std::thread::sleep(Duration::from_millis(200));
             }
         })
-    });
+    };
     let timeout = Duration::from_millis(req.timeout_ms.max(1000));
-    let run = run_limited_io(cmd, timeout, req.memory_mb, Some(err_file));
+    let run = run_limited_io(cmd, timeout, req.memory_mb, Some(err_file), Some(activity));
     done.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Some(w) = watcher {
-        let _ = w.join();
-    }
+    let _ = watcher.join();
     let (success, timed_out) = match run {
         Ok(r) => r,
         Err(e) => {
@@ -836,6 +855,48 @@ pub(crate) fn test_tex() -> Option<std::sync::MutexGuard<'static, ()>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deadline_counts_from_the_last_download_within_the_cap() {
+        let (t, cap, s) = (Duration::from_secs(120), DOWNLOAD_CAP, Duration::from_secs);
+        // no downloads: plain wall-clock limit
+        assert!(!timed_out(s(119), None, t, cap));
+        assert!(timed_out(s(121), None, t, cap));
+        // still downloading at 140 s: a 200 s first build is not cut off
+        assert!(!timed_out(s(200), Some(s(140)), t, cap));
+        // downloads stopped at 140 s, then idle past the limit: stopped
+        assert!(timed_out(s(261), Some(s(140)), t, cap));
+        // downloading forever: the overall cap still stops it
+        assert!(timed_out(cap + s(1), Some(cap), t, cap));
+        // the cap never shortens the limit itself
+        assert!(!timed_out(s(119), None, t, s(60)));
+    }
+
+    /// A 3 s process with a 1 s limit: kept alive while downloads are recorded, stopped when they are not.
+    #[test]
+    fn downloads_keep_a_slow_build_alive() {
+        let slow = || {
+            let mut c = if cfg!(windows) { Command::new("ping") } else { Command::new("sleep") };
+            if cfg!(windows) { c.args(["-n", "4", "127.0.0.1"]); } else { c.arg("3"); }
+            c
+        };
+        let activity: Activity = Default::default();
+        let (a, stop) = (activity.clone(), std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)));
+        let s2 = stop.clone();
+        let started = Instant::now();
+        let bumper = std::thread::spawn(move || {
+            while !s2.load(std::sync::atomic::Ordering::SeqCst) {
+                a.store(started.elapsed().as_millis() as u64 + 1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        });
+        let (ok, killed) = run_limited_io(slow(), Duration::from_secs(1), 0, None, Some(activity)).unwrap();
+        stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        bumper.join().unwrap();
+        assert!(ok && !killed, "downloading build was stopped");
+        let (_, killed) = run_limited_io(slow(), Duration::from_secs(1), 0, None, Some(Default::default())).unwrap();
+        assert!(killed, "idle build was not stopped");
+    }
 
     fn file(path: &str, text: &str) -> FileIn {
         FileIn { path: path.into(), hash: sha256_hex(text.as_bytes()), content_b64: Some(B64.encode(text)) }

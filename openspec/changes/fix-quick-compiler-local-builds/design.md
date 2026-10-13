@@ -60,6 +60,16 @@ today's behavior (the leader builds).
 leader known → current text; `compilerPhase` is `setting-up` → "Setting up the compiler…"; else
 "Compiler: none available". Keep `data-testid="leader"` on every branch so existing e2e assertions keep working.
 
+**D5. Quick-compiler time limit counts compiling, not downloading.** `run_limited_io` kills the build when wall-clock
+time exceeds `timeout_ms` (120 s from the pipeline). Tectonic's first build downloads its whole support set and can
+exceed that on an ordinary connection (observed ~145 s in Windows Sandbox; a user saw "Compile timed out after 120 s").
+The `note: downloading` watcher in `compile_tectonic` already sees each download: it now always runs (not only when the
+UI listens) and records the time of the last download in a shared atomic. `run_limited_io` takes that optional
+activity marker and stops the build when `now - max(start, last download) > timeout` or `now - start > cap`
+(cap: 15 min). The decision is a pure function, unit-tested. Alternatives: a larger fixed timeout for Tectonic —
+rejected, it also delays stopping a genuinely stuck build by the same amount; pre-warming the bundle at install — larger
+change, and documents still fetch packages later.
+
 ## Risks / Trade-offs
 
 - [Removing the alone-and-leader local build changes when `this.pdf` updates] → the session's `CompileClient` already

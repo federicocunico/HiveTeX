@@ -18,7 +18,12 @@
 ## 4. Status bar
 
 - [x] 4.1 Update `StatusBar.svelte` "who compiles" item per design D4 (effective mode, quick-compiler hint, setting-up state, `data-testid="leader"` kept) — verify the existing e2e (`compile-modes`, `full-flow`) still pass and a new e2e assertion that *This device only* shows "Compiles only on this device"
-- [ ] 4.2 Desktop check on a machine/VM without TeX (quick compiler auto-installed, *Automatic*): status shows "Compiles only on this device (quick compiler)", the PDF appears on open, and Compile works with a co-author online — verified by screenshot attached to the change
+- [x] 4.2 Desktop check on a machine/VM without TeX (quick compiler auto-installed, *Automatic*): status shows "Compiles only on this device (quick compiler)", the PDF appears on open, and Compile works with a co-author online — verified by screenshot attached to the change. Outcome (Windows Sandbox, no TeX, Automatic, local project): status shows "Compiles only on this device (quick compiler)" and the PDF appears on open without edits. The co-author case was not run in the sandbox (needs two accounts); it is covered by the compile-modes e2e. Further sandbox runs skipped at the user's request
+
+## 5. Quick-compiler time limit (design D5)
+
+- [x] 5.1 Add the pure deadline function and the activity marker to `run_limited_io` in `apps/desktop/src-tauri/src/tex.rs`, always run the download watcher in `compile_tectonic` and feed it; Rust unit tests for: downloads keep extending, idle past the limit stops, overall cap stops — verify `cargo test --lib deadline` passes and `cargo test --lib tex::` stays green
+- [x] 5.2 Re-run the first build in a fresh Windows Sandbox (no TeX, empty Tectonic cache) and confirm the first build produces the PDF without a timeout — verified by the build result in the sandbox. Outcome: in a fresh sandbox the first build finished in ~105 s with no timeout (under 120 s, so the extension path was not exercised there); the >120 s path is covered by the Rust test downloads_keep_a_slow_build_alive (3 s build, 1 s limit, kept alive by downloads, stopped when idle). Further sandbox runs skipped at the user's request
 
 ## Workflow follow-up
 

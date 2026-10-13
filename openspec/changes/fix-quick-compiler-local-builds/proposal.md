@@ -30,6 +30,10 @@ scenario.
 - The Compile button / command compiles on this device whenever this device's results are the ones shown (effective
   local policy) or nobody leads and this device has a compiler, regardless of how many co-authors are connected.
 - Tests covering the quick-compiler (unverified reads) path, which today has none.
+- The quick compiler's first build no longer fails with "Compile timed out after 120 s" while it is still downloading
+  its support files: the build time limit counts compiling, not downloading (each download pushes the deadline back),
+  within an overall cap so a stuck build still stops. Found while testing on a clean Windows (Windows Sandbox): the
+  first Article build downloads hundreds of files (hyphenation patterns, format) and took ~145 s.
 
 ## Capabilities
 
@@ -39,7 +43,8 @@ _None._
 
 ### Modified Capabilities
 
-- `compiler-provisioning`: *Quick-compiler builds stay on the device* gains scenarios for compiling on open, on
+- `compiler-provisioning`: *Quick compiler set up automatically (desktop)* gains a slow-first-build scenario (downloads
+  do not count toward the build time limit). *Quick-compiler builds stay on the device* gains scenarios for compiling on open, on
   explicit request with co-authors online, and for the status shown.
 - `distributed-compilation`: *Automatic compilation* / *Local compile override* — an explicit compile request falls back
   to this device when no device leads and this device can compile; the workspace's "who compiles" indicator reflects
@@ -54,7 +59,9 @@ _None._
 - `apps/web/src/lib/compile-mode.ts`: possibly a small pure helper (effective mode, compile-target decision) to test.
 - Tests: `apps/web/test/compile-mode.test.ts` (unit), e2e `compile-modes.spec.ts` (local-only compiler scenario via the
   fake engine).
-- No change to the election protocol, the Rust side, or what is shared with peers (quick-compiler builds stay local).
+- `apps/desktop/src-tauri/src/tex.rs`: the quick compiler's time limit (`run_limited_io`, `compile_tectonic`) extends
+  while Tectonic downloads, with an overall cap; Rust unit test for the deadline.
+- No change to the election protocol or what is shared with peers (quick-compiler builds stay local).
 
 Assumption: the report concerns the desktop app on a computer without TeX (quick compiler auto-installed). The fix also
 covers the web/desktop-helper case where the helper's compiler is unverified, which goes through the same
