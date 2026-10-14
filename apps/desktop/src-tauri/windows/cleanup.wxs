@@ -8,7 +8,6 @@
         <RemoveFolder Id="HiveTeXOldSetupFolder" Property="HIVETEX_NSIS_DIR" On="install" />
       </Component>
     </ComponentGroup>
-    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLDIR]" After="CostFinalize" Sequence="execute" />
     <!-- Preserve state for MSI major upgrades and NSIS migration, which passes this secure property. -->
     <Property Id="HIVETEX_UPGRADE" Secure="yes" />
     <Property Id="HIVETEX_NSIS_UNINSTALL" Secure="yes">
