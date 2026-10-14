@@ -7,42 +7,33 @@ so that other people can install HiveTeX, point it at that deployment and collab
 ## Requirements
 
 ### Requirement: Installers built in CI for every desktop platform
-Pushing a version tag (`v<major>.<minor>.<patch>`) SHALL build the desktop app on GitHub-hosted runners for Windows
-(NSIS installer and MSI), macOS (one universal disk image for Apple Silicon and Intel) and Linux (AppImage and Debian
-package), and SHALL attach them to a GitHub Release named after the tag. Runner images SHALL be pinned to explicit
-versions, so a change of a runner's default image cannot silently break a release.
+Pushing a version tag (`v<major>.<minor>.<patch>`) SHALL build Windows NSIS and MSI installers on a pinned GitHub-hosted Windows runner and attach them to a GitHub Release named after the tag. This release line SHALL distribute Windows installers only.
 
 #### Scenario: Tagging a release
-- **WHEN** the maintainer pushes tag `v0.1.0` and the version in the sources is `0.1.0`
-- **THEN** a release "HiveTeX v0.1.0" is created with Windows, macOS and Linux installers attached
+- **WHEN** the maintainer pushes tag `v0.7.3` and the version in the sources is `0.7.3`
+- **THEN** a release "HiveTeX v0.7.3" is created with Windows setup and MSI installers attached
 
 #### Scenario: Tag and source version disagree
-- **WHEN** a tag `v0.2.0` is pushed while the sources still say `0.1.0`
+- **WHEN** a tag `v0.7.4` is pushed while the sources still say `0.7.3`
 - **THEN** the release job fails before building, with a message naming both versions
 
 ### Requirement: Releases published automatically
-A tagged release SHALL stay a draft while it is being built, and SHALL be published without a manual step, with
-download links and first-launch notes, once all three platform builds have succeeded and every installer and the
-update manifest are attached. Otherwise it SHALL stay a draft and the run SHALL say what is missing. A tag with a
-pre-release suffix (`v0.3.0-beta.1`) SHALL be published as a pre-release, which installed apps are not offered.
+A tagged release SHALL stay a draft while the Windows installers are built and checked. It SHALL publish automatically with download links and first-launch notes once the Windows build and packaged checks succeed and both installers, signed update artifacts and update manifest are attached. Otherwise it SHALL stay a draft with an actionable failure. A release with a prerelease suffix SHALL publish as a prerelease and SHALL NOT be offered as a stable update.
 
 #### Scenario: All platforms built
-- **WHEN** the three builds for tag `v0.2.0` succeed
-- **THEN** the release "HiveTeX v0.2.0" becomes public with a download table, and installed apps are offered v0.2.0
+- **WHEN** the Windows build and packaged checks for a tag succeed
+- **THEN** the release becomes public and installed apps are offered its signed stable update
 
 #### Scenario: A platform fails to build
-- **WHEN** the macOS build of a tagged release fails
-- **THEN** the release stays a draft, the release run reports that the tag was not built on every platform, and
-  re-running the failed build publishes it
+- **WHEN** a tagged Windows installer build or packaged check fails
+- **THEN** the release stays a draft and a successful retry permits publication
 
 ### Requirement: Dry-run builds without a release
-The maintainer SHALL be able to start the desktop build manually on all three platforms without creating a release. The
-installers SHALL then be downloadable as workflow artifacts. A dry run SHALL succeed even when the updater signing key is
-not configured; it then produces installers without update signatures.
+The maintainer SHALL be able to build and check Windows installers manually without creating a release or tag. The installers SHALL be downloadable as workflow artifacts. A dry run SHALL work without the updater signing key and then produce installers without update signatures.
 
 #### Scenario: Manual build
 - **WHEN** the maintainer starts the Desktop workflow manually
-- **THEN** the run uploads the Windows, macOS and Linux installers as artifacts and creates no release and no tag
+- **THEN** it checks and uploads Windows setup and MSI installers without creating a release or tag
 
 ### Requirement: Signed automatic updates
 Release builds SHALL sign their update artifacts with the project's updater key and publish an update manifest with the
@@ -57,14 +48,6 @@ than publish unsigned updates.
 #### Scenario: Update from the real repository
 - **WHEN** a published release newer than the installed version exists in the project's GitHub repository
 - **THEN** the app offers it, and the update source is that repository's latest-release manifest
-
-### Requirement: macOS builds open without a paid certificate
-macOS builds without an Apple Developer certificate SHALL still be code-signed (ad hoc), so that after download macOS
-shows its standard "unidentified developer" prompt, with *Open Anyway*, instead of reporting the app as damaged.
-
-#### Scenario: First launch of a downloaded macOS build
-- **WHEN** a tester downloads the disk image on Apple Silicon and opens the app
-- **THEN** macOS offers *Open Anyway* in Privacy & Security, and the app starts after the tester confirms
 
 ### Requirement: Choosing the server before signing in (desktop)
 The desktop app SHALL ship with `https://hivetex.vercel.app` as its default server. A build MAY replace that default (for
@@ -240,3 +223,41 @@ A production deploy SHALL report the source commit, release tag when applicable,
 #### Scenario: Previous deployment remains healthy
 - **WHEN** the former production endpoint is healthy but the new deployment fails or the alias still targets the former deployment
 - **THEN** the run fails rather than reporting the release successfully deployed
+
+### Requirement: Complete explicit Windows uninstall
+Explicit Windows uninstall SHALL stop the app and its workers and remove program files, per-user local/roaming profiles, caches, managed compilers, offline replicas, credentials and startup. External project folders and separate TeX installations SHALL remain. Upgrades SHALL preserve user state. Cleanup SHALL wait boundedly for stopped processes to release profile handles and report persistent failures.
+
+#### Scenario: Uninstall the setup installation
+- **WHEN** the user uninstalls HiveTeX installed using the setup executable
+- **THEN** program files, app-owned user data, credentials and login startup are removed
+
+#### Scenario: Uninstall the MSI installation
+- **WHEN** the user uninstalls HiveTeX installed using MSI
+- **THEN** the same complete per-user cleanup occurs
+
+#### Scenario: Replace an earlier version
+- **WHEN** an installer or signed updater removes an earlier version as part of replacement
+- **THEN** documents, preferences and credentials survive
+
+#### Scenario: Residue from the former p2platex name
+- **WHEN** earlier releases left app.p2platex.desktop data, credentials or login startup
+- **THEN** explicit uninstall removes those app-owned residues alongside current HiveTeX state
+
+#### Scenario: WebView releases its files after shutdown
+- **WHEN** a stopped app has WebView profile handles that close shortly afterwards
+- **THEN** uninstall waits within its deadline and removes the profile; a persistent lock reports failure
+
+#### Scenario: External project folder
+- **WHEN** the app previously linked a folder outside its own data directories
+- **THEN** uninstall leaves that folder and its content intact
+
+### Requirement: Windows release gates and advisory diagnostics
+Required CI SHALL run on Windows and block on static/build checks, deterministic unit/native regressions and packaged startup/installer checks. Browser, desktop UI and timing-sensitive network diagnostics designated as advisory SHALL report failures and retries as warnings with retained logs, without blocking publication or production deployment. Disabled non-Windows test matrices SHALL NOT run automatically.
+
+#### Scenario: Advisory timeout
+- **WHEN** a designated advisory diagnostic times out or fails
+- **THEN** CI emits a warning and retains its logs while required checks determine release eligibility
+
+#### Scenario: Required regression fails
+- **WHEN** a deterministic regression or packaged check fails
+- **THEN** CI fails and release publication remains blocked
