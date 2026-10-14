@@ -1,27 +1,31 @@
 # CI/CD: what is missing
 
-Status on 2026-10-14 (master `c266362`): **CI, Desktop and Deploy are green**. Pushes to master deploy production
+Status on 2026-10-14 (0.8.0): **CI, Desktop and Deploy are green**. Pushes to master deploy production
 through the Deploy workflow after CI passes (docs/deployment.md section 3). The fixes from the first CI bring-up
 (timing in `pipeline.test.ts`, server hook timeouts, the phone-width header, the MiKTeX setup, the `master` trigger,
 `LICENSE`) are in this file's git history.
 
+## Fixed on 2026-10-14 (0.8.0)
+
+- [x] `CI / browser-diagnostics`: `e2e/desktop-helper.spec.ts:51` failed on every run because the compile leader
+      returned the browser's own result after pairing (a product bug: the desktop app never got the build); fixed in
+      `CompileLeader.compilerSwitched()`. `e2e/a11y.spec.ts` and `e2e/folders.spec.ts` failed on a cold CI cache: Vite
+      re-optimized dependencies mid-test (`504 Outdated Optimize Dep`, the editor never loaded); `optimizeDeps.entries`
+      now scans every source at startup. Locally, with a cold cache and no retries: 81 passed, 0 failed.
+- [x] Desktop Rust tests that failed in parallel (`maintenance::`, `texcache::`): they took the global compiler
+      activity lock that compile tests hold; they now use a lock of their own.
+- [x] `packages/sync` socket test and the doorbell representative test depended on timing; fixed (pongs answered; the
+      representative rule tested directly on a three-device mesh).
+
 ## Open CI issues
 
-- [ ] `CI / browser-diagnostics` (windows-2025, `continue-on-error`) fails on every run:
-      `e2e/desktop-helper.spec.ts:51` (*"Compile with my desktop app" pairs once, then builds go to the desktop app*)
-      has failed since the quick-compiler commit `728307b`. In the same job `e2e/a11y.spec.ts:9` and
-      `e2e/folders.spec.ts:49` are flaky (they pass on retry). Fix or quarantine them before making the job blocking.
-- [ ] Desktop Rust tests: 4 tests (`maintenance::tests::reset_clears_only_cache_and_is_idempotent`,
-      `cache_reset_includes_legacy_builds_and_preserves_legacy_documents`, `cleanup_does_not_follow_a_directory_junction`,
-      `texcache::tests::downloads_once_then_serves_from_disk_and_remembers_missing_files`) fail locally under
-      `cargo test --lib` on Windows and pass with `--test-threads=1`. They likely share process state such as
-      environment variables or a directory. CI is green, so it is a latent race.
-- [ ] `e2e/full-flow.spec.ts` still sometimes needs a retry (WebRTC set-up between three browsers on a 2-vCPU runner).
-- [ ] The two-machine sync checks are manual, not in CI. `make sandbox-sync` (this PC plus Windows Sandbox, fault
-      injection with `FAULT=deaf|deaf-silent|no-udp`, `MATRIX=...`) and `make rtc-lab` (browser and native WebRTC per
-      ICE scenario) need Windows Sandbox and a click on the sandbox firewall prompt. The relay-first logic is covered in
-      CI by `server/test/application-relay-e2e.test.ts` and the `packages/sync` lifecycle and probe tests; the 5-minute
-      relay soak (`RELAY_SOAK_S=300`) is opt-in.
+- [ ] Make `CI / browser-diagnostics` blocking once it has stayed green for a while.
+- [ ] `e2e/full-flow.spec.ts` may still need a retry on a 2-vCPU runner (WebRTC set-up between three browsers).
+- [ ] The two-machine sync checks are manual, not in CI: `make sandbox-sync` (this PC plus Windows Sandbox, fault
+      injection `FAULT=deaf|deaf-silent|no-udp`, `MATRIX=...`) and `make rtc-lab` (browser and native WebRTC per ICE
+      scenario; `HOLD_S=330 SCENARIOS=relay-udp PEERS=native` guards the TURN refresh patch). They need Windows Sandbox
+      and run unattended (the sandbox setup allows the app in its firewall). The relay-first logic is covered in CI by
+      `server/test/application-relay-e2e.test.ts` and the `packages/sync` lifecycle and probe tests.
 
 ## Secrets and variables (Settings → Secrets and variables → Actions)
 

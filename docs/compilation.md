@@ -26,15 +26,37 @@ project's status bar, applies to every project, and takes effect at once:
 
 | Mode | Compiles here | Can lead (compile for others) | PDF shown |
 |---|---|---|---|
-| **Automatic** (default) | when it is the best connected device | yes, unless *Let this device compile for the others* is off (Project settings) | the leader's |
-| **Use peers** | never; no LaTeX needed, the in-browser compiler is not downloaded | no | the leader's |
-| **This device only** | after every edit (and *Compile on this device only*) | no | this device's own |
+| **This device** (default) | after every edit (and *Compile on this device only*) | no | this device's own |
+| **Shared** (deprecated) | when it is the best connected device | yes, unless *Let this device compile for the others* is off (Project settings) | the leader's |
+| **Use peers** (deprecated) | never; no LaTeX needed, the in-browser compiler is not downloaded | no | the leader's |
 
+- **Every device builds its own PDF by default** (since 0.8.0). Shared builds depend on another device's compiler and
+  connection, and field reports showed builds failing on customer machines that way, so both shared modes are
+  deprecated: still available in Account → Compiler and the status bar, and possibly removed in a later release. A
+  device that still had the old default (*Automatic*) is moved to *This device* once; choosing a shared mode afterwards
+  is kept.
 - With **Use peers**, someone in the project must be able to compile. When nobody can, the status bar shows *No co-author can
-  compile right now*: switch to *Automatic* (with LaTeX installed, or the in-browser compiler on the web), or ask a
+  compile right now*: switch to *This device* (with LaTeX installed, or the in-browser compiler on the web), or ask a
   co-author with LaTeX to open the project.
-- **This device only** is for authors who want their own build (a different TeX distribution, or no shared builds).
-  Their results are not sent to anyone, and the rest of the project keeps its leader.
+- Builds made with *This device* are not sent to anyone; devices in a shared mode keep their leader among themselves.
+
+## Compiler check at start (desktop)
+
+At every start the desktop app compiles a minimal document with the compiler it would use
+(`apps/desktop/src-tauri/src/compiler_health.rs`). A detected compiler is not necessarily a working one: a TeX
+distribution with broken format files or package database, a managed installation left half-written, or a stale
+compiler cache all pass detection and fail every build. When the check document does not compile, the app repairs, in
+order, stopping as soon as it compiles:
+
+1. clears the compiler caches (build outputs and downloaded packages; documents and installations stay);
+2. a managed compiler (full LaTeX, quick compiler) is downloaded and installed again;
+3. a system TeX that still fails is set aside: the app uses an installed managed compiler, or downloads the quick
+   compiler. If nothing compiles either, it keeps the system TeX.
+
+A failure that looks like missing network (a package download) is reported as *offline* and nothing is changed. The
+result shows in **Account → Compiler** (*Check now* runs it again; *Use system TeX again* undoes step 3), and a start that
+repaired the compiler, or could not, says so in a notice. Desktop UI test builds skip the check unless
+`HIVETEX_COMPILER_CHECK=1`.
 - A desktop without LaTeX sets up the quick compiler at its first compile (see Engines); set `hivetex.autoCompiler` to
   `0` in its local storage to rely on peers instead.
 

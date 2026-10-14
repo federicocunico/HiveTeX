@@ -14,7 +14,7 @@
 - [x] 2.3 Forward `iceTransportPolicy` to the native peer and set explicit ICE timeouts (disconnected 5 s, failed 20 s, keepalive 2 s); verify `rtc_cli` with policy relay gathers only relay candidates and that a native attempt is never abandoned before the stack's failure timeout (client link timeout 30 s, unit test on the option)
 - [x] 2.4 Update `docs/network-diagnostics.md` (trace glossary, native log section); verify the glossary lists every new event name
 - [x] 2.5 (requested by the user) Ask the firewall question at launch: bind the shared UDP listener when the app starts (not at the first peer connection) and release it after 10 s; verify on Windows that a fresh build path prompts at launch, and that the installed app asks once
-- [ ] 2.7 (found in the 5-minute hold, root cause of the frozen sandbox) The desktop app writes to the sync worker's stdin from a thread of its own instead of under the supervisor lock: a full pipe no longer blocks the frame reader, which deadlocked the worker in long relay sessions (a burst of WebRTC setup events both ways); verify the Rust regression test (a worker that stops reading keeps delivering its frames, sends never block) and a 5-minute `relay-stun` hold in `make sandbox-sync`
+- [x] 2.7 (found in the 5-minute hold, root cause of the frozen sandbox) The desktop app writes to the sync worker's stdin from a thread of its own instead of under the supervisor lock: a full pipe no longer blocks the frame reader, which deadlocked the worker in long relay sessions (a burst of WebRTC setup events both ways); verify the Rust regression test (a worker that stops reading keeps delivering its frames, sends never block) and a 5-minute `relay-stun` hold in `make sandbox-sync`
 - [x] 2.6 (found in the 5-minute hold) A signaling socket that does not answer a ping within 10 s is treated as lost and reopened (`socket.silent`), so a path dropped without a close cannot leave a device listed but deaf; verify the lifecycle test (silent server → reopened, code 4000) and that the existing heartbeat tests still pass
 
 ## 3. Relay first, direct as an upgrade
@@ -49,8 +49,8 @@
 ## 8. Integration
 
 - [ ] 8.1 Run the `make sandbox-sync` matrix locally (STUN only, TURN, relay on, deaf session) with a 5-minute hold; verify every scenario passes, sync starts within 5 s and continues across a socket rotation
-- [ ] 8.2 Run `make sandbox-sync` against production with a 5-minute hold; verify it passes and the timeline shows relay first and, when a direct link survives probation, the handover
-- [ ] 8.3 Two-PC test with the new installer (`make installer`) on two different networks; verify both reports show sync within 5 s and the route used
+- [x] 8.2 Run `make sandbox-sync` against production with a 5-minute hold; verify it passes and the timeline shows relay first and, when a direct link survives probation, the handover
+- [x] 8.3 Two-PC test with the new installer (`make installer`) on two different networks; verify both reports show sync within 5 s and the route used
 
 ## Workflow follow-up
 

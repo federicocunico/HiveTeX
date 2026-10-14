@@ -1,15 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { COMPILE_MODE_KEY, compileTargets, policyFor, readCompileMode } from '../src/lib/compile-mode.js';
+import { COMPILE_MODES, COMPILE_MODE_KEY, compileTargets, policyFor, readCompileMode } from '../src/lib/compile-mode.js';
 
-const store = (v: string | null) => ({ getItem: (k: string) => (k === COMPILE_MODE_KEY ? v : null) });
+const store = (v: string | null) => ({ getItem: (k: string) => (k === COMPILE_MODE_KEY ? v : null), setItem: () => {} });
 
 describe('compiler preference', () => {
-  it('defaults to automatic and ignores unknown values', () => {
-    expect(readCompileMode(store(null))).toBe('auto');
-    expect(readCompileMode(store('weird'))).toBe('auto');
+  it('defaults to this device (local) and ignores unknown values', () => {
+    expect(readCompileMode(store(null))).toBe('local');
+    expect(readCompileMode(store('weird'))).toBe('local');
     expect(readCompileMode(store('peers'))).toBe('peers');
     expect(readCompileMode(store('local'))).toBe('local');
-    expect(readCompileMode(undefined)).toBe('auto');
+    expect(readCompileMode(undefined)).toBe('local');
+  });
+  it('moves the old shared default to local once; a shared mode chosen afterwards stays (deprecated, still available)', () => {
+    const items = new Map<string, string>([['hivetex.compileMode', 'auto']]);
+    const s = { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) };
+    expect(readCompileMode(s)).toBe('local');
+    expect(items.get('hivetex.compileMode')).toBe('local');
+    items.set('hivetex.compileMode', 'auto'); // chosen again in Account > Compiler
+    expect(readCompileMode(s)).toBe('auto');
+    expect(COMPILE_MODES.find((m) => m.id === 'auto')?.deprecated).toBe(true);
+    expect(COMPILE_MODES[0]?.id).toBe('local');
   });
   it("automatic: loads a compiler, leads unless 'compile for others' is off, shows the leader's PDFs", () => {
     expect(policyFor('auto', true)).toEqual({ loadEngine: true, optOut: false, autoLocal: false, acceptRemote: true });

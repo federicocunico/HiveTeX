@@ -1,6 +1,6 @@
 import { type Page, expect } from '@playwright/test';
 import { test } from './trace-fixture.js';
-import { addFile, createProject, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
+import { addFile, createProject, joinProject, newUser, typeInEditor, uniq, useSharedBuilds } from './helpers.js';
 
 const leaderText = (p: Page) => p.getByTestId('leader').innerText();
 const setMode = (p: Page, mode: 'auto' | 'peers' | 'local') => p.getByTestId('compile-mode').selectOption(mode);
@@ -11,6 +11,7 @@ test('compiler preference: hand-off when the leader chooses "Use peers", peers n
   const [co, ce] = [await browser.newContext(), await browser.newContext()];
   const O = await newUser(co, 'cmo');
   const E = await newUser(ce, 'cme');
+  for (const u of [O, E]) await useSharedBuilds(u.page); // the leader and its hand-offs (deprecated, still available)
   slug = await createProject(O.page, slug);
   await O.page.getByTestId('settings-btn').click();
   await O.page.getByLabel('Default role').selectOption('editor');

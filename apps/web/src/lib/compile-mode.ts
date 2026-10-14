@@ -1,16 +1,21 @@
 /**
  * How this device takes part in compilation (per device, all projects):
- * - auto:  compile for the project when this device is the best available (unless "compile for others" is off);
- * - peers: never compile here (no TeX needed, no in-browser compiler download); show the leader's PDFs;
- * - local: compile here after edits and show only this device's PDFs; never compile for others.
+ * - local: compile here after edits and show only this device's PDFs; never compile for others. The default.
+ * - auto:  shared builds (deprecated): compile for the project when this device is the best available (unless "compile
+ *          for others" is off), otherwise show the leader's PDFs;
+ * - peers: shared builds (deprecated): never compile here (no TeX needed); show the leader's PDFs.
+ * Shared builds depend on another device's compiler and connection; field reports (2026-10-14) showed builds failing on
+ * customer machines that way, so every device builds its own PDF unless the user picks a shared mode explicitly.
  */
 export type CompileMode = 'auto' | 'peers' | 'local';
 
 export const COMPILE_MODE_KEY = 'hivetex.compileMode';
-export const COMPILE_MODES: ReadonlyArray<{ id: CompileMode; label: string; hint: string }> = [
-  { id: 'auto', label: 'Automatic', hint: 'The best connected device compiles for everyone' },
-  { id: 'peers', label: 'Use peers', hint: 'Never compile on this device; no LaTeX needed' },
-  { id: 'local', label: 'This device only', hint: 'Compile here after edits; results are not shared' },
+/** Set once the stored mode was moved from the old default (shared) to local. */
+export const COMPILE_MODE_MIGRATED_KEY = 'hivetex.compileMode.localDefault';
+export const COMPILE_MODES: ReadonlyArray<{ id: CompileMode; label: string; hint: string; deprecated?: boolean }> = [
+  { id: 'local', label: 'This device', hint: 'Compile here after edits (recommended)' },
+  { id: 'auto', label: 'Shared (deprecated)', hint: 'Deprecated: the best connected device compiles for everyone', deprecated: true },
+  { id: 'peers', label: 'Use peers (deprecated)', hint: 'Deprecated: never compile on this device; show the PDFs another device builds', deprecated: true },
 ];
 
 export interface CompilePolicy {
@@ -24,9 +29,23 @@ export interface CompilePolicy {
   acceptRemote: boolean;
 }
 
-export function readCompileMode(storage: Pick<Storage, 'getItem'> | undefined = safeLocalStorage()): CompileMode {
-  const v = storage?.getItem(COMPILE_MODE_KEY);
-  return v === 'peers' || v === 'local' ? v : 'auto';
+/**
+ * The device's compile mode: local unless a shared mode was chosen. "Automatic" (shared) was the old default, so a
+ * stored `auto` from before is moved to local once; a shared mode chosen after that is kept.
+ */
+export function readCompileMode(storage: Pick<Storage, 'getItem' | 'setItem'> | undefined = safeLocalStorage()): CompileMode {
+  let v: string | null | undefined;
+  try {
+    v = storage?.getItem(COMPILE_MODE_KEY);
+    if (v === 'auto' && storage?.getItem(COMPILE_MODE_MIGRATED_KEY) !== '1') {
+      storage?.setItem(COMPILE_MODE_KEY, 'local');
+      v = 'local';
+    }
+    storage?.setItem(COMPILE_MODE_MIGRATED_KEY, '1');
+  } catch {
+    /* storage unavailable: the default applies */
+  }
+  return v === 'peers' || v === 'auto' ? v : 'local';
 }
 
 export function policyFor(mode: CompileMode, compileForOthers: boolean): CompilePolicy {

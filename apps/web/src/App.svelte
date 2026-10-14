@@ -19,10 +19,21 @@
   import GithubContinue from './views/GithubContinue.svelte';
   import Projects from './views/Projects.svelte';
   import Toaster from './ui/Toaster.svelte';
+  import { toast } from './ui/toast.svelte.js';
   import PairRequest from './components/PairRequest.svelte';
   import DesktopLifecycle from './components/DesktopLifecycle.svelte';
 
   onMount(loadMe);
+  // Desktop: a start-up compiler check that repaired (or could not repair) the compiler says so (Account > Compiler).
+  onMount(() => {
+    if (!isDesktop) return;
+    let off: (() => void) | undefined;
+    void import('./lib/compiler-health.js')
+      .then(({ watchCompilerHealth }) => watchCompilerHealth((text, kind) => toast(text, kind, 12_000)))
+      .then((un) => (off = un))
+      .catch(() => {});
+    return () => off?.();
+  });
 
   const publicRoutes = ['/login', '/register', '/forgot', '/reset', '/verify'];
   const isPublic = (hash: string) => publicRoutes.includes((hash.replace(/^#/, '').split('?')[0] ?? '') || '/');

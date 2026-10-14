@@ -87,7 +87,7 @@
     {/if}
   </span>
   {#if s.compileMode === 'peers' && !s.leaderName}
-    <span class="pill warn" role="status" data-testid="no-peer-compiler" data-tip="Switch to Automatic (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">No co-author can compile right now</span>
+    <span class="pill warn" role="status" data-testid="no-peer-compiler" data-tip="Switch to This device (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">No co-author can compile right now</span>
   {/if}
   {#if s.revoked}<span class="pill bad">you no longer have access</span>{/if}
   {#if s.mirrorNotice}<span class="pill warn" role="status">{s.mirrorNotice}</span>{/if}

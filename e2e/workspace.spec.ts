@@ -190,6 +190,10 @@ test('the status bar and PDF bar speak plainly', async ({ browser }) => {
   await p.getByRole('treeitem', { name: 'main.tex' }).click();
   await expect(p.getByTestId('statusbar')).toContainText('Saved on this device');
   await expect(p.getByTestId('peer-count')).toHaveText('No co-authors online');
+  // The default builds on this device and shows the PDF as it comes; the shared modes (deprecated) are still offered.
+  await expect(p.getByTestId('compile-mode')).toHaveValue('local');
+  await expect(p.getByTestId('compile-mode').locator('option')).toHaveText(['This device', 'Shared (deprecated)', 'Use peers (deprecated)']);
+  await p.getByTestId('compile-mode').selectOption('auto');
   await p.getByRole('button', { name: 'Recompile' }).click();
   await expect(p.getByTestId('compiled-by')).toBeVisible({ timeout: 30_000 });
   await expect(p.getByTestId('stale-badge')).toBeHidden();

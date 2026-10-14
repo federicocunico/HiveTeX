@@ -6,6 +6,17 @@ export const PROJECT_PW = 'project-secret-1';
 let n = 0;
 export const uniq = (p: string) => `${p}${Date.now().toString(36)}${n++}`.toLowerCase().slice(0, 28);
 
+/**
+ * Shared builds (the leader compiles for everyone): deprecated since 0.8.0, where every device builds its own PDF by
+ * default, but still available. Tests of the leader, its hand-offs and peers-only devices opt in before opening a project.
+ */
+export async function useSharedBuilds(page: Page) {
+  await page.evaluate(() => {
+    localStorage.setItem('hivetex.compileMode', 'auto');
+    localStorage.setItem('hivetex.compileMode.localDefault', '1');
+  });
+}
+
 export async function newUser(context: BrowserContext, prefix = 'user') {
   const page = await context.newPage();
   await page.addInitScript(() => {

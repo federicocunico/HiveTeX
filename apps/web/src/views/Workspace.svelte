@@ -153,10 +153,18 @@
     if (layout.panel === 'changes') seenChanges = foreignChanges;
   });
 
-  const mainPath = $derived(session ? String(session.model.settings.get('main') ?? 'main.tex') : 'main.tex');
+  /** Bumped whenever the project settings change (here, by an import, or by a co-author): they live in Yjs, which Svelte does not track. */
+  let settingsTick = $state(0);
+  const mainPath = $derived(settingsTick >= 0 && session ? String(session.model.settings.get('main') ?? 'main.tex') : 'main.tex');
   const active = $derived(session?.files.find((f) => f.id === activeId) ?? null);
   const diagnostics = $derived((session?.result?.diagnostics ?? []).filter((d) => !active || d.file === active.path || d.file === ''));
-  let settingsTick = $state(0);
+  $effect(() => {
+    const settings = session?.model.settings;
+    if (!settings) return;
+    const bump = () => settingsTick++;
+    settings.observe(bump);
+    return () => settings.unobserve(bump);
+  });
 
   const showEditor = $derived(!narrow || narrowView === 'editor');
   const showPdf = $derived(narrow ? narrowView === 'pdf' : layout.pdf);

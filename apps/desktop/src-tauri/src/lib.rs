@@ -1,5 +1,6 @@
 pub mod managed;
 pub mod maintenance;
+pub mod compiler_health;
 pub mod helper;
 pub mod igd;
 pub mod lifecycle;
@@ -118,6 +119,34 @@ fn managed_remove(app: tauri::AppHandle, component: String) -> Result<(), String
 fn compiler_cache_clear(app: tauri::AppHandle) -> Result<(), String> {
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
     maintenance::clear_compiler_cache(&root)
+}
+
+/// The last start-up compiler check (compiler_health.rs), for Account > Compiler.
+#[tauri::command]
+fn compiler_health(app: tauri::AppHandle) -> Result<Option<compiler_health::Report>, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(compiler_health::last(&root))
+}
+
+/// Checks (and repairs) the compiler now; also announced as `compiler://health`.
+#[tauri::command]
+async fn compiler_health_check(app: tauri::AppHandle) -> Result<compiler_health::Report, String> {
+    run_compiler_check(app).await
+}
+
+/// Uses a system TeX that an earlier check set aside, then checks again.
+#[tauri::command]
+async fn compiler_use_system_tex(app: tauri::AppHandle) -> Result<compiler_health::Report, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    compiler_health::use_system_tex(&root);
+    run_compiler_check(app).await
+}
+
+async fn run_compiler_check(app: tauri::AppHandle) -> Result<compiler_health::Report, String> {
+    let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let report = tauri::async_runtime::spawn_blocking(move || compiler_health::run(&root)).await.map_err(|e| e.to_string())?;
+    let _ = app.emit("compiler://health", report.clone());
+    Ok(report)
 }
 
 /// Opens the native folder dialog and records the choice; the only way a folder becomes usable by the webview.
@@ -599,6 +628,8 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             tex::set_managed_root(dir.clone());
+            // Before anything detects a compiler: a system TeX that an earlier check set aside stays aside.
+            compiler_health::restore(&dir);
             app.manage(texcache::TexCache::new(dir.join("texcache")));
             app.manage(PickedFolders::load(dir.join("picked-folders.json")));
             app.manage(HelperState::start(app.handle(), &dir));
@@ -624,6 +655,18 @@ pub fn run() {
                 return Ok(());
             }
             lifecycle::setup_tray(app.handle());
+            // Compiler check at every start (compiler_health.rs): compile a minimal document and repair the compiler if
+            // that fails, before the user's first build does. Shortly after start, so it does not compete with it.
+            // Desktop UI test builds skip it unless HIVETEX_COMPILER_CHECK=1 (no downloads, no timing changes).
+            if !cfg!(feature = "test-picker") || std::env::var_os("HIVETEX_COMPILER_CHECK").is_some() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    if let Err(e) = run_compiler_check(handle).await {
+                        eprintln!("compiler check: {e}");
+                    }
+                });
+            }
             // The firewall question at launch, not in the middle of a session: Windows asks the first time a program
             // opens a socket that can receive, which otherwise happens at the first peer connection. Bind the shared
             // UDP listener (the one every peer connection of this network uses) and release it shortly after. Windows
@@ -682,6 +725,9 @@ pub fn run() {
             lifecycle::startup_get,
             lifecycle::startup_set,
             tex_detect,
+            compiler_health,
+            compiler_health_check,
+            compiler_use_system_tex,
             tex_compile,
             texcache_set_upstream,
             managed_install,

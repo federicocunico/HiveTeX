@@ -1,6 +1,6 @@
 import { type Page, expect } from '@playwright/test';
 import { test } from './trace-fixture.js';
-import { addFile, createProject, editorText, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
+import { addFile, createProject, editorText, joinProject, newUser, typeInEditor, uniq, useSharedBuilds } from './helpers.js';
 
 const leaderText = (p: Page) => p.getByTestId('leader').innerText();
 
@@ -11,6 +11,7 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
   const O = await newUser(ctxO, 'olga');
   const E = await newUser(ctxE, 'edie');
   const V = await newUser(ctxV, 'vera');
+  for (const u of [O, E, V]) await useSharedBuilds(u.page); // leader failover (shared builds: deprecated, still available)
 
   // owner creates the project; newcomers start as editors, then the owner demotes vera
   slug = await createProject(O.page, slug);

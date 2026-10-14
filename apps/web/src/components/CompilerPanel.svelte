@@ -4,6 +4,7 @@
   import { apiBase, isDesktop } from '../lib/api.js';
   import { auth } from '../lib/auth.svelte.js';
   import { compilerLabel } from '../lib/compile-mode.js';
+  import { type CompilerHealth, healthMessage, setSystemTexAside } from '../lib/compiler-health.js';
   import { PAIR_MESSAGES, forgetHelper, helperToken, pairWithDesktop } from '../lib/helper-engine.js';
   import { clearTexCache } from '../lib/wasm-engine.js';
 
@@ -32,6 +33,7 @@
   let progress = $state('');
   let message = $state('');
   let paired = $state(!!helperToken());
+  let health = $state<CompilerHealth | null>(null);
 
   async function tauri() {
     const [core, ev] = await Promise.all([import('@tauri-apps/api/core'), import('@tauri-apps/api/event')]);
@@ -52,6 +54,23 @@
     managed = await invoke<ManagedStatus>('managed_status');
     texFiles = await invoke<{ files: number; bytes: number }>('texcache_stats');
     helper = await invoke<HelperInfo>('helper_info');
+    health = await invoke<CompilerHealth | null>('compiler_health').catch(() => null);
+  }
+
+  /** Compiles a minimal document now and repairs the compiler if it fails (as at every start). */
+  async function checkNow(useSystemTex = false) {
+    const { invoke } = await tauri();
+    busy = 'check';
+    message = 'Checking the compiler (a repair may download it again)…';
+    try {
+      health = await invoke<CompilerHealth>(useSystemTex ? 'compiler_use_system_tex' : 'compiler_health_check');
+      message = healthMessage(health) ?? 'No LaTeX on this computer yet.';
+    } catch (e) {
+      message = `Could not check the compiler: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      busy = '';
+      await refresh();
+    }
   }
 
   onMount(() => {
@@ -138,6 +157,15 @@
 <div data-testid="compiler-panel" style="margin-top: 12px">
   {#if isDesktop}
     <p data-testid="current-compiler"><strong>On this computer:</strong> {compiler ?? 'no LaTeX yet (the quick compiler is set up at the first compile)'}</p>
+    <div class="row wrap" style="gap: 8px; margin-bottom: 8px" data-testid="compiler-health">
+      <small class={health && health.state !== 'ok' && health.state !== 'none' ? 'notice' : 'muted'}>
+        {healthMessage(health) ?? 'The compiler is checked at every start.'}{health ? ` (${new Date(health.at).toLocaleString()})` : ''}
+      </small>
+      <button class="small" disabled={!!busy} onclick={() => checkNow()} data-testid="compiler-check">Check now</button>
+      {#if setSystemTexAside(health)}
+        <button class="small" disabled={!!busy} onclick={() => checkNow(true)} data-testid="use-system-tex">Use system TeX again</button>
+      {/if}
+    </div>
     {#if managed}
       <div class="row wrap" style="gap: 8px; margin-bottom: 8px">
         {#if managed.tectonic}

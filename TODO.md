@@ -7,33 +7,40 @@ probation, and a link that goes silent hands back to the relay. Production runs 
 Upstash free-plan profile (`RELAY_PROVIDER_COMMANDS=500000`, `RELAY_BASELINE_COMMANDS=150000`, `RELAY_ENVELOPES=60000`,
 `USAGE_LOG=1`; docs/deployment.md section 4).
 
-Checked against production on 2026-10-14 (`SERVER=https://hivetex.vercel.app make sandbox-sync`, deploy `c266362`):
-registration, project, join, files and edits both ways and concurrent edits all passed within 1.5 minutes. Production's
-`[usage]` line for that minute shows 373 envelopes forwarded through the relay, at about 3.4 Upstash commands each
-(752 presence reads, 407 publishes, 98 budget evaluations). Still open:
+Verified on 2026-10-14:
+- **Production 5-minute hold (8.2):** `SERVER=https://hivetex.vercel.app make sandbox-sync` passes. The relay comes first,
+  the direct link passes its probation on both sides and takes over, and all 60 edits arrive (median 48 ms). The first
+  attempts failed and led to the fixes in 0.8.0: a stale-ticket handover, leftover native connections on the shared UDP
+  socket, slow recovery when only one side notices a loss, and TURN routes dying after four minutes (a patched `turn`
+  crate, see `apps/desktop/src-tauri/vendor/PATCHES.md`).
+- **Long relay holds (2.7):** `MATRIX=relay-stun,no-udp HOLD_S=300 make sandbox-sync` passes. The route stays `relay`
+  for 5 minutes, also with UDP blocked, with 0 of 60 edits late. The sandbox now allows the app in its firewall by itself
+  (nobody has to click *Allow*).
+- **Two PCs on different networks (8.3):** syncing (field report, 0.7.3).
 
-- **Production 5-minute hold (task 8.2).** The run above was stopped at the start of the hold because the PC ran low on
-  memory (Windows Sandbox plus the rest). Rerun it with memory free:
-  `SKIP_BUILD=1 SERVER=https://hivetex.vercel.app HOLD_S=300 node apps/desktop/e2e/sandbox-sync.mjs`. Pass: every
-  edit arrives within 10 s, and `timeline.txt` shows the relay first and a handover if a direct link survives probation.
+Still open:
 
-- **Long relay without UDP (tasks 2.7, 8.1).** In the sandbox, UDP is blocked, so the pair must stay on the relay for
-  the whole hold and keep syncing. Someone must be at the PC to click *Allow* on the sandbox firewall prompt:
-  `SKIP_BUILD=1 HOLD_S=300 MATRIX=no-udp node apps/desktop/e2e/sandbox-sync.mjs`. Pass: the route stays `relay`,
-  60/60 pings, no `socket.silent`, and both file trees match at the end. Results go to
-  `apps/desktop/src-tauri/target/sandbox-sync/<run>/` (`timeline.txt`, `matrix-summary.json`).
-- **Two real PCs on different networks (task 8.3).** Install 0.7.3 on both, then on each open Sync > Network diagnostics
-  and press *Test connection* and *Test relay only*. Edits must sync within seconds on the relay, and the route may later
-  switch to direct. Send *Copy report* from both if anything stalls. This includes the pair from `__conntests.txt`
-  (fcunico and belzebub), which failed on 0.7.1.
+- **Matrix scenarios STUN only and TURN with a 5-minute hold (task 8.1):**
+  `SKIP_BUILD=1 HOLD_S=300 MATRIX=stun,turn make sandbox-sync`. With TURN, check that the route lasts beyond 4 minutes
+  (it died there before the `turn` patch).
+- **A 4-device mesh in doorbell mode sometimes never completes** when a newcomer joins an existing mesh of three: peer
+  exchange does not always introduce it to everyone within 25 s (happens on 0.7.3 too). Pairs and triples are fine.
+  Investigate with a 4-device variant of `server/test/doorbell-e2e.test.ts`.
 - **Measure the Upstash baseline (task 6.1).** `RELAY_BASELINE_COMMANDS=150000` is an estimate. After about a week,
   sum `signal.*` and `relay.*` in the `[usage]` lines of the Vercel runtime logs (docs/deployment.md section 4) and set
   the real value.
   Check that the Upstash dashboard stays under 500K commands/month. Presence reads are about 2 per relayed envelope
   (more than half the relay's commands), so caching them briefly in the relay router would roughly halve its cost.
-- **Publish 0.7.3.** The version is already bumped on master. Installed 0.7.1 apps still use the old transport and the
-  native-only WebRTC path.
 - Archive the OpenSpec change once the items above pass.
+
+## Compilation (0.8.0)
+
+Every device builds its own PDF by default; the shared modes (*Shared*, *Use peers*) are deprecated (docs/compilation.md).
+The desktop checks its compiler at every start and repairs it (caches, reinstall, system TeX set aside).
+- Decide when to remove the shared modes (and the leader election, `packages/compile` `Election`/`CompileLeader`
+  distribution) once no customer relies on them.
+- Watch customer reports for the compiler check's *failed* state (Account > Compiler shows the log), to add repair
+  steps for the causes seen in the field.
 
 Optional: a second TURN provider. Cloudflare TURN (`CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`; docs/deployment.md) combines
 with the ExpressTURN account already in production. The native stack only uses TURN over UDP (webrtc-rs has no TCP or

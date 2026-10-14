@@ -160,10 +160,18 @@ fn probe_output(exe: &Path, args: &[&str], timeout: Duration) -> Option<String> 
     ok.then(|| String::from_utf8_lossy(&bytes).into_owned()).filter(|s| !s.trim().is_empty())
 }
 
+/// A system TeX that failed the start-up compiler check and could be replaced (compiler_health.rs).
+static SKIP_SYSTEM_TEX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_skip_system_tex(skip: bool) {
+    SKIP_SYSTEM_TEX.store(skip, std::sync::atomic::Ordering::SeqCst);
+}
+
 pub fn detect() -> Option<EngineInfo> {
     let _activity = crate::maintenance::COMPILER_ACTIVITY.try_read().ok()?;
     // HIVETEX_IGNORE_SYSTEM_TEX=1: behave as on a machine without TeX (tests of the managed compilers).
-    let path = if std::env::var_os("HIVETEX_IGNORE_SYSTEM_TEX").is_some() { None } else { std::env::var_os("PATH") };
+    let skip = std::env::var_os("HIVETEX_IGNORE_SYSTEM_TEX").is_some() || SKIP_SYSTEM_TEX.load(std::sync::atomic::Ordering::SeqCst);
+    let path = if skip { None } else { std::env::var_os("PATH") };
     detect_with(path.as_deref(), managed_root().map(PathBuf::as_path))
 }
 
