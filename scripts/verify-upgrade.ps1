@@ -184,7 +184,11 @@ try {
   Seed-Data
   Invoke-Program msiexec.exe @('/i', "`"$($newMsi.FullName)`"", '/qn', '/norestart')
   Assert-One 'setup -> MSI'
-  if (Test-Path -LiteralPath (Join-Path $priorSetupDir 'hivetex-desktop.exe')) { throw 'Setup migration left the earlier program' }
+  $msiEntry = @(Get-Installed)[0]
+  if ($msiEntry.WindowsInstaller -ne 1) { throw 'Setup migration did not leave an MSI installation' }
+  $msiDir = [IO.Path]::GetFullPath($msiEntry.InstallLocation.Trim('"')).TrimEnd('\')
+  $oldDir = [IO.Path]::GetFullPath($priorSetupDir).TrimEnd('\')
+  if (-not $msiDir.Equals($oldDir, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath (Join-Path $priorSetupDir 'hivetex-desktop.exe'))) { throw 'Setup migration left the earlier program in a different directory' }
   if (Test-Path -LiteralPath (Join-Path $priorSetupDir 'uninstall.exe')) { throw 'Setup migration left the earlier uninstaller' }
   Assert-Preserved
   Invoke-Program msiexec.exe @('/i', "`"$($newMsi.FullName)`"", '/qn', '/norestart')
