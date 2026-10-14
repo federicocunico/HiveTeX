@@ -107,13 +107,29 @@ A connected peer is reached in one of three ways, shown per person in the People
 | **TURN** WebRTC | the deployment configured TURN (`CF_TURN_*`) and only a relayed candidate pair works | nothing: TURN carries DTLS ciphertext |
 | **Application relay** | neither works, and the server and both clients negotiated `application-relay-v1` | routing metadata and ciphertext frames |
 
-Preference is always direct, then TURN, then the application relay. When a relay-capable peer has no working link 8 s
-after it was seen (`relayAfterMs`), or a WebRTC attempt failed, the lower device id starts relay setup (the spec requires
-it within 10 s). With TURN credentials configured the relay waits until that WebRTC attempt failed or timed out: TURN
-costs the control plane nothing per byte, a relay session holds sockets open. While a peer is reached through the relay, direct
-attempts continue every 60 s at most (`directRetryMs`). When a direct link authenticates, the mesh replaces the relay
-connection (both ends must have completed the key-possession handshake on the new path first) and the Yjs exchange on
-the new connection fills any gap; the old relay generation is then closed.
+**Relay first, direct as an upgrade.** When the server offers the relay, the lower device id starts relay setup as soon
+as a relay-capable peer without a usable link is seen (`relayAfterMs`, default 0), without waiting for a WebRTC
+attempt, and WebRTC (direct or TURN) is attempted in parallel. The reason is measured: in the 2026-10-13 lab
+(`make rtc-lab`, `make sandbox-sync`) every failure was in the WebRTC path and every relay session worked; see
+[decisions/native-webrtc.md](decisions/native-webrtc.md). The route preference is still direct, then TURN, then the
+relay, but a WebRTC link replaces the relay only after a **probation**: it must stay `connected` for 8 s
+(`directProbationMs`, longer than the 5 s after which a dead path reports `disconnected`) before the mesh hands over
+(both ends complete the key-possession handshake on the new path; the Yjs exchange on the new connection fills any
+gap; the old relay generation closes). A link that drops during probation is closed and tried again later
+(`link.probation-failed`). Without a relay route (server or peer without the capability) a WebRTC link is used at once.
+
+**Hand-back.** When the direct route reports `disconnected`, the client marks it degraded (`link.degraded`), reopens
+the signaling socket if it was closed, and starts the relay at once; the relay may then replace the degraded link (the
+"never downgrade" rule applies only to healthy direct links). The link itself gets a 10 s grace to recover and is
+ended after it (`link.lost`). While a peer is reached through the relay, direct attempts continue every 60 s at most
+(`directRetryMs`).
+
+**Relay-only attempts.** With TURN configured, every other attempt after one whose ICE checks failed gathers relay
+candidates only (`link.policy policy=relay after=checks-failed`): the desktop's native stack connects relay-only where it
+fails with all candidates, and a TURN route spends no application-relay budget once it passes its probation.
+
+**Sockets.** The signaling socket stays open while a relay route or attempt exists or a direct route is degraded, and
+closes again once every wanted link is a direct route (zero idle otherwise).
 
 **Negotiation.** The client adds `capabilities: ["application-relay-v1"]` to `auth`. A server that has the relay role
 enabled answers with a relay session id (`r1_…`) and the capability in `ready`, and announces it in `join`. A client uses

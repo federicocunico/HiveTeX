@@ -40,6 +40,11 @@ test('network diagnostics: checks, per-co-author details, peer test and a report
     await expect(probe).toContainText(label);
   }
   await expect(probe).toContainText(/knows this device; sees this device on the service/);
+  await expect(probe).toContainText('Application relay');
+
+  // the relay-only variant: linked directly already, so it says no relay-only attempt was needed
+  await dialog.getByTestId(`net-test-relay-${g.username}`).click();
+  await expect(probe).toContainText('no relay-only attempt was made', { timeout: 40_000 });
 
   // the live trace is shown on request
   await dialog.getByTestId('net-trace-toggle').click();

@@ -8,6 +8,7 @@ pub mod mirror;
 pub mod probe;
 pub mod proc;
 pub mod rtc;
+pub mod rtc_log;
 pub mod secrets;
 pub mod catalog;
 pub mod network;
@@ -261,8 +262,8 @@ fn rtc_emit(app: tauri::AppHandle) -> rtc::Emit {
 }
 
 #[tauri::command]
-async fn rtc_create(app: tauri::AppHandle, state: State<'_, rtc::RtcState>, id: String, ice: Vec<rtc::IceServer>) -> Result<(), String> {
-    state.create(&id, ice, rtc_emit(app)).await
+async fn rtc_create(app: tauri::AppHandle, state: State<'_, rtc::RtcState>, id: String, ice: Vec<rtc::IceServer>, policy: Option<String>) -> Result<(), String> {
+    state.create_opts(&id, ice, rtc_emit(app), false, policy.as_deref()).await
 }
 
 #[tauri::command]
@@ -571,6 +572,8 @@ pub fn run() {
     }
     // TLS for the package-server downloads (ring, already used by the WebRTC stack).
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // The WebRTC stack's own warnings, for connection reports (masked, bounded; src/rtc_log.rs).
+    rtc_log::install();
     let builder = tauri::Builder::default();
     // A second launch focuses the running instance (one worker, one network identity per project).
     #[cfg(desktop)]
@@ -621,6 +624,19 @@ pub fn run() {
                 return Ok(());
             }
             lifecycle::setup_tray(app.handle());
+            // The firewall question at launch, not in the middle of a session: Windows asks the first time a program
+            // opens a socket that can receive, which otherwise happens at the first peer connection. Bind the shared
+            // UDP listener (the one every peer connection of this network uses) and release it shortly after. Windows
+            // remembers the answer for this program path, so an installed app asks once.
+            {
+                let transport = app.state::<rtc::RtcState>().transport.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(lease) = transport.acquire().await {
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        drop(lease);
+                    }
+                });
+            }
             // Desktop UI tests only: close the window shortly after start, as the title-bar button does (lifecycle.mjs).
             if cfg!(feature = "test-picker") {
                 // ... or run the post-update restart path once (the restarted app does not repeat it).

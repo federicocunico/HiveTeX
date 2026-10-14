@@ -258,6 +258,12 @@ async fn dispatch(app: &tauri::AppHandle, gen: u64, cmd: &str, a: Value, project
         if cmd == "secret_set" { crate::secrets::set(&key, &arg::<String>(&a, "value")?)?; return Ok(Value::Null); }
         return serde_json::to_value(crate::secrets::get(&key)?).map_err(|_| "encode secret reply".into());
     }
+    if cmd == "rtc_log" {
+        // The WebRTC stack's own lines after `since` (masked and credential-free; see rtc_log.rs), for reports.
+        let since = a.get("since").and_then(Value::as_u64).unwrap_or(0);
+        let lines: Vec<Value> = crate::rtc_log::ring().since(since).into_iter().map(|(seq, line)| json!({ "seq": seq, "line": line })).collect();
+        return Ok(Value::Array(lines));
+    }
     if cmd.starts_with("rtc_") {
         let owner = service.projects.lock().unwrap().get(&(gen, project.to_string())).copied().ok_or("project stopped")?;
         let original = arg::<String>(&a, "id")?;
@@ -275,7 +281,7 @@ async fn dispatch(app: &tauri::AppHandle, gen: u64, cmd: &str, a: Value, project
             }
         });
         let result = match cmd {
-            "rtc_create" => { rtc.create_with(&id, arg(&a, "ice")?, emit, true).await?; Value::Null },
+            "rtc_create" => { rtc.create_opts(&id, arg(&a, "ice")?, emit, true, a.get("policy").and_then(Value::as_str)).await?; Value::Null },
             "rtc_create_data_channel" => { rtc.create_data_channel(&id, &arg::<String>(&a, "label")?, emit).await?; Value::Null },
             "rtc_create_offer" => json!(rtc.create_offer(&id).await?),
             "rtc_create_answer" => json!(rtc.create_answer(&id).await?),

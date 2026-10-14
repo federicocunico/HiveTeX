@@ -83,11 +83,12 @@
    * Connection test: a signaling round trip (the other device answers with its own state and retries at once), then a
    * fresh connection attempt watched step by step. Takes up to about half a minute.
    */
-  async function peerTest(dev: string, name: string) {
+  async function peerTest(dev: string, name: string, relayOnly = false) {
     if (!session || tests[dev]?.running) return;
     tests[dev] = { running: true, name, result: tests[dev]?.result ?? null, error: '' };
     try {
-      const result = await session.probePeer(dev);
+      // Relay only: the attempt uses relay (TURN) candidates only, to check that path on its own.
+      const result = await session.probePeer(dev, { relayOnly });
       tests[dev] = { running: false, name, result, error: result ? '' : 'Networking is paused or off for this project.' };
     } catch (e) {
       tests[dev] = { running: false, name, result: null, error: e instanceof Error ? e.message : String(e) };
@@ -160,7 +161,8 @@
           <div class="head">
             <strong>{p.name}</strong>
             <span class="state">{p.state === 'connected' ? `connected ${p.route}` : `not connected · attempt ${(p.attempts ?? 0) + 1}${p.onServer ? '' : ' · not seen on the service'}`}</span>
-            <button type="button" class="small" onclick={() => void peerTest(p.dev, p.name)} disabled={t?.running} data-testid="net-test-{p.name}">{t?.running ? 'Testing… (up to 30 s)' : 'Test connection'}</button>
+            <button type="button" class="small" onclick={() => void peerTest(p.dev, p.name)} disabled={t?.running} data-testid="net-test-{p.name}">{t?.running ? 'Testing… (up to 45 s)' : 'Test connection'}</button>
+            <button type="button" class="small" onclick={() => void peerTest(p.dev, p.name, true)} disabled={t?.running} data-testid="net-test-relay-{p.name}" title="Restricts the test's connection attempt to relay (TURN) candidates">Test relay only</button>
           </div>
           {#if p.state === 'connected'}
             {#if p.pair}<p class="detail">Selected network path: {p.pair}</p>{/if}

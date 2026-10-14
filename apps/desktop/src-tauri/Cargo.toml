@@ -20,6 +20,8 @@ base64 = "0.22"
 notify = "8"
 sysinfo = "0.33"
 webrtc = "0.13"
+# The WebRTC stack logs through `log`; src/rtc_log.rs keeps its records for connection reports (already in the tree).
+log = "0.4"
 async-trait = "0.1"
 # UPnP description/SOAP parsing (src/igd.rs); already in the tree via Tauri, pinned.
 quick-xml = "=0.38.4"

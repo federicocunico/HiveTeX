@@ -224,9 +224,19 @@ export class FragmentedChannel {
   }
 }
 
+/** Messages kept before a handler is set (a handshake is a few; anything more is dropped as before). */
+const EARLY_MAX = 64;
+
 /** PeerTransport over two data channels: `sync` (control + CRDT) and `bulk` (blobs, PDFs). */
 export class DataChannelTransport implements PeerTransport {
-  private msgCb: (c: ChannelName, d: Uint8Array) => void = () => {};
+  /**
+   * Messages that arrive before anyone listens (the other side handed its transport to the mesh first, e.g. after a
+   * shorter probation) are kept, up to EARLY_MAX, and delivered when the handler is set.
+   */
+  private early: Array<[ChannelName, Uint8Array]> | null = [];
+  private msgCb: (c: ChannelName, d: Uint8Array) => void = (c, d) => {
+    if (this.early && this.early.length < EARLY_MAX) this.early.push([c, d]);
+  };
   private closeCb: () => void = () => {};
   private sync: FragmentedChannel;
   private bulk: FragmentedChannel;
@@ -235,7 +245,7 @@ export class DataChannelTransport implements PeerTransport {
   /** The selected ICE path once known: a TURN server, a direct pair, or not reported by the RTC implementation. */
   path: 'direct' | 'turn' | 'unknown' = 'unknown';
   /** Candidate types of the selected pair (host, srflx, prflx, relay), once known. */
-  pair: { local: string; remote: string } | null = null;
+  pair: { local: string; remote: string; relayProtocol?: string } | null = null;
 
   constructor(
     syncDc: DataChannelLike,
@@ -276,6 +286,9 @@ export class DataChannelTransport implements PeerTransport {
   }
   onMessage(cb: (c: ChannelName, d: Uint8Array) => void) {
     this.msgCb = cb;
+    const early = this.early ?? [];
+    this.early = null;
+    for (const [c, d] of early) cb(c, d);
   }
   onClose(cb: () => void) {
     this.closeCb = cb;
@@ -319,6 +332,8 @@ export class FakeDataChannel implements DataChannelLike {
   onbufferedamountlow: DataChannelLike['onbufferedamountlow'] = null;
   onopen: (() => void) | null = null;
   peer!: FakeDataChannel;
+  /** The path under the channel stopped carrying packets: sends are accepted and silently lost (tests). */
+  lost = false;
   private draining = false;
 
   constructor(private bytesPerTick = 256 * 1024) {}
@@ -326,7 +341,7 @@ export class FakeDataChannel implements DataChannelLike {
   send(data: Uint8Array) {
     this.bufferedAmount += data.length;
     const copy = data.slice();
-    queueMicrotask(() => this.peer.onmessage?.({ data: copy }));
+    if (!this.lost) queueMicrotask(() => this.peer.onmessage?.({ data: copy }));
     this.scheduleDrain();
   }
   private scheduleDrain() {

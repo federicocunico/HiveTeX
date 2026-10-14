@@ -2,6 +2,8 @@
 //! the real Rust implementation without a webview. One JSON object per line.
 //!   in : {"rid": 1, "cmd": "rtc_create", "args": {...}}
 //!   out: {"rid": 1, "result": ...} | {"rid": 1, "error": "..."} | {"event": "rtc://x", "payload": {...}}
+//! `rtc_create` takes `ice`, `muxed`, `policy` ("relay": relay candidates only) and `interfaces` ("all", "default",
+//! "physical": see rtc.rs `interface_policy`); `rtc_log` returns the stack's own lines.
 
 use hivetex_desktop_lib::portmap::{real_discover, Mapper};
 use hivetex_desktop_lib::rtc::{Emit, IceServer, RtcState};
@@ -12,6 +14,7 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() {
+    hivetex_desktop_lib::rtc_log::install();
     let state = Arc::new(RtcState::default());
     // Router port mapping for the shared listener (netlab router matrix): the real IGD client and mapping manager.
     let mapper = Mapper::new(state.transport.clone(), real_discover(), "netlab0000000000".into());
@@ -44,7 +47,7 @@ async fn main() {
             let res: Result<Value, String> = match req["cmd"].as_str().unwrap_or_default() {
                 "rtc_create" => {
                     let ice: Vec<IceServer> = serde_json::from_value(a["ice"].clone()).unwrap_or_default();
-                    state.create_with(&s("id"), ice, emit, a["muxed"].as_bool().unwrap_or(false)).await.map(|_| Value::Null)
+                    state.create_full(&s("id"), ice, emit, a["muxed"].as_bool().unwrap_or(false), a["policy"].as_str(), a["interfaces"].as_str()).await.map(|_| Value::Null)
                 }
                 "rtc_create_data_channel" => state.create_data_channel(&s("id"), &s("label"), emit).await.map(|_| Value::Null),
                 "rtc_create_offer" => state.create_offer(&s("id")).await.map(Value::from),
@@ -54,6 +57,9 @@ async fn main() {
                 "rtc_add_ice" => state.add_ice(&s("id"), a["candidate"].clone()).await.map(|_| Value::Null),
                 "rtc_send" => state.send(&s("id"), &s("label"), &s("b64")).await.map(Value::from),
                 "rtc_stats" => state.stats(&s("id")).await,
+                // The stack's own log lines after `since` (masked, credential-free).
+                "rtc_log" => Ok(json!(hivetex_desktop_lib::rtc_log::ring().since(a["since"].as_u64().unwrap_or(0)).into_iter().map(|(seq, line)| json!({"seq": seq, "line": line})).collect::<Vec<_>>())),
+                "rtc_local_sdp" => state.local_sdp(&s("id")).await.map(|v| json!(v)),
                 "upnp_enable" => {
                     // Bind the listener first: the mapping targets the socket connections will share.
                     let lease = state.transport.acquire().await;

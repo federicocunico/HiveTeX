@@ -18,7 +18,10 @@ use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use webrtc::data_channel::RTCDataChannel;
 use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
+use webrtc::ice_transport::ice_candidate_pair::RTCIceCandidatePair;
+use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
@@ -27,6 +30,11 @@ use webrtc::peer_connection::RTCPeerConnection;
 
 /// Sends an event to the frontend: (event name, payload).
 pub type Emit = Arc<dyn Fn(String, Value) + Send + Sync>;
+
+/// ICE timeouts set on every connection (see `create_opts`).
+pub const ICE_DISCONNECTED: std::time::Duration = std::time::Duration::from_secs(5);
+pub const ICE_FAILED: std::time::Duration = std::time::Duration::from_secs(20);
+pub const ICE_KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct Peer {
     pc: Arc<RTCPeerConnection>,
@@ -51,6 +59,51 @@ pub struct IceServer {
 
 fn event_name(id: &str) -> String {
     format!("rtc://{id}")
+}
+
+/// Which local addresses gather host candidates (and so which pairs ICE checks):
+/// - `None` / `"all"`: every interface (the stack's default);
+/// - `"default"`: only the address of the default route, as Chromium does by default;
+/// - `"physical"`: every interface except virtual adapters (Hyper-V, WSL, Docker, VPN tunnels, Wi-Fi Direct ...).
+/// Fewer interfaces mean fewer pairs to check; whether that helps is measured in `make rtc-lab` (docs/decisions).
+fn interface_policy(setting: &mut SettingEngine, mode: Option<&str>) {
+    match mode {
+        Some("default") => {
+            if let Some(ip) = default_route_ip() {
+                setting.set_ip_filter(Box::new(move |a: std::net::IpAddr| a == ip));
+            }
+        }
+        Some("physical") => setting.set_interface_filter(Box::new(|name: &str| !is_virtual_interface(name))),
+        _ => {}
+    }
+}
+
+/// The local IPv4 address the system uses to reach the internet (no packet is sent: a connected UDP socket only).
+fn default_route_ip() -> Option<std::net::IpAddr> {
+    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("192.0.2.1:9").ok()?;
+    s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_unspecified())
+}
+
+/// Names of virtual adapters on Windows, macOS and Linux.
+pub fn is_virtual_interface(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    const PARTS: [&str; 14] = ["vethernet", "hyper-v", "wsl", "virtualbox", "vmware", "vmnet", "loopback", "nordlynx", "openvpn", "wireguard", "tailscale", "zerotier", "tap-", "local area connection*"];
+    const PREFIXES: [&str; 12] = ["docker", "br-", "veth", "virbr", "tun", "tap", "wg", "utun", "awdl", "llw", "bridge", "zt"];
+    PARTS.iter().any(|p| n.contains(p)) || PREFIXES.iter().any(|p| n.starts_with(p)) || n == "lo"
+}
+
+/// (protocol, local type, remote type) of a selected pair, from its text form
+/// "(local) udp host 192.0.2.1:5000 <-> (remote) udp srflx 198.51.100.2:6000 ..." (the crate exposes no accessors);
+/// addresses are not kept.
+fn pair_types(text: &str) -> (String, String, String) {
+    let side = |marker: &str| -> (String, String) {
+        let mut words = text.split(marker).nth(1).unwrap_or("").split_whitespace();
+        (words.next().unwrap_or("unknown").to_string(), words.next().unwrap_or("unknown").to_string())
+    };
+    let (protocol, local) = side("(local)");
+    let (_, remote) = side("(remote)");
+    (protocol, local, remote)
 }
 
 fn wire_channel(id: String, dc: Arc<RTCDataChannel>, emit: Emit) {
@@ -106,11 +159,26 @@ impl RtcState {
     /// Creates a connection; `muxed` negotiates on the shared listener of the current network generation, keeping
     /// ordinary host/STUN/TURN gathering and adding a verified mapped endpoint when one is published.
     pub async fn create_with(&self, id: &str, ice: Vec<IceServer>, emit: Emit, muxed: bool) -> Result<(), String> {
+        self.create_opts(id, ice, emit, muxed, None).await
+    }
+
+    /// `create_with`, plus the transport policy: `Some("relay")` gathers and checks relay candidates only (the
+    /// connection test's relay-only variant), anything else all candidates.
+    pub async fn create_opts(&self, id: &str, ice: Vec<IceServer>, emit: Emit, muxed: bool, policy: Option<&str>) -> Result<(), String> {
+        self.create_full(id, ice, emit, muxed, policy, None).await
+    }
+
+    /// `create_opts`, plus which local interfaces gather host candidates (`interfaces`, see `interface_policy`).
+    pub async fn create_full(&self, id: &str, ice: Vec<IceServer>, emit: Emit, muxed: bool, policy: Option<&str>, interfaces: Option<&str>) -> Result<(), String> {
         let lease = if muxed { Some(self.transport.acquire().await?) } else { None };
         let mut setting = SettingEngine::default();
         if let Some(lease) = &lease {
             setting.set_udp_network(lease.udp_network());
         }
+        interface_policy(&mut setting, interfaces);
+        // Explicit rather than the stack's defaults: a pair is "disconnected" after 5 s without answers, the agent fails
+        // after 20 s (the client's attempt deadline is longer, so relay pairs get the whole window), keepalive 2 s.
+        setting.set_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), Some(ICE_KEEPALIVE));
         let mut m = MediaEngine::default();
         m.register_default_codecs().map_err(|e| e.to_string())?;
         let registry = register_default_interceptors(Registry::new(), &mut m).map_err(|e| e.to_string())?;
@@ -128,7 +196,8 @@ impl RtcState {
                 ..Default::default()
             })
             .collect();
-        let pc = Arc::new(api.new_peer_connection(RTCConfiguration { ice_servers, ..Default::default() }).await.map_err(|e| e.to_string())?);
+        let ice_transport_policy = if policy == Some("relay") { RTCIceTransportPolicy::Relay } else { RTCIceTransportPolicy::All };
+        let pc = Arc::new(api.new_peer_connection(RTCConfiguration { ice_servers, ice_transport_policy, ..Default::default() }).await.map_err(|e| e.to_string())?);
         let peer = Arc::new(Peer { pc: pc.clone(), dcs: Mutex::new(HashMap::new()), _lease: lease });
 
         {
@@ -146,6 +215,25 @@ impl RtcState {
             let (e, id) = (emit.clone(), id.to_string());
             pc.on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
                 e(event_name(&id), json!({ "kind": "state", "state": s.to_string() }));
+                Box::pin(async {})
+            }));
+        }
+        {
+            // The ICE agent's own state (checking, connected, disconnected, failed ...): the connection state above
+            // hides when checks start and when consent stops.
+            let (e, id) = (emit.clone(), id.to_string());
+            pc.on_ice_connection_state_change(Box::new(move |s: RTCIceConnectionState| {
+                e(event_name(&id), json!({ "kind": "ice-state", "state": s.to_string() }));
+                Box::pin(async {})
+            }));
+        }
+        {
+            // Which candidate pair carries the connection, by type only (host, srflx, prflx, relay): a later change is
+            // a switch of path.
+            let (e, id) = (emit.clone(), id.to_string());
+            pc.sctp().transport().ice_transport().on_selected_candidate_pair_change(Box::new(move |p: RTCIceCandidatePair| {
+                let (protocol, local, remote) = pair_types(&p.to_string());
+                e(event_name(&id), json!({ "kind": "pair", "local": local, "remote": remote, "protocol": protocol }));
                 Box::pin(async {})
             }));
         }
@@ -238,7 +326,8 @@ impl RtcState {
             report.reports.values().find_map(|r| match r {
                 StatsReportType::LocalCandidate(c) | StatsReportType::RemoteCandidate(c) if c.id == cid => Some(json!({
                     "id": c.id, "type": kind, "candidateType": c.candidate_type.to_string(),
-                    "address": c.ip, "port": c.port, "relayProtocol": c.relay_protocol,
+                    "address": c.ip, "port": c.port,
+                    "relayProtocol": if c.candidate_type.to_string() == "relay" { Some(c.relay_protocol.clone()) } else { None },
                 })),
                 _ => None,
             })
@@ -500,6 +589,78 @@ mod tests {
         assert_eq!(v6_hosts(&muxed), v6_hosts(&ordinary), "ordinary:\n{ordinary}\nmuxed:\n{muxed}");
         println!("ipv6 host candidates: {}", v6_hosts(&muxed));
         plain.close("p").await;
+    }
+
+    #[test]
+    fn virtual_adapters_are_recognised_on_every_platform() {
+        for name in ["vEthernet (Default Switch)", "vEthernet (WSL (Hyper-V firewall))", "NordLynx", "OpenVPN Data Channel Offload for NordVPN", "Local Area Connection* 10", "docker0", "br-1a2b", "veth12ab", "virbr0", "tun0", "wg0", "utun3", "awdl0", "tailscale0", "lo"] {
+            assert!(is_virtual_interface(name), "{name}");
+        }
+        for name in ["Ethernet", "Wi-Fi", "eth0", "enp3s0", "wlan0", "en0", "en1"] {
+            assert!(!is_virtual_interface(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn selected_pair_types_without_addresses() {
+        let (p, l, r) = pair_types("(local) udp host 192.0.2.1:5000 <-> (remote) udp srflx 198.51.100.2:6000 related 10.0.0.1:1");
+        assert_eq!((p.as_str(), l.as_str(), r.as_str()), ("udp", "host", "srflx"));
+        assert_eq!(pair_types("garbled").1, "unknown");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn relay_policy_gathers_no_host_or_reflexive_candidates() {
+        let st = RtcState::default();
+        // No TURN server: with the relay policy nothing at all may be gathered.
+        st.create_opts("r", vec![], Arc::new(|_, _| {}), false, Some("relay")).await.unwrap();
+        st.create_data_channel("r", "sync", Arc::new(|_, _| {})).await.unwrap();
+        let offer = st.create_offer("r").await.unwrap();
+        st.set_local("r", "offer", offer).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let sdp = st.local_sdp("r").await.unwrap().unwrap();
+        assert!(!sdp.contains("a=candidate"), "{sdp}");
+        st.close("r").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ice_state_and_selected_pair_are_reported() {
+        let (sa, sb) = (Arc::new(RtcState::default()), Arc::new(RtcState::default()));
+        let (ea, mut ra) = emitter();
+        let (eb, rb) = emitter();
+        sa.create("a", vec![], ea.clone()).await.unwrap();
+        sb.create("b", vec![], eb.clone()).await.unwrap();
+        sa.create_data_channel("a", "sync", ea.clone()).await.unwrap();
+        let offer = sa.create_offer("a").await.unwrap();
+        sa.set_local("a", "offer", offer.clone()).await.unwrap();
+        sb.set_remote("b", "offer", offer).await.unwrap();
+        let answer = sb.create_answer("b").await.unwrap();
+        sb.set_local("b", "answer", answer.clone()).await.unwrap();
+        sa.set_remote("a", "answer", answer).await.unwrap();
+        // b's candidates to a; a's candidates go to b as they come (collected below).
+        let sa2 = sa.clone();
+        tokio::spawn(async move {
+            let mut rb = rb;
+            while let Some((_, v)) = rb.recv().await {
+                if v["kind"] == "ice" { let _ = sa2.add_ice("a", v["candidate"].clone()).await; }
+            }
+        });
+        let (mut ice_states, mut pair) = (vec![], None);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        while pair.is_none() || !ice_states.iter().any(|s: &String| s == "connected") {
+            let Ok(Some((_, v))) = tokio::time::timeout_at(deadline, ra.recv()).await else { break };
+            match v["kind"].as_str() {
+                Some("ice") => { let _ = sb.add_ice("b", v["candidate"].clone()).await; }
+                Some("ice-state") => ice_states.push(v["state"].as_str().unwrap_or_default().to_string()),
+                Some("pair") => pair = Some(v),
+                _ => {}
+            }
+        }
+        assert!(ice_states.iter().any(|s| s == "checking") && ice_states.iter().any(|s| s == "connected"), "{ice_states:?}");
+        let pair = pair.expect("no selected pair event");
+        assert_eq!(pair["local"], "host", "{pair}");
+        assert!(!pair.to_string().contains('.'), "an address leaked: {pair}");
+        sa.close("a").await;
+        sb.close("b").await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

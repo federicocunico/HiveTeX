@@ -120,6 +120,7 @@ export function nativeProjects(
         ring: (dev) => request("POST", "/projects/" + p.project + "/ring", { deviceId: dev }),
         iceServers: () => request("POST", "/turn", { projectId: p.project }),
         clientInfo: "desktop " + (process.env.HIVETEX_VERSION ?? "dev"),
+        nativeLog: (since) => native("rtc_log", { since }) as Promise<Array<{ seq: number; line: string }>>,
         signalUrl: url.origin.replace(/^http/, "ws") + "/api/signal",
         wsFactory: (u) => new WebSocket(u) as any,
         rtcFactory: () =>

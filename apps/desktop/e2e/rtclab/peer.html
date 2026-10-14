@@ -1,0 +1,112 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>rtc-lab browser peer</title>
+<pre id="out"></pre>
+<script type="module">
+  // Browser peer of the WebRTC lab (see server.mjs). Query: role=a|b, room, policy=all|relay, turn=both|udp|tcp|none,
+  // hold (seconds of pings once connected). Role a offers once role b says hello, then pings every second; both
+  // report what they saw. The wire protocol is shared with native-peer.mjs.
+  const q = new URLSearchParams(location.search);
+  const role = q.get('role') ?? 'a';
+  const room = q.get('room') ?? 'default';
+  const policy = q.get('policy') ?? 'all';
+  const turn = q.get('turn') ?? 'both';
+  const holdS = Number(q.get('hold') ?? 45);
+  const t0 = performance.now();
+  const now = () => Math.round(performance.now() - t0);
+  const events = [];
+  const note = (ev, data = {}) => {
+    const e = { ms: now(), ev, ...data };
+    events.push(e);
+    document.getElementById('out').textContent += `${JSON.stringify(e)}\n`;
+  };
+  const ws = new WebSocket(`ws://${location.host}/?room=${encodeURIComponent(room)}`);
+  await new Promise((r) => (ws.onopen = r));
+  const send = (m) => ws.send(JSON.stringify(m));
+  let reported = false;
+  const report = (extra) => {
+    if (reported) return;
+    reported = true;
+    send({ t: 'result', role, kind: 'browser', policy, turn, holdS, events, ...extra });
+  };
+
+  const pc = new RTCPeerConnection({ iceServers: await (await fetch(`/ice?turn=${turn}`)).json(), iceTransportPolicy: policy });
+  const typeOf = (c) => / typ (\w+)/.exec(c)?.[1] ?? 'unknown';
+  const protoOf = (c) => / (udp|tcp) /i.exec(c)?.[1]?.toLowerCase() ?? 'unknown';
+  pc.onicecandidate = (e) => {
+    if (!e.candidate) return note('gathered');
+    note('local', { type: typeOf(e.candidate.candidate), proto: protoOf(e.candidate.candidate) });
+    send({ t: 'ice', candidate: e.candidate.toJSON() });
+  };
+  pc.onicecandidateerror = (e) => note('candidate-error', { code: e.errorCode, url: String(e.url ?? '').replace(/\?.*/, '') });
+  pc.onconnectionstatechange = () => note('state', { state: pc.connectionState });
+
+  async function selectedPair() {
+    const stats = await pc.getStats();
+    let id;
+    stats.forEach((s) => { if (s.type === 'transport' && s.selectedCandidatePairId) id = s.selectedCandidatePairId; });
+    const p = id && stats.get(id);
+    if (!p) return null;
+    const l = stats.get(p.localCandidateId);
+    const r = stats.get(p.remoteCandidateId);
+    return { local: l?.candidateType ?? 'unknown', remote: r?.candidateType ?? 'unknown', relayProtocol: l?.relayProtocol ?? null };
+  }
+
+  const rtts = [];
+  let extendGiveUp = () => {};
+  function wire(dc) {
+    dc.onopen = async () => {
+      extendGiveUp();
+      note('open', { pair: await selectedPair() });
+      if (role !== 'a') return;
+      let n = 0;
+      const every = setInterval(() => dc.readyState === 'open' && dc.send(JSON.stringify({ ping: performance.now(), n: n++ })), 1000);
+      setTimeout(async () => {
+        clearInterval(every);
+        const pair = await selectedPair();
+        rtts.sort((x, y) => x - y);
+        report({ connected: true, pongs: rtts.length, expectedPongs: holdS, medianRttMs: rtts[Math.floor(rtts.length / 2)] ?? null, pair });
+        send({ t: 'done' });
+      }, holdS * 1000);
+    };
+    dc.onclose = () => note('channel-closed');
+    // The native peer sends binary messages, browsers text: read both.
+    dc.binaryType = 'arraybuffer';
+    dc.onmessage = (e) => {
+      const m = JSON.parse(typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data));
+      if (m.ping !== undefined) dc.send(JSON.stringify({ pong: m.ping }));
+      else if (m.pong !== undefined) rtts.push(Math.round(performance.now() - m.pong));
+    };
+  }
+
+  ws.onmessage = async (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === 'hello' && role === 'a') {
+      wire(pc.createDataChannel('lab'));
+      await pc.setLocalDescription(await pc.createOffer());
+      send({ t: 'sdp', type: 'offer', sdp: pc.localDescription.sdp });
+    } else if (m.t === 'sdp') {
+      await pc.setRemoteDescription({ type: m.type, sdp: m.sdp });
+      if (m.type === 'offer') {
+        await pc.setLocalDescription(await pc.createAnswer());
+        send({ t: 'sdp', type: 'answer', sdp: pc.localDescription.sdp });
+      }
+    } else if (m.t === 'ice') {
+      await pc.addIceCandidate(m.candidate).catch((err) => note('add-ice-error', { message: String(err).slice(0, 80) }));
+    } else if (m.t === 'done' && role === 'b') {
+      report({ connected: events.some((x) => x.ev === 'open'), pair: await selectedPair() });
+    }
+  };
+  if (role === 'b') {
+    pc.ondatachannel = (e) => wire(e.channel);
+    send({ t: 'hello' });
+  }
+  // Never connected (or the other side never finished): report what was seen before the runner gives up. Restarted when
+  // the channel opens, so a late second peer does not cut the ping phase short.
+  const fallback = async () => report({ connected: events.some((x) => x.ev === 'open'), timeout: true, pair: await selectedPair() });
+  let giveUp = setTimeout(fallback, (holdS + 30) * 1000);
+  extendGiveUp = () => {
+    clearTimeout(giveUp);
+    giveUp = setTimeout(fallback, (holdS + 15) * 1000);
+  };
+</script>

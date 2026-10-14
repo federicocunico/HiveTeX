@@ -17,12 +17,20 @@
  *   NO_APP_RELAY=0             the local server also offers the application relay (default: WebRTC only)
  *   KEEP=1                     leave the apps, the server and the sandbox running at the end
  *   TURN_USERNAME/TURN_CREDENTIAL/TURN_SERVER   the local server hands out this relay, like production
+ *   FAULT=no-udp               the sandbox app gets no UDP (its firewall blocks it): WebRTC never works and the
+ *                              application relay carries the whole session (with HOLD_S: a long relay session)
  *   FAULT=deaf-silent | deaf   before the sandbox joins, the host's server subscription stops delivering: silently (the
  *                              production failure) or reported (the server then closes the session and the host reconnects)
  *   SYNC_TIMEOUT_MS=90000      how long each sync check waits
+ *   HOLD_S=180                 then keep editing for that long (one edit every 5 s, alternating sides), each edit must
+ *                              arrive within HOLD_MAX_MS (default 10000); route changes are recorded in summary.json
+ *   MATRIX=stun,turn,relay,relay-stun,deaf   run these local-server scenarios one after the other and print a table:
+ *                              stun (no TURN, no application relay), turn (TURN), relay (TURN + application relay),
+ *                              relay-stun (application relay, no TURN), deaf (relay + FAULT=deaf); TURN_* must be set for
+ *                              the scenarios that use it
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,8 +39,43 @@ const desktop = resolve(here, '..');
 const root = resolve(desktop, '../..');
 const debugDir = join(desktop, 'src-tauri/target/debug');
 const base = join(desktop, 'src-tauri/target/sandbox-sync');
-const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + (process.env.OUT_TAG ? `-${process.env.OUT_TAG}` : '');
 const out = join(base, runId);
+
+// ---- matrix: this script once per scenario -------------------------------------------------------------------------
+const MATRIX = {
+  stun: { turn: false, relay: false },
+  turn: { turn: true, relay: false },
+  relay: { turn: true, relay: true },
+  'relay-stun': { turn: false, relay: true },
+  deaf: { turn: true, relay: true, fault: 'deaf' },
+  'no-udp': { turn: true, relay: true, fault: 'no-udp' },
+};
+if (process.env.MATRIX) {
+  if (process.env.SERVER) throw new Error('MATRIX runs against the local server only (it switches its relay and faults)');
+  const rows = [];
+  let built = Boolean(process.env.SKIP_BUILD);
+  for (const name of process.env.MATRIX.split(',').filter(Boolean)) {
+    const s = MATRIX[name];
+    if (!s) throw new Error(`unknown MATRIX scenario ${name} (known: ${Object.keys(MATRIX).join(', ')})`);
+    if (s.turn && !process.env.TURN_SERVER) throw new Error(`scenario ${name} needs TURN_SERVER/TURN_USERNAME/TURN_CREDENTIAL`);
+    const env = { ...process.env, MATRIX: '', OUT_TAG: name, NO_APP_RELAY: s.relay ? '0' : '1', ...(built ? { SKIP_BUILD: '1' } : {}) };
+    if (!s.turn) for (const k of ['TURN_SERVER', 'TURN_USERNAME', 'TURN_CREDENTIAL', 'TURN_URLS']) delete env[k];
+    if (s.fault) env.FAULT = s.fault;
+    else delete env.FAULT;
+    console.log(`\n=== scenario ${name}`);
+    spawnSync(process.execPath, [fileURLToPath(import.meta.url)], { stdio: 'inherit', env });
+    built = true;
+    const dir = readdirSync(base).filter((d) => d.endsWith(`-${name}`)).sort().at(-1);
+    const sum = dir && existsSync(join(base, dir, 'summary.json')) ? JSON.parse(readFileSync(join(base, dir, 'summary.json'), 'utf8')) : null;
+    const routes = sum?.steps.find((x) => x.name.startsWith('peers'))?.value;
+    rows.push({ name, result: sum?.result ?? 'no result', failed: (sum?.steps ?? []).filter((x) => !x.ok).map((x) => x.name), route: routes?.host?.map((p) => p.route).join(',') ?? '-', hold: sum?.hold ?? null, dir });
+  }
+  console.log('\nscenario     result  route    hold (late/edits, median ms)  failed steps');
+  for (const r of rows) console.log(`${r.name.padEnd(12)} ${r.result.padEnd(7)} ${String(r.route).padEnd(8)} ${r.hold ? `${r.hold.late}/${r.hold.edits}, ${r.hold.medianMs}` : '-'}`.padEnd(64) + (r.failed.join('; ') || ''));
+  writeFileSync(join(base, 'matrix-summary.json'), JSON.stringify(rows, null, 2));
+  process.exit(rows.every((r) => r.result === 'PASS') ? 0 : 1);
+}
 const share = join(base, 'share'); // read-only in the sandbox: the app and the sandbox scripts
 const sbLogs = join(out, 'sandbox'); // writable in the sandbox
 const HOST_CDP = 9301;
@@ -116,6 +159,11 @@ await step('stage the app for both machines', async () => {
     `netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=3000 connectaddress=$gw connectport=3000`,
     `netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=${SB_CDP_PUBLIC} connectaddress=127.0.0.1 connectport=${SB_CDP}`,
     `netsh advfirewall firewall add rule name=hivetex-cdp dir=in action=allow protocol=TCP localport=${SB_CDP_PUBLIC}`,
+    // FAULT=no-udp: the sandbox app gets no UDP at all (no STUN, no TURN over UDP, no direct path), as on a network that
+    // blocks UDP: WebRTC attempts keep failing and the application relay stays the route for the whole session.
+    ...(process.env.FAULT === 'no-udp'
+      ? ['netsh advfirewall firewall add rule name=hivetex-no-udp dir=out action=block protocol=UDP program=C:\\hx-app\\hivetex-desktop.exe']
+      : []),
     'Copy-Item -Recurse -Force C:\\hx-share\\app C:\\hx-app',
     '"gateway=$gw" | Out-File -Encoding utf8 C:\\hx-logs\\setup.txt',
     'netsh interface portproxy show all | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
@@ -250,7 +298,7 @@ await step('host creates the project; joiners become editors', async () => {
 });
 // FAULT=deaf-silent: the host's server subscription stops delivering while its socket stays open and present (what a
 // silently ended Upstash stream did in production); FAULT=deaf: the same loss, reported, as the server now handles it.
-if (process.env.FAULT) {
+if (process.env.FAULT === 'deaf' || process.env.FAULT === 'deaf-silent') {
   await step(`inject fault ${process.env.FAULT} on the server`, async () => {
     if (!localServer) throw new Error('faults need the local server');
     const silent = process.env.FAULT === 'deaf-silent' ? '?silent=1' : '';
@@ -273,24 +321,27 @@ await tryStep('the sandbox joined as editor', async () => {
 });
 
 // ---- sync checks -------------------------------------------------------------------------------------------------
-const create = (side, path, text) => side.page.evaluate(async ([p, t]) => {
+/** An app that stops answering (a pending dialog, a stalled VM) fails the step in seconds instead of hanging it. */
+const CALL_MS = 20_000;
+const bounded = (side, what, p, ms = CALL_MS) => Promise.race([p, pause(ms).then(() => { throw new Error(`the ${side.label} app did not answer within ${ms / 1000} s (${what}): a dialog waiting for an answer, or the app stalled`); })]);
+const create = (side, path, text) => bounded(side, 'create', side.page.evaluate(async ([p, t]) => {
   const s = window.__p2p.session;
   const id = await s.model.createTextNow(p, t);
   await s.model.flush();
   return id;
-}, [path, text]);
-const append = (side, id, text) => side.page.evaluate(async ([f, t]) => {
+}, [path, text]));
+const append = (side, id, text) => bounded(side, 'edit', side.page.evaluate(async ([f, t]) => {
   const s = window.__p2p.session;
   const y = await s.model.openText(f);
   y.insert(y.length, t);
   await s.model.flush();
-}, [id, text]);
-const textOf = (side, id) => side.page.evaluate(async (f) => {
+}, [id, text]));
+const textOf = (side, id) => bounded(side, 'read', side.page.evaluate(async (f) => {
   const s = window.__p2p?.session;
   if (!s?.model.files.has(f)) return null;
   return (await s.model.openText(f)).toString();
-}, id);
-const peers = (side) => side.page.evaluate(() => (window.__p2p?.session?.peers ?? []).map((p) => ({ dev: p.dev, uname: p.uname, route: p.route, role: p.role, limited: p.limited })));
+}, id));
+const peers = (side) => bounded(side, 'peers', side.page.evaluate(() => (window.__p2p?.session?.peers ?? []).map((p) => ({ dev: p.dev, uname: p.uname, route: p.route, role: p.role, limited: p.limited }))));
 const SYNC_MS = Number(process.env.SYNC_TIMEOUT_MS ?? 90_000);
 
 await tryStep('peers see each other with a route', async () => {
@@ -325,13 +376,51 @@ await tryStep('concurrent edits on both sides converge', async () => {
   return { length: a.length, identical: a === b };
 });
 
+// ---- hold: keep editing for a while ------------------------------------------------------------------------------
+// One edit every 5 s, alternating sides; each must reach the other side within HOLD_MAX_MS. Catches links that connect
+// and then die (the route is sampled on every edit and route changes are recorded).
+const HOLD_S = Number(process.env.HOLD_S ?? 0);
+const HOLD_MAX_MS = Number(process.env.HOLD_MAX_MS ?? 10_000);
+if (HOLD_S > 0) {
+  await tryStep(`hold: edits both ways for ${HOLD_S} s, each arriving within ${HOLD_MAX_MS / 1000} s`, async () => {
+    if (!mainId || !(await textOf(sb, mainId))) throw new Error('main.tex never reached the sandbox');
+    const end = Date.now() + HOLD_S * 1000;
+    const latencies = [];
+    const late = [];
+    const routes = [];
+    let lastRoutes = '';
+    let n = 0;
+    while (Date.now() < end) {
+      const [from, to] = n % 2 === 0 ? [host, sb] : [sb, host];
+      const marker = `% hold ${n} from ${from.label} ${tag}`;
+      const t = Date.now();
+      await append(from, mainId, `${marker}\n`);
+      const ms = await until(async () => (await textOf(to, mainId))?.includes(marker), `hold edit ${n}`, HOLD_MAX_MS, 200).then(() => Date.now() - t).catch(() => null);
+      if (ms === null) late.push({ n, from: from.label, at: new Date(t).toISOString() });
+      else latencies.push(ms);
+      const now = `${(await peers(host).catch(() => [])).map((p) => p.route).join(',') || '-'} | ${(await peers(sb).catch(() => [])).map((p) => p.route).join(',') || '-'}`;
+      if (now !== lastRoutes) {
+        routes.push({ at: new Date().toISOString(), routes: now });
+        lastRoutes = now;
+      }
+      n++;
+      await pause(Math.max(0, 5000 - (Date.now() - t)));
+    }
+    latencies.sort((x, y) => x - y);
+    const result = { edits: n, late: late.length, medianMs: latencies[Math.floor(latencies.length / 2)] ?? null, maxMs: latencies.at(-1) ?? null, routes, lateEdits: late.slice(0, 20) };
+    summary.hold = result;
+    if (late.length) throw new Error(`${late.length} of ${n} edits did not arrive within ${HOLD_MAX_MS} ms; routes (host | sandbox): ${routes.map((r) => r.routes).join(' -> ')}`);
+    return result;
+  });
+}
+
 // ---- connection test from both sides at once ---------------------------------------------------------------------
-const probe = (side) => side.page.evaluate(async () => {
+const probe = (side) => bounded(side, 'connection test', side.page.evaluate(async () => {
   const s = window.__p2p.session;
   const other = s.peers[0]?.dev ?? Object.keys(s.syncDiagnostics()?.stages ?? {})[0];
   if (!other) return { error: 'no co-author device known' };
   return s.probePeer(other);
-});
+}), 90_000).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
 await tryStep('connection test (Test connection) on both sides at once', async () => {
   const [a, b] = await Promise.all([probe(host), probe(sb)]);
   writeFileSync(join(out, 'host', 'probe.json'), JSON.stringify(a, null, 2));
@@ -346,10 +435,10 @@ await tryStep('connection test (Test connection) on both sides at once', async (
 }
 
 // ---- collect -----------------------------------------------------------------------------------------------------
-const diagnostics = (side) => !side ? Promise.resolve(null) : side.page.evaluate(() => {
+const diagnostics = (side) => !side ? Promise.resolve(null) : Promise.race([side.page.evaluate(() => {
   const s = window.__p2p?.session;
   return s ? { status: s.syncStatus, peers: s.peers, files: [...s.model.files.keys()], diagnostics: s.syncDiagnostics() } : null;
-}).catch((e) => ({ error: String(e) }));
+}), pause(30_000).then(() => { throw new Error(`the ${side.label} app did not answer within 30 s`); })]).catch((e) => ({ error: String(e) }));
 await step('collect diagnostics and logs', async () => {
   const [a, b] = await Promise.all([diagnostics(host), diagnostics(sb)]);
   writeFileSync(join(out, 'host', 'diagnostics.json'), JSON.stringify(a, null, 2));

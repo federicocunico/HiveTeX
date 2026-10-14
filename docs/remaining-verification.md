@@ -110,8 +110,12 @@ signaling log merged by time, per-side diagnostics and logs). The sandbox window
 not touched (the test build has its own identifier and credential store).
 
 ```
-make sandbox-sync                                        # local server, STUN only
+make sandbox-sync                                        # local server, STUN only, no application relay
 set -a; . ./.env.setup; set +a; make sandbox-sync        # local server handing out the TURN relay, like production
+NO_APP_RELAY=0 make sandbox-sync                         # the local server also offers the application relay
+HOLD_S=300 make sandbox-sync                             # then keep editing for 5 minutes (an edit every 5 s, alternating
+                                                         # sides, each within HOLD_MAX_MS=10000), route changes recorded
+MATRIX=stun,turn,relay,relay-stun,deaf make sandbox-sync # one run per scenario and a table (TURN_* needed for turn/relay/deaf)
 FAULT=deaf-silent make sandbox-sync                      # the production failure: a server session that stopped receiving
 FAULT=deaf make sandbox-sync                             # the same, as the server now handles it (closes, client reconnects)
 SERVER=https://hivetex.vercel.app make sandbox-sync      # against production (creates two test accounts and a project)
@@ -122,6 +126,30 @@ Results on 2026-10-13 (this PC behind a VPN, so both public addresses are the sa
 production, passes; `deaf-silent` reproduces the reported pair (offers sent, never received, the far side never learns
 the device); `deaf` recovers in under a second. Open: with TURN the first attempt sometimes ends at `checks-failed`
 after 20 s and the second connects within 3 s.
+
+## 7. WebRTC lab: `make rtc-lab` (Windows 11)
+
+Same two machines, but no HiveTeX code between them: a minimal signaling server (`apps/desktop/e2e/rtclab/server.mjs`)
+and on each side a WebRTC peer that connects, then exchanges a ping every second for `HOLD_S` seconds (default 45). It
+separates the network and the relay from the WebRTC stack.
+
+```
+set -a; . ./.env.setup; set +a
+make rtc-lab                         # browser peers (Chromium here, Edge in the sandbox): libwebrtc on both sides
+PEERS=native make rtc-lab            # the desktop's Rust stack on both sides (rtc_cli, shared muxed listener)
+PEERS=native-browser make rtc-lab    # native here, browser in the sandbox (also browser-native)
+SCENARIOS=relay-udp,all make rtc-lab # a subset of relay-udp, relay-tcp, all, stun
+```
+
+A scenario passes when the offering side got at least 90 % of its pongs. `results.jsonl` holds every event of both
+peers (candidates by type, connection and ICE states, the selected pair, the native stack's own log lines) and
+`summary.json` a row per scenario. The native peer needs `cargo build --example rtc_cli` and one build of the desktop
+test app (for its Node runtime).
+
+Results on 2026-10-13, same TURN account: browser ↔ browser passes all four scenarios (relay-only UDP and TCP in about
+190 ms, direct in under 20 ms, 44/45 pongs each); native ↔ native passes relay-only over UDP only (TCP TURN is not
+supported by webrtc-rs; with all candidates or STUN only, ICE ends `failed` after 25 s); native ↔ browser passes
+relay-only UDP, all candidates and STUN only. See [decisions/native-webrtc.md](decisions/native-webrtc.md).
 
 ## Reading a trace
 

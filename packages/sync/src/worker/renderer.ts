@@ -237,7 +237,7 @@ export class WorkerRenderer {
       },
       refreshTicketNow: () => this.call("project.refresh", {}),
       syncNow: () => this.call("project.sync", {}),
-      probePeer: (dev: string) => this.call("project.probe", { dev }),
+      probePeer: (dev: string, o: { relayOnly?: boolean } = {}) => this.call("project.probe", { dev, relayOnly: o.relayOnly === true }),
       networkRestored: () => {
         void this.call("project.refresh", {}).catch(() => {});
       },

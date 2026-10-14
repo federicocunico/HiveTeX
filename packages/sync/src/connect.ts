@@ -4,6 +4,7 @@ import { fromUtf8, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
 import { decodeRelayWire, encodeRelayHandshake, RelayTransport, type RelayTransportOptions } from './relay-transport.js';
 import { type LinkDiag, type LinkSignal, RtcLink, type RtcFactory } from './rtc.js';
+import type { PeerTransport } from './transport.js';
 
 export interface WebSocketLike {
   readyState: number;
@@ -39,11 +40,17 @@ export interface ManagerOptions {
   trace?: (e: TraceEvent) => void;
   /** "desktop 0.7.2", "web 0.7.2": reported to a co-author's connection test so version mismatches are visible. */
   clientInfo?: string;
+  /**
+   * The native WebRTC stack's own log lines after sequence number `since` (desktop: masked, credential-free). Read
+   * when an attempt fails or a link is lost and at the end of a connection test, for the reports.
+   */
+  nativeLog?: (since: number) => Promise<Array<{ seq: number; line: string }>>;
   now?: () => Date;
   /** The relay closes sockets after ~300 s; reconnect slightly earlier. */
   reconnectAfterMs?: number;
   idleCloseMs?: number;
   /** A link that has not produced a transport within this time is abandoned and retried. Default 20 s. */
+  /** How long one connection attempt may take (default LINK_TIMEOUT_MS: longer than the native ICE failure timeout). */
   linkTimeoutMs?: number;
   /** Upper bound of the retry backoff towards a device that is online but not connected. Default 30 s. */
   maxBackoffMs?: number;
@@ -53,12 +60,16 @@ export interface ManagerOptions {
    */
   heartbeatMs?: number;
   /**
-   * Offer the application relay to the signaling server. It is used only when the server and the peer negotiated it,
-   * and only while no direct (or TURN) link works. Default true.
+   * Offer the application relay to the signaling server. It is used only when the server and the peer negotiated it:
+   * first, until a WebRTC link has proven itself (relay first, direct as an upgrade). Default true.
    */
   applicationRelay?: boolean;
-  /** No usable direct link this long after learning a relay-capable peer: start relay setup (D12: within 10 s). Default 8 s. */
+  /** Delay between learning a relay-capable peer without a usable link and starting relay setup. Default 0 (at once). */
   relayAfterMs?: number;
+  /** A WebRTC link that comes up while the relay is the route must stay connected this long before taking over. Default 8 s. */
+  directProbationMs?: number;
+  /** A signaling socket that says nothing this long after a ping is treated as lost and reopened. Default 10 s. */
+  pongTimeoutMs?: number;
   /** While a peer is only reachable through the relay, direct link attempts repeat at most this often. Default 60 s. */
   directRetryMs?: number;
   /** Relay transport tuning (tests). */
@@ -88,7 +99,7 @@ export interface RouteState {
   /** Relay only: the server refused forwarding (budget, accounting, rate); queued traffic waits with this reason. */
   limited: string | null;
   /** Direct/TURN links: candidate types of the selected pair, once the RTC implementation reports them. */
-  pair?: { local: string; remote: string } | null;
+  pair?: { local: string; remote: string; relayProtocol?: string } | null;
 }
 
 interface RelayAttempt {
@@ -187,7 +198,7 @@ export interface PeerProbeResult {
   attempt: {
     outcome: 'connected' | 'failed' | 'timeout' | 'skipped';
     route: PeerRoute | null;
-    pair: { local: string; remote: string } | null;
+    pair: { local: string; remote: string; relayProtocol?: string } | null;
     cause: AttemptCause | null;
     error: string | null;
     link: LinkDiag | null;
@@ -198,6 +209,8 @@ export interface PeerProbeResult {
   verdict: string;
   /** Every connection step towards this device (and of the signaling socket) during the test. */
   trace: TraceEvent[];
+  /** Desktop: the native WebRTC stack's own log lines written during the test. */
+  nativeLog?: string[];
 }
 
 /** What this device itself looks like to the connection layer, for diagnostics. */
@@ -210,7 +223,13 @@ export interface SelfDiagnostics {
   knownDevices: number;
   onServer: number;
   stats: ConnectionManager['stats'];
+  /** Desktop: the native WebRTC stack's latest log lines (masked, credential-free), oldest first. */
+  nativeLog?: string[];
 }
+
+/** Native log lines kept by the manager, and shown in reports. */
+const NATIVE_LOG_KEEP = 300;
+const NATIVE_LOG_REPORT = 120;
 
 /** A signaling-only round trip (connection test): independent of WebRTC, carried exactly like the setup messages. */
 type ProbeSignal = { k: 'probe'; id: string; retry: boolean } | { k: 'probe-reply'; id: string; state: PeerSelfReport };
@@ -224,6 +243,12 @@ export interface IceInfo {
   /** Number of servers offered, STUN and relay together. */
   servers: number;
 }
+
+/**
+ * Deadline of one connection attempt. Longer than the native stack's ICE failure timeout (20 s, src-tauri/src/rtc.rs)
+ * and Chromium's, so relay candidate pairs, checked last, get their whole window.
+ */
+export const LINK_TIMEOUT_MS = 30_000;
 
 /** Credentials are refreshed this long before they expire, and when the expiry is unknown they are kept this long. */
 const ICE_REFRESH_MARGIN_MS = 60_000;
@@ -406,6 +431,14 @@ export class ConnectionManager {
   private relayChains = new Map<string, Promise<void>>();
   /** A relay check is scheduled for these devices. */
   private relayPending = new Set<string>();
+  /** Devices whose direct route reported disconnected and has not been replaced yet. */
+  private degraded = new Set<string>();
+  /** A transport policy for the next attempt towards a device (the relay-only connection test). */
+  private attemptPolicy = new Map<string, 'relay'>();
+  /** Application-relay test frames waiting for their echo (connection test). */
+  private relayPings = new Map<string, () => void>();
+  /** The native stack's log as read so far (see `nativeLog`). */
+  private native: { seq: number; lines: Array<{ seq: number; line: string }>; reading: Promise<void> | null } = { seq: 0, lines: [], reading: null };
   /** Doorbell mode: the push channel works, so the gatekeeper socket is not needed. */
   private doorbellUp = false;
   /** An introduction is in progress until this time (epoch ms); it may end earlier once every device seen is linked. */
@@ -526,7 +559,7 @@ export class ConnectionManager {
    * an offer; the other device answers with its own state and, when it offers, starts a fresh attempt. 2) A fresh
    * WebRTC attempt, watched until it connects, fails or times out. Every step is reported with what it means.
    */
-  async probePeer(dev: string, o: { attemptTimeoutMs?: number; replyTimeoutMs?: number } = {}): Promise<PeerProbeResult> {
+  async probePeer(dev: string, o: { attemptTimeoutMs?: number; replyTimeoutMs?: number; relayOnly?: boolean } = {}): Promise<PeerProbeResult> {
     const t0 = Date.now();
     const firstSeq = this.traceSeq + 1;
     const steps: PeerProbeStep[] = [];
@@ -564,7 +597,14 @@ export class ConnectionManager {
       verdict: '',
       trace: [],
     };
-    const finish = (verdict: string) => {
+    const nativeFrom = this.native.seq;
+    // Relay-only variant: the WebRTC attempt of this test (offered or answered here) gathers relay candidates only.
+    const relayOnly = o.relayOnly === true;
+    if (relayOnly) this.attemptPolicy.set(dev, 'relay');
+    const finish = async (verdict: string) => {
+      this.attemptPolicy.delete(dev);
+      await this.refreshNativeLog();
+      if (this.o.nativeLog) result.nativeLog = this.native.lines.filter((l) => l.seq > nativeFrom).map((l) => l.line);
       result.verdict = verdict;
       result.durationMs = Date.now() - t0;
       this.tr('probe.end', dev, { verdict: verdict.slice(0, 120) });
@@ -592,7 +632,7 @@ export class ConnectionManager {
       }, replyTimeout);
     });
     const sentAt = Date.now();
-    const { delivery, settled } = await this.sendSignal(dev, { k: 'probe', id, retry: !connectedBefore });
+    const { delivery, settled } = await this.sendSignal(dev, { k: 'probe', id, retry: !connectedBefore || (relayOnly && !this.connectedDirect(dev)) });
     result.signaling.delivery = delivery;
     const remote = await reply;
     // Acknowledgement and delivery receipt: at most the delivery timeout, already elapsed when the reply timed out.
@@ -622,19 +662,35 @@ export class ConnectionManager {
         : `none within ${replyTimeout / 1000} s`);
     }
 
-    // 2) a fresh connection attempt
-    if (connectedBefore || this.connected(dev)) {
+    // 1b) the application relay: a test frame there and back when it is the route
+    if (this.onRelayRoute(dev)) {
+      const rtt = await this.relayRoundTrip(dev, 5000);
+      step('Application relay', rtt !== null, rtt !== null
+        ? `an encrypted test frame went to the other device and back through the HiveTeX server in ${rtt} ms`
+        : 'no answer through it within 5 s (the other app is older, or relayed frames are being lost)');
+    } else {
+      const route = this.routes()[dev]?.route;
+      step('Application relay', null, !this.selfRelaySid
+        ? 'not offered by the signaling service'
+        : this.sessions.get(dev)?.startsWith(RELAY_SESSION_PREFIX)
+          ? `available, not in use${route ? ` (connected ${routeName(route)})` : ''}`
+          : 'the other device does not offer it (older app, or not on the service)');
+    }
+
+    // 2) a fresh connection attempt (relay only: a TURN attempt even while the application relay is the route)
+    if (this.connectedDirect(dev) || (!relayOnly && (connectedBefore || this.connected(dev)))) {
       const r = this.routes()[dev];
       result.attempt = { outcome: 'connected', route: r?.route ?? null, pair: r?.pair ?? null, cause: null, error: null, link: null, ms: 0 };
-      step('Connection', true, `already connected ${routeName(r?.route)}${r?.pair ? ` (${r.pair.local} to ${r.pair.remote})` : ''}`);
+      step('Connection', true, `already connected ${routeName(r?.route)}${r?.pair ? ` (${r.pair.local} to ${r.pair.remote})` : ''}${relayOnly ? '; no relay-only attempt was made' : ''}`);
     } else {
       const attemptStart = Date.now();
-      if (!remote) this.retryNow(dev); // the probe did not reach it: still try from this side
-      const limit = o.attemptTimeoutMs ?? (this.o.linkTimeoutMs ?? 20_000) + 5000;
+      // The probe did not reach it, or a relay-only attempt is wanted: start one from this side too.
+      if (!remote || relayOnly) this.retryNow(dev);
+      const limit = o.attemptTimeoutMs ?? (this.o.linkTimeoutMs ?? LINK_TIMEOUT_MS) + (this.o.directProbationMs ?? 8000) + 5000;
       const outcome = await new Promise<'connected' | 'failed' | 'timeout'>((resolve) => {
         const tick = () => {
           if (this.stopped) return resolve('failed');
-          if (this.connected(dev)) return resolve('connected');
+          if (relayOnly ? this.connectedDirect(dev) : this.connected(dev)) return resolve('connected');
           const c = this.lastCauses.get(dev);
           if (c && c.at >= attemptStart) return resolve('failed');
           if (Date.now() - attemptStart > limit) return resolve('timeout');
@@ -654,7 +710,7 @@ export class ConnectionManager {
         ms: Date.now() - attemptStart,
       };
       if (outcome === 'connected') {
-        step('Connection', true, `connected ${routeName(r?.route)} in ${result.attempt.ms} ms${r?.pair ? ` (${r.pair.local} to ${r.pair.remote})` : ''}`);
+        step('Connection', true, `connected ${routeName(r?.route)} in ${result.attempt.ms} ms${r?.pair ? ` (${r.pair.local} to ${r.pair.remote}${r.pair.relayProtocol ? `, TURN over ${r.pair.relayProtocol}` : ''})` : ''}`);
       } else {
         const l = result.attempt.link;
         step('Connection', false, `${outcome === 'timeout' ? 'no result' : 'failed'} after ${result.attempt.ms} ms; stage: ${result.attempt.cause ?? 'not started'}${l ? `; offer sent ${l.offerSent}, offer received ${l.offerReceived}, answer received ${l.answerReceived}, candidates here ${l.localCandidates.length}, from them ${l.remoteCandidates.length}, ICE ${l.state}` : ''}`);
@@ -777,6 +833,7 @@ export class ConnectionManager {
       mesh.onPeerJoin((p) => this.onPeerJoin(p)),
       mesh.onPeerLeave((p) => {
         this.tr('peer.lost', p.deviceId, { meshPeers: mesh.peers.length, socketOpen: this.socketOpen });
+        this.degraded.delete(p.deviceId);
         // On-demand signaling (desktop) is usually closed while linked: open it to learn whether the device is still
         // online and connect again (the server lists it, and setup messages need the socket).
         if (!this.stopped && !this.socketOpen && (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle))) void this.introduce(false);
@@ -790,6 +847,9 @@ export class ConnectionManager {
         });
       }),
       mesh.onApp('pex', (from, body) => void this.onPex(from, body as { tickets: string[] })),
+      // Connection test: a frame there and back over the current connection (the application relay step).
+      mesh.onApp('net-ping', (from, body) => void mesh.sendApp(from.deviceId, 'net-pong', body).catch(() => {})),
+      mesh.onApp('net-pong', (_from, body) => this.relayPings.get(String((body as { id?: unknown })?.id))?.()),
       mesh.onApp('rtc', (from, body) => void this.onRtcViaMesh(from, body as RtcEnvelope)),
     );
     // Doorbell mode, alone: ring the project and introduce ourselves; afterwards we wait for rings without a socket.
@@ -848,7 +908,28 @@ export class ConnectionManager {
       knownDevices: this.known.size,
       onServer: this.onRelay.size,
       stats: { ...this.stats },
+      ...(this.o.nativeLog ? { nativeLog: this.native.lines.slice(-NATIVE_LOG_REPORT).map((l) => l.line) } : {}),
     };
+  }
+
+  /** Reads the native stack's new log lines (bounded; failures ignored: the log is diagnostics only). */
+  private refreshNativeLog(): Promise<void> {
+    const read = this.o.nativeLog;
+    if (!read || this.stopped) return Promise.resolve();
+    this.native.reading ??= read(this.native.seq)
+      .then((lines) => {
+        for (const { seq, line } of lines) {
+          if (seq <= this.native.seq) continue;
+          this.native.seq = seq;
+          this.native.lines.push({ seq, line });
+        }
+        if (this.native.lines.length > NATIVE_LOG_KEEP) this.native.lines.splice(0, this.native.lines.length - NATIVE_LOG_KEEP);
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.native.reading = null;
+      });
+    return this.native.reading;
   }
 
   private nowMs() {
@@ -937,8 +1018,9 @@ export class ConnectionManager {
   }
 
   private wantSocket() {
-    // Relay frames travel over the signaling socket: it stays open while any relay attempt or generation exists.
-    if (this.relays.size > 0) return true;
+    // Relay frames travel over the signaling socket: it stays open while any relay attempt or generation exists, and
+    // while a direct route is degraded (both sides need it for the relay to take over).
+    if (this.relays.size > 0 || this.degraded.size > 0) return true;
     // Doorbell mode: only while introducing, and no longer once every device seen there is linked.
     // Past the window it stays while a device seen there is still unconnected: setup messages to and from it need this
     // socket (it closes once that device is linked or leaves).
@@ -987,13 +1069,21 @@ export class ConnectionManager {
     // belong to the socket that started them.
     let rotate: ReturnType<typeof setTimeout> | null = null;
     let beat: ReturnType<typeof setTimeout> | null = null;
+    // When the service last said anything on this socket: a ping it never answers means a dead path that was never
+    // closed (a NAT or proxy dropped it), which would otherwise leave this device present-looking but deaf for good.
+    let heardAt = Date.now();
+    let silent: () => void = () => {};
     // Presence is a lease: renew it while this socket is the live, authenticated one (see the `ready` message).
     this.beat = () => {
       this.cancel(beat);
       const every = this.o.heartbeatMs ?? 30_000;
       beat = this.later(every, () => {
         if (this.ws !== ws || ws.readyState !== WS_OPEN) return;
+        const sentAt = Date.now();
         ws.send(JSON.stringify({ t: 'ping' }));
+        this.later(this.o.pongTimeoutMs ?? 10_000, () => {
+          if (this.ws === ws && heardAt < sentAt) silent();
+        });
         this.beat?.();
       });
     };
@@ -1007,6 +1097,7 @@ export class ConnectionManager {
       rotate = this.later(this.o.reconnectAfterMs ?? 280_000, () => ws.close());
     };
     ws.onmessage = (ev) => {
+      heardAt = Date.now();
       if (this.ws === ws) void this.onServerMessage(String(ev.data), ws);
     };
     const lost = (ev?: { code?: number; reason?: string }) => {
@@ -1045,6 +1136,17 @@ export class ConnectionManager {
     };
     ws.onclose = lost;
     ws.onerror = () => ws.close();
+    // No answer to a ping: treat the socket as lost now (a close handshake over a dead path may never complete) and
+    // reconnect; the late close event of this socket is then ignored.
+    silent = () => {
+      this.tr('socket.silent', undefined, { afterMs: Date.now() - heardAt });
+      lost({ code: 4000, reason: 'no answer from the service' });
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+    };
   }
 
   private async onServerMessage(raw: string, ws?: WebSocketLike) {
@@ -1206,7 +1308,7 @@ export class ConnectionManager {
       const t = p.conn.transport;
       out[p.deviceId] = t instanceof RelayTransport
         ? { route: 'relay', limited: t.limited ? (t.stats.limitedReason ?? 'relay_limited') : null }
-        : { route: (t as { path?: string }).path === 'turn' ? 'turn' : 'direct', limited: null, pair: (t as { pair?: { local: string; remote: string } | null }).pair ?? null };
+        : { route: (t as { path?: string }).path === 'turn' ? 'turn' : 'direct', limited: null, pair: (t as { pair?: { local: string; remote: string; relayProtocol?: string } | null }).pair ?? null };
     }
     return out;
   }
@@ -1245,20 +1347,29 @@ export class ConnectionManager {
     if (this.stopped || gen !== this.gen) return null;
     // A connection attempt can stall without ever failing (a lost signaling message, ICE stuck on a loaded
     // machine): without a deadline the stale entry would block every later attempt towards that device.
-    const timer = this.later(this.o.linkTimeoutMs ?? 20_000, () => {
+    const timer = this.later(this.o.linkTimeoutMs ?? LINK_TIMEOUT_MS, () => {
       if (this.links.get(dev) !== link) return;
       link.close();
       this.links.delete(dev);
       this.lastErrors.set(dev, 'connection attempt timed out');
       this.recordCause(dev, link, initiator, 'timeout');
       this.tr('link.timeout', dev, { cause: this.lastCauses.get(dev)?.cause ?? 'n/a' });
+      void this.refreshNativeLog();
       this.retryLater(dev);
     });
     this.stage(dev).firstAttemptAt ??= Date.now();
+    // After an attempt whose checks failed, every other attempt uses relay (TURN) candidates only: the desktop's native
+    // stack loses the relay pair among many candidates but connects relay-only (make rtc-lab, docs/decisions), and a
+    // TURN route costs the control plane nothing per frame, unlike the application relay.
+    const alternate = ice.some((s) => (s as { credential?: unknown }).credential !== undefined)
+      && this.lastCauses.get(dev)?.cause === 'checks-failed' && (this.attempts.get(dev) ?? 0) % 2 === 1;
+    const policy = this.attemptPolicy.get(dev) ?? (alternate ? 'relay' : undefined);
+    if (policy) this.tr('link.policy', dev, { policy, ...(alternate && !this.attemptPolicy.has(dev) ? { after: 'checks-failed' } : {}) });
     const link = new RtcLink({
       factory: this.o.rtcFactory,
       iceServers: ice,
       initiator,
+      ...(policy ? { policy } : {}),
       trace: (ev, data) => this.tr(`link.${ev}`, dev, data),
       send: (s) => void this.sendSignal(dev, s),
       onTransport: (t) => {
@@ -1268,23 +1379,31 @@ export class ConnectionManager {
         if (this.stopped || gen !== this.gen) return void t.close();
         // The attempt keeps owning the device until the mesh has authenticated (or refused) the transport.
         this.authenticating.add(dev);
-        this.o.mesh
-          .addTransport(t)
-          .then(() => this.tr('mesh.auth-ok', dev, { route: (t as { path?: string }).path ?? 'unknown' }))
-          .catch((e: unknown) => {
-            this.tr('mesh.auth-failed', dev, { error: (e instanceof Error ? e.message : 'refused').slice(0, 120) });
-            this.retryLater(dev);
-          })
-          .finally(() => {
-            if (gen === this.gen) this.authenticating.delete(dev);
-          });
+        const handOver = () =>
+          this.o.mesh
+            .addTransport(t)
+            .then(() => this.tr('mesh.auth-ok', dev, { route: (t as { path?: string }).path ?? 'unknown' }))
+            .catch((e: unknown) => {
+              this.tr('mesh.auth-failed', dev, { error: (e instanceof Error ? e.message : 'refused').slice(0, 120) });
+              this.retryLater(dev);
+            })
+            .finally(() => {
+              if (gen === this.gen) this.authenticating.delete(dev);
+            });
+        // Already synchronizing through the application relay: the new link replaces it only after staying connected
+        // for the probation period (paths that connect and die seconds later never become the route).
+        const probation = this.o.directProbationMs ?? 8000;
+        if (probation > 0 && this.onRelayRoute(dev)) return this.probation(dev, link, t, gen, probation, handOver);
+        handOver();
       },
+      onDegraded: () => this.degrade(dev),
       onFail: (why) => {
         this.cancel(timer);
         if (this.links.get(dev) === link) this.links.delete(dev);
         this.lastErrors.set(dev, why);
         this.recordCause(dev, link, initiator, why);
         this.tr('link.failed', dev, { why: why.slice(0, 120), cause: this.lastCauses.get(dev)?.cause ?? 'n/a' });
+        void this.refreshNativeLog();
         this.retryLater(dev);
       },
     });
@@ -1317,7 +1436,7 @@ export class ConnectionManager {
     const viaRelay = this.connected(dev);
     const cap = viaRelay ? Math.max(this.o.maxBackoffMs ?? 30_000, this.o.directRetryMs ?? 60_000) : this.o.maxBackoffMs ?? 30_000;
     if (!viaRelay) this.scheduleRelay(dev, 0);
-    const base = Math.min(cap, (this.o.linkTimeoutMs ?? 20_000) < 1000 ? 100 * 2 ** Math.min(n, 20) : 1000 * 2 ** Math.min(n - 1, 20));
+    const base = Math.min(cap, (this.o.linkTimeoutMs ?? LINK_TIMEOUT_MS) < 1000 ? 100 * 2 ** Math.min(n, 20) : 1000 * 2 ** Math.min(n - 1, 20));
     this.tr('retry.scheduled', dev, { attempt: n, inMs: base, viaRelay });
     this.later(base, () => {
       const k = this.known.get(dev);
@@ -1497,24 +1616,91 @@ export class ConnectionManager {
     return Boolean(this.selfRelaySid && this.socketOpen && this.onRelay.has(dev) && this.sessions.get(dev)?.startsWith(RELAY_SESSION_PREFIX));
   }
 
-  /** Checks after `ms` whether `dev` still lacks a usable link and, if so, starts relay setup (initiator: lower id). */
-  private scheduleRelay(dev: string, ms = this.o.relayAfterMs ?? 8000) {
+  /**
+   * Checks after `ms` whether `dev` still lacks a usable link and, if so, starts relay setup (initiator: lower id).
+   * Relay first: by default at once, without waiting for a WebRTC attempt (direct or TURN) to fail; a WebRTC link
+   * takes over later through the probation (see `probation`).
+   */
+  private scheduleRelay(dev: string, ms = this.o.relayAfterMs ?? 0) {
     if (this.stopped || this.o.applicationRelay === false || this.selfDev > dev || this.relayPending.has(dev)) return;
     const failures = this.relayFailures.get(dev) ?? 0;
     const wait = failures ? Math.max(ms, Math.min(60_000, 2000 * 2 ** Math.min(failures - 1, 10))) : ms;
     this.relayPending.add(dev);
     this.later(wait, () => {
       this.relayPending.delete(dev);
-      if (this.connected(dev) || this.relays.has(dev) || !this.relayCapable(dev)) return;
-      // TURN costs the control plane nothing per byte, a relay session holds sockets: with TURN credentials configured,
-      // wait until that WebRTC attempt failed or timed out (retryLater schedules the relay again then).
-      if (this.turnConfigured() && (this.attempts.get(dev) ?? 0) === 0) return;
+      // A direct route that reported disconnected does not count as usable: the relay takes the edits meanwhile.
+      if ((this.connected(dev) && !this.degraded.has(dev)) || this.relays.has(dev) || !this.relayCapable(dev)) return;
       void this.startRelay(dev);
     });
   }
 
-  private turnConfigured() {
-    return (this.ice?.servers ?? []).some((x) => (x as { credential?: unknown }).credential !== undefined);
+  /** `dev` is linked through the application relay right now. */
+  private onRelayRoute(dev: string) {
+    return this.o.mesh.peers.some((p) => p.deviceId === dev && p.conn.transportKind === 'relay');
+  }
+
+  /** Milliseconds for a test frame to reach `dev` over the current mesh connection and come back, or null. */
+  private relayRoundTrip(dev: string, timeoutMs: number): Promise<number | null> {
+    const id = Math.random().toString(36).slice(2, 12);
+    const sent = Date.now();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.relayPings.delete(id);
+        resolve(null);
+      }, timeoutMs);
+      this.relayPings.set(id, () => {
+        clearTimeout(timer);
+        this.relayPings.delete(id);
+        resolve(Date.now() - sent);
+      });
+      void this.o.mesh.sendApp(dev, 'net-ping', { id }).catch(() => {});
+    });
+  }
+
+  /**
+   * A WebRTC link that came up while the relay is the route: it must stay connected for `ms` before the mesh hands
+   * over to it. A link that drops meanwhile is closed and tried again later; edits keep using the relay.
+   */
+  private probation(dev: string, link: RtcLink, t: PeerTransport, gen: number, ms: number, handOver: () => void) {
+    this.tr('link.probation', dev, { ms });
+    let lost = false;
+    t.onClose(() => {
+      lost = true;
+    });
+    const started = Date.now();
+    const check = () => {
+      if (this.stopped || gen !== this.gen) {
+        this.authenticating.delete(dev);
+        return void t.close();
+      }
+      if (lost || link.connectionState !== 'connected') {
+        this.tr('link.probation-failed', dev, { afterMs: Date.now() - started, state: link.connectionState });
+        void this.refreshNativeLog();
+        this.authenticating.delete(dev);
+        t.close();
+        this.retryLater(dev);
+        return;
+      }
+      if (Date.now() - started >= ms) {
+        this.tr('link.probation-ok', dev, { afterMs: Date.now() - started });
+        return handOver();
+      }
+      this.later(250, check);
+    };
+    this.later(250, check);
+  }
+
+  /**
+   * The direct route to `dev` reported disconnected: bring the relay back at once (opening on-demand signaling if it is
+   * closed) instead of waiting for the link to be declared lost.
+   */
+  private degrade(dev: string) {
+    if (this.stopped || !this.connectedDirect(dev)) return;
+    this.tr('link.degraded', dev, { socketOpen: this.socketOpen });
+    void this.refreshNativeLog();
+    this.degraded.add(dev);
+    this.evaluate(); // opens the socket (wantSocket): the relay setup goes through the server
+    this.scheduleRelay(dev, 0); // starts now if the server lists the device; otherwise when it does (learn)
   }
 
   private relayFailed(dev: string) {
@@ -1604,7 +1790,7 @@ export class ConnectionManager {
       if (b.hello && b.proof === undefined && from < this.selfDev) {
         // The peer (lower id) starts a generation: answer it, replacing any older attempt of that device.
         if (a && a.id === b.g) return;
-        if (this.connectedDirect(from)) return; // never downgrade a working direct link
+        if (this.connectedDirect(from) && !this.degraded.has(from)) return; // never downgrade a working direct link
         if (a) this.dropRelay(from, a);
         const own: RelayAttempt = { gen, id: b.g, role: 'responder', peerSid: fromSid, handshake: null, transport: null, timer: null };
         a = own;
@@ -1648,7 +1834,7 @@ export class ConnectionManager {
   }
 
   private relayEstablished(dev: string, a: RelayAttempt, session: RelaySession) {
-    if (this.relays.get(dev) !== a || a.gen !== this.gen || this.stopped || this.connectedDirect(dev)) {
+    if (this.relays.get(dev) !== a || a.gen !== this.gen || this.stopped || (this.connectedDirect(dev) && !this.degraded.has(dev))) {
       session.close();
       if (this.relays.get(dev) === a) this.dropRelay(dev, a);
       return;
@@ -1685,6 +1871,8 @@ export class ConnectionManager {
 
   private onPeerJoin(p: PeerInfo) {
     const viaRelay = p.conn.transportKind === 'relay';
+    // A new route replaced the degraded one (or a fresh direct link is up again).
+    this.degraded.delete(p.deviceId);
     if (!viaRelay) this.attempts.delete(p.deviceId);
     this.lastErrors.delete(p.deviceId);
     this.lastCauses.delete(p.deviceId);
