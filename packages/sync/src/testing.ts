@@ -89,14 +89,15 @@ export class FakePc implements RtcPeerLike {
   async addIceCandidate() {}
   /**
    * The network path dies under an open connection (a NAT mapping expired, a VPN path stopped answering): channels stay
-   * open but deliver nothing in either direction, and both sides report disconnected, as a real stack does.
+   * open but deliver nothing in either direction, and both sides report disconnected, as a real stack does. With
+   * `onlyHere`, only this side notices; the other keeps reporting connected (a TURN allocation lost on one side).
    */
-  cut() {
+  cut(o: { onlyHere?: boolean } = {}) {
     for (const c of this.created) {
       c.lost = true;
       if (c.peer) c.peer.lost = true;
     }
-    const other = this.peerPc();
+    const other = o.onlyHere ? undefined : this.peerPc();
     for (const pc of [this, other]) {
       if (!pc || pc.connectionState !== 'connected') continue;
       pc.connectionState = 'disconnected';

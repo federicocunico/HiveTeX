@@ -94,6 +94,8 @@ export class CompileLeader {
   private stopped = false;
   private unsubs: Array<() => void> = [];
   private aborts = new Set<AbortController>();
+  /** The compiler changed since the last build: the next run builds even an unchanged project. */
+  private compilerChanged = false;
 
   constructor(
     private o: {
@@ -229,6 +231,14 @@ export class CompileLeader {
     } finally { this.aborts.delete(abort); }
   }
 
+  /**
+   * This device switched compilers (the desktop app was paired, the quick compiler installed): the PDF of an unchanged
+   * project was built by the previous one, so the next run builds again instead of returning that result.
+   */
+  compilerSwitched() {
+    this.compilerChanged = true;
+  }
+
   /** Compiles now. A request while one is running queues exactly one follow-up run. */
   async run(): Promise<CompileResult | null> {
     if (this.stopped) return null;
@@ -270,7 +280,8 @@ export class CompileLeader {
       }
       this.lastIncomplete = null;
       if (this.stopped || !this.o.election.isLeader()) return null;
-      if (this.lastResult?.stateHash === input.stateHash && this.lastResult.ok) return this.lastResult;
+      if (!this.compilerChanged && this.lastResult?.stateHash === input.stateHash && this.lastResult.ok) return this.lastResult;
+      this.compilerChanged = false;
       let out: CompileOutput;
       try {
         out = await this.o.engine.compile(input, { timeoutMs: this.o.timeoutMs ?? 120_000, signal: abort.signal });

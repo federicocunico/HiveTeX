@@ -22,7 +22,7 @@ test('no serious accessibility violations on the main screens (7.6)', async ({ b
   await createProject(u.page, uniq('axe-'));
   await addFile(u.page, 'main.tex');
   await u.page.getByRole('treeitem', { name: 'main.tex' }).click();
-  await replaceEditorText(u.page, '\documentclass{article}\begin{document}Hi\end{document}');
+  await replaceEditorText(u.page, '\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n');
   await expect(u.page.getByTestId('compiled-by')).toBeVisible();
   const res = await new AxeBuilder({ page: u.page }).exclude('.cm-editor').analyze();
   expect(serious(res), JSON.stringify(serious(res).map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))).toEqual([]);

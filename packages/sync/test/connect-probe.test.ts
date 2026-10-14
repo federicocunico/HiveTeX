@@ -83,6 +83,31 @@ describe('connection test (probePeer)', () => {
     expect(r.verdict).toMatch(/^Connected/);
   });
 
+  it('both sockets closed (zero idle, linked): the test rings, the co-author comes to the service and answers (field report 2026-10-14)', async () => {
+    const { auth, lo, hi } = await pair();
+    const rtc = new FakeRtcNetwork();
+    const relay = new Relay({ acks: true });
+    const mgrs: Array<ReturnType<typeof managerFor>> = [];
+    const bell = (self: string) => ({ ring: async () => { for (const m of mgrs) if (m !== mgrs[self === 'a' ? 0 : 1]) m.mgr.answerRing(); return true; } });
+    const opts = { zeroIdle: true, introductionWindowMs: 3000, introductionMinMs: 200, idleCloseMs: 5, answerJitterMs: 0 };
+    mgrs.push(managerFor(lo, auth, PID, rtc, { wsFactory: relay.attach(lo, [] as FakeWs[]), clientInfo: 'test a', doorbell: bell('a'), ...opts }));
+    mgrs.push(managerFor(hi, auth, PID, rtc, { wsFactory: relay.attach(hi, [] as FakeWs[]), clientInfo: 'test z', doorbell: bell('z'), ...opts }));
+    const [a, b] = mgrs as [ReturnType<typeof managerFor>, ReturnType<typeof managerFor>];
+    cleanup.push(() => {
+      a.mgr.stop();
+      b.mgr.stop();
+    });
+    for (const m of mgrs) {
+      m.mgr.start();
+      m.mgr.setDoorbellAvailable(true);
+    }
+    await vi.waitFor(() => expect(lo.mesh.peers.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(a.mgr.socketOpen || b.mgr.socketOpen).toBe(false), { timeout: 8000 });
+    const r = await a.mgr.probePeer('z-device');
+    expect(r.onServer).toBe(true);
+    expect(r.remote).toMatchObject({ client: 'test z', knowsYou: true });
+  });
+
   it('from the answering side: the probe makes the offering side retry at once, and the test reports the new connection', async () => {
     const { auth, lo, hi } = await pair();
     const rtc = new FakeRtcNetwork();

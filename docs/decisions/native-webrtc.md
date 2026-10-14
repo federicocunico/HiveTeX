@@ -79,3 +79,15 @@ bridge for measurements (`interfaces` in `rtc_create`, `NATIVE_INTERFACES` in th
 What was adopted instead: after an attempt whose checks failed, every other attempt is relay-only when TURN is
 configured (`link.policy` with `after=checks-failed` in the trace). Native relay-only connected in every run (about
 2 s), and a TURN route spends no application-relay budget.
+
+## Long TURN sessions (2026-10-14)
+
+The 45 s lab holds above hid a second fault: every native TURN route died about four minutes after it was set up
+(`make rtc-lab PEERS=native SCENARIOS=relay-udp HOLD_S=330`: `disconnected` at 243 s; the same in two `make
+sandbox-sync` runs and in a field report). Browser peers held the same server for 330 s. ExpressTURN grants 240 s
+allocations and lets channel bindings lapse with them; webrtc-rs's TURN client refreshes a binding only after 5 minutes.
+It also refreshed permissions in one request listing every peer address, which ExpressTURN refuses (400), and repeated
+successful refreshes three times. The desktop now uses a patched `turn` 0.10.0 (`apps/desktop/src-tauri/vendor/PATCHES.md`):
+bindings refreshed every 2 minutes, one CreatePermission per address. The same 330 s lab hold passes (327/330 pongs); with
+only the binding interval undone it dies again at 244 s. When the route still drops, the application relay takes over
+(see protocol.md, Hand-back).

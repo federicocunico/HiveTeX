@@ -525,6 +525,8 @@ export class ProjectSession {
     this.engineKind = 'native';
     this.engineNote = '';
     this.election?.update({ engine: 'native', supports: engine.supports, optOut: this.policy().optOut });
+    // The PDF shown so far came from the in-browser compiler: the next build goes to the desktop app.
+    this.leader?.compilerSwitched();
     return 'paired';
   }
 

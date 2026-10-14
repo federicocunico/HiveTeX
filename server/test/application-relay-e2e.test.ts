@@ -69,6 +69,8 @@ interface Dev {
   store: MemoryPersistence;
   dev: string;
   sockets: WebSocketLike[];
+  /** A fresh ticket from the control plane, shared with the peers as the app does. */
+  refreshTicket: () => Promise<void>;
 }
 async function makeDevice(
   client: Client,
@@ -81,8 +83,8 @@ async function makeDevice(
   const dev = (
     await client.post("/devices", { ed25519Pub: keys.edPub, x25519Pub: keys.xPub, label: name })
   ).json.deviceId as string;
-  const ticket = (await client.post(`/projects/${pid}/ticket`, { deviceId: dev })).json
-    .ticket as string;
+  const mint = async () => (await client.post(`/projects/${pid}/ticket`, { deviceId: dev })).json.ticket as string;
+  let ticket = await mint();
   const store = new MemoryPersistence();
   const model = new ProjectModel(store, { flushMs: 5 });
   await model.init();
@@ -126,7 +128,11 @@ async function makeDevice(
     mgr.stop();
     mesh.destroy();
   });
-  return { name, model, mesh, mgr, blobs, store, dev, sockets };
+  const refreshTicket = async () => {
+    ticket = await mint();
+    await mesh.refreshOwnTicket(ticket);
+  };
+  return { name, model, mesh, mgr, blobs, store, dev, sockets, refreshTicket };
 }
 
 async function project(slug: string, names = ["olga", "bob"]) {
@@ -564,6 +570,112 @@ describe("application relay between current clients (3.x)", () => {
     await b.mesh.openDoc(`f:${id}`);
     await waitFor(async () => (await b.model.openText(id)).toString() === "still through the relay");
   }, 30_000);
+
+  it("a ticket refreshed through the relay during probation does not fail the handover (sandbox run 2026-10-14)", async () => {
+    // One device had the relay as its route, the other was still finishing the relay handshake when the direct link came
+    // up. The second handed the link to its mesh at once, its greeting carrying the ticket of that moment; it then
+    // refreshed its ticket over the relay, and when the first ended its probation that greeting was older than the
+    // ticket already seen: "stale device ticket", the link dropped, and the retries left the pair without a route.
+    const { owner, bob, pid } = await project("relay-e2e-12");
+    // The first direct attempt starts with the relay, as in the field, and connects only once the gate opens.
+    rtc.stallNext = 0;
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    const pcs: FakePc[] = [];
+    const watched = (ice: unknown[]) => {
+      const pc = rtc.factory(ice) as FakePc;
+      const setRemote = pc.setRemoteDescription.bind(pc);
+      pc.setRemoteDescription = async (d) => { await gate; return setRemote(d); };
+      pcs.push(pc);
+      return pc;
+    };
+    const opts = { rtcFactory: watched, directProbationMs: 3000, linkTimeoutMs: 20_000 };
+    const fast = await makeDevice(owner, pid, "a", opts);
+    const slow = await makeDevice(bob, pid, "b", opts);
+    // On the relay connection, the slow device gets the other's greeting but not yet its proof: the other device has
+    // authenticated the relay connection (its route), this one has not.
+    let holding = true;
+    const held: Array<() => void> = [];
+    const addTransport = slow.mesh.addTransport.bind(slow.mesh);
+    slow.mesh.addTransport = (t) => {
+      if (holding && t.authenticationBinding.kind === "relay") {
+        const onMessage = t.onMessage.bind(t);
+        let n = 0;
+        t.onMessage = (cb) => onMessage((c, d) => (holding && ++n > 1 ? held.push(() => cb(c, d)) : cb(c, d)));
+      }
+      return addTransport(t);
+    };
+    fast.mgr.start();
+    slow.mgr.start();
+    const route = (d: Dev) => Object.values(d.mgr.routes())[0]?.route;
+    await waitFor(() => route(fast) === "relay", 10_000);
+    expect(route(slow)).toBeUndefined();
+    open(); // the direct path connects while the slow device still authenticates the relay
+    await waitFor(() => pcs.filter((pc) => pc.connectionState === "connected").length >= 2, 10_000);
+    holding = false;
+    for (const deliver of held.splice(0)) deliver();
+    await waitFor(() => route(slow) === "relay", 5000);
+    env.advance(2000); // a later issue time (seconds; the test clock stands still)
+    await slow.refreshTicket(); // shared over the relay while the direct link is on probation
+    await waitFor(() => route(fast) === "direct" && route(slow) === "direct", 15_000);
+    expect([...fast.mesh.rejected, ...slow.mesh.rejected]).not.toContain("stale device ticket");
+  }, 40_000);
+
+  for (const notices of ["lower", "higher"] as const) {
+    it(`hands back to the relay within 4 s when only the ${notices} id sees the direct route go silent, sockets closed (sandbox run 2026-10-14)`, async () => {
+      // A TURN route died after four minutes and only one side noticed. Both sockets were closed (zero idle): the other
+      // device stayed off the server until it declared the link lost (10 s), so the relay could not start; and a device
+      // whose direct link still looked fine refused the relay.
+      const { owner, bob, pid } = await project(`relay-e2e-13-${notices}`);
+      rtc.stallNext = 0;
+      const devices: Dev[] = [];
+      const pcs = new Map<string, FakePc[]>();
+      const make = async (client: Client, name: string) => {
+        const mine: FakePc[] = [];
+        pcs.set(name, mine);
+        const d = await makeDevice(client, pid, name, {
+          rtcFactory: (ice) => {
+            const pc = rtc.factory(ice) as FakePc;
+            mine.push(pc);
+            return pc;
+          },
+          zeroIdle: true,
+          doorbell: { ring: async () => { for (const o of devices) if (o.name !== name) o.mgr.answerRing(); return true; } },
+          answerJitterMs: 0,
+          introductionMinMs: 2000, // an answer to a ring stays at least this long (8 s by default)
+          introductionWindowMs: 3000,
+        });
+        devices.push(d);
+        return d;
+      };
+      const a = await make(owner, "a");
+      const b = await make(bob, "b");
+      a.mgr.start();
+      b.mgr.start();
+      a.mgr.setDoorbellAvailable(true); // the push subscription is up, as the app reports it
+      b.mgr.setDoorbellAvailable(true);
+      const route = (d: Dev) => Object.values(d.mgr.routes())[0]?.route;
+      await waitFor(() => route(a) === "direct" && route(b) === "direct", 10_000);
+      await waitFor(() => !a.mgr.socketOpen && !b.mgr.socketOpen, 10_000);
+      const id = await a.model.createTextNow("one-way.tex", "");
+      await waitFor(() => b.model.files.has(id));
+      await b.mesh.openDoc(`f:${id}`);
+      const [ta, tb] = [await a.model.openText(id), await b.model.openText(id)];
+      rtc.stallNext = 1_000_000; // no new direct path
+      const [low, high] = a.dev < b.dev ? [a, b] : [b, a];
+      const noticing = notices === "lower" ? low : high;
+      const other = noticing === a ? b : a;
+      const live = (pcs.get(noticing.name) ?? []).filter((pc) => pc.connectionState === "connected");
+      expect(live.length).toBe(1);
+      const dropped = Date.now();
+      live[0]?.cut({ onlyHere: true });
+      expect(route(other)).toBe("direct"); // the other side still sees nothing wrong
+      (other === a ? ta : tb).insert(0, "after the one-way drop ");
+      await waitFor(() => (noticing === a ? ta : tb).toString().includes("after the one-way drop"), 8000);
+      expect(Date.now() - dropped).toBeLessThan(4000);
+      await waitFor(() => route(a) === "relay" && route(b) === "relay", 3000);
+    }, 40_000);
+  }
 
   it("hands back to the relay within 2 s when the direct route goes silent", async () => {
     const { owner, bob, pid } = await project("relay-e2e-11");

@@ -84,7 +84,9 @@ projects, and the server holds a signaling socket only while devices are being i
 3. **Waking.** Subscribers verify the token offline (pinned ticket keys, exact topic, epoch not older than their own,
    unexpired, nonce not seen, not their own ring) and drop anything else without any network activity. A device that is
    not linked to anyone answers, and so does the lowest device id of an existing mesh; the others are introduced
-   through peer exchange. A device answers at most one ring per project every 10 s (120 an hour).
+   through peer exchange. A device with a single peer answers too: rings carry no sender, and the ringer may be that
+   peer, whose link to it went silent on the ringer's side only (see Hand-back). A device answers at most one ring per
+   project every 10 s (120 an hour).
 4. **Introduction window.** Ringing or answering opens the signaling socket (fetching a fresh ticket first if the old
    one lapsed). The socket closes once every device seen there is linked (after at least 8 s, so late answers still find
    us) or after 30 s. Devices that are connected keep editing peer to peer and renew tickets; a device that is alone and
@@ -116,13 +118,22 @@ relay, but a WebRTC link replaces the relay only after a **probation**: it must 
 (`directProbationMs`, longer than the 5 s after which a dead path reports `disconnected`) before the mesh hands over
 (both ends complete the key-possession handshake on the new path; the Yjs exchange on the new connection fills any
 gap; the old relay generation closes). A link that drops during probation is closed and tried again later
-(`link.probation-failed`). Without a relay route (server or peer without the capability) a WebRTC link is used at once.
+(`link.probation-failed`). The probation also applies on a device whose relay to that peer is still being set up or
+authenticated: the peer may already route through the relay and hold the link on probation, and a handshake sent at
+once would carry a ticket older than any refresh shared over the relay meanwhile ("stale device ticket" at the end of
+the peer's probation; sandbox run 2026-10-14). Without any relay (server or peer without the capability) a WebRTC link
+is used at once.
 
 **Hand-back.** When the direct route reports `disconnected`, the client marks it degraded (`link.degraded`), reopens
-the signaling socket if it was closed, and starts the relay at once; the relay may then replace the degraded link (the
-"never downgrade" rule applies only to healthy direct links). The link itself gets a 10 s grace to recover and is
-ended after it (`link.lost`). While a peer is reached through the relay, direct attempts continue every 60 s at most
-(`directRetryMs`).
+the signaling socket if it was closed, rings the project (doorbell mode: the peer may have closed its socket and still
+see the link as fine) and starts the relay at once; the relay may then replace the degraded link (the "never
+downgrade" rule applies only to healthy direct links). Often only one side notices (a TURN allocation lost on one
+side): its relay hello then says `degraded`, the peer marks its own direct link degraded (`link.degraded by=peer`) and
+answers, and a device with the higher id may start that relay itself (normally only the lower id does; when both start,
+the lower id's attempt wins). The link itself gets a 10 s grace to recover and is ended after it (`link.lost`). A
+WebRTC connection that failed, timed out or whose channels the other side closed is released at once: a native
+connection left open keeps answering from the shared UDP socket and takes the packets of the next link to the same
+address. While a peer is reached through the relay, direct attempts continue every 60 s at most (`directRetryMs`).
 
 **Relay-only attempts.** With TURN configured, every other attempt after one whose ICE checks failed gathers relay
 candidates only (`link.policy policy=relay after=checks-failed`): the desktop's native stack connects relay-only where it

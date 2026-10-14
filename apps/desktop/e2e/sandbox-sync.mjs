@@ -159,6 +159,9 @@ await step('stage the app for both machines', async () => {
     `netsh interface portproxy add v4tov4 listenaddress=127.0.0.1 listenport=3000 connectaddress=$gw connectport=3000`,
     `netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=${SB_CDP_PUBLIC} connectaddress=127.0.0.1 connectport=${SB_CDP}`,
     `netsh advfirewall firewall add rule name=hivetex-cdp dir=in action=allow protocol=TCP localport=${SB_CDP_PUBLIC}`,
+    // The answer a user gives once on a real PC: with a rule for the program, Windows asks nothing when the app binds
+    // its UDP listener at launch, so runs need nobody at the sandbox.
+    'netsh advfirewall firewall add rule name=hivetex-app dir=in action=allow program=C:\\hx-app\\hivetex-desktop.exe enable=yes',
     // FAULT=no-udp: the sandbox app gets no UDP at all (no STUN, no TURN over UDP, no direct path), as on a network that
     // blocks UDP: WebRTC attempts keep failing and the application relay stays the route for the whole session.
     ...(process.env.FAULT === 'no-udp'

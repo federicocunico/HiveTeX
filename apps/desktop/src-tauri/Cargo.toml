@@ -48,6 +48,8 @@ netdev = { version = "=0.38.2", default-features = false, features = ["gateway"]
 # Pinned webrtc-ice 0.13.0 with the mapped-endpoint mux extension (vendor/PATCHES.md).
 [patch.crates-io]
 webrtc-ice = { path = "vendor/webrtc-ice" }
+# Pinned turn 0.10.0 refreshing TURN permissions one peer address per request (vendor/PATCHES.md).
+turn = { path = "vendor/turn" }
 tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
 
 [target.'cfg(unix)'.dependencies]

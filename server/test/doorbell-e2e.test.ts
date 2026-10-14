@@ -129,7 +129,7 @@ describe('doorbell introductions (3B.3)', () => {
     expect(a.mgr.socketOpen || b.mgr.socketOpen).toBe(false);
   }, 30_000);
 
-  it('a ring reaching an existing mesh is answered by its representative only; peer exchange does the rest', async () => {
+  it('a ring reaching an existing pair brings the newcomer to both; peer exchange does the rest', async () => {
     const { pid, clients } = await project('bell-e2e-2', ['olga', 'bob', 'cyd']);
     const [a, b] = [await makeDevice(clients[0] as Client, pid, 'a'), await makeDevice(clients[1] as Client, pid, 'b')];
     await subscribed(a); await subscribed(b);
@@ -141,10 +141,38 @@ describe('doorbell introductions (3B.3)', () => {
     await subscribed(c);
     c.mgr.start();
     await waitFor(() => c.mesh.peers.length === 2 && a.mesh.peers.length === 2 && b.mesh.peers.length === 2, 10_000);
-    expect(a.mgr.stats.answers + b.mgr.stats.answers - answersBefore).toBe(1);
-    const rep = [a, b].sort((x, y) => (x.dev < y.dev ? -1 : 1))[0] as Dev;
-    expect(rep.mgr.stats.answers).toBeGreaterThan(0);
+    // In a pair both answer (the ringer could be the other one, see below); never more than the pair.
+    expect(a.mgr.stats.answers + b.mgr.stats.answers - answersBefore).toBeGreaterThan(0);
+    expect(a.mgr.stats.answers + b.mgr.stats.answers - answersBefore).toBeLessThanOrEqual(2);
     await waitFor(() => [a, b, c].every((d) => !d.mgr.socketOpen), 4000);
+  }, 30_000);
+
+  it('within a mesh of three or more only its representative (lowest id) answers a ring', async () => {
+    const { pid, clients } = await project('bell-e2e-2c', ['olga', 'bob', 'cyd']);
+    const mesh = [await makeDevice(clients[0] as Client, pid, 'a'), await makeDevice(clients[1] as Client, pid, 'b'), await makeDevice(clients[2] as Client, pid, 'c')];
+    for (const d of mesh) await subscribed(d);
+    for (const [i, d] of mesh.entries()) {
+      d.mgr.start();
+      await waitFor(() => mesh.slice(0, i + 1).every((x) => x.mesh.peers.length === i), 10_000);
+    }
+    await waitFor(() => mesh.every((d) => !d.mgr.socketOpen), 6000);
+    const before = mesh.map((d) => d.mgr.stats.answers);
+    for (const d of mesh) d.mgr.answerRing();
+    const rep = [...mesh].sort((x, y) => (x.dev < y.dev ? -1 : 1))[0] as Dev;
+    expect(mesh.map((d, i) => d.mgr.stats.answers - (before[i] ?? 0))).toEqual(mesh.map((d) => (d === rep ? 1 : 0)));
+  }, 40_000);
+
+  it('in a pair both devices answer a ring: the ringer may be the peer whose link to them went silent on its side only', async () => {
+    const { pid, clients } = await project('bell-e2e-2b', ['olga', 'bob']);
+    const [a, b] = [await makeDevice(clients[0] as Client, pid, 'a'), await makeDevice(clients[1] as Client, pid, 'b')];
+    await subscribed(a); await subscribed(b);
+    a.mgr.start(); b.mgr.start();
+    await waitFor(() => a.mesh.peers.length === 1 && b.mesh.peers.length === 1);
+    await waitFor(() => !a.mgr.socketOpen && !b.mgr.socketOpen, 4000);
+    const before = [a.mgr.stats.answers, b.mgr.stats.answers];
+    a.mgr.answerRing();
+    b.mgr.answerRing();
+    expect([a.mgr.stats.answers - (before[0] ?? 0), b.mgr.stats.answers - (before[1] ?? 0)]).toEqual([1, 1]);
   }, 30_000);
 
   it('interoperates with an older gatekeeper client and falls back to a gatekeeper socket without the push channel', async () => {

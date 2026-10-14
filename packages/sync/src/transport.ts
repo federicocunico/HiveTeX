@@ -297,7 +297,7 @@ export class DataChannelTransport implements PeerTransport {
     this.sync.abort(new Error('transport closed'));
     this.bulk.abort(new Error('transport closed'));
     for (const dc of this.dcs) dc.close();
-    this.dispose();
+    this.release();
   }
   /**
    * The connection under the channels is gone (ICE failed, or stayed disconnected): end the transport now, without
@@ -314,6 +314,16 @@ export class DataChannelTransport implements PeerTransport {
     if (this.closed) return;
     this.closed = true;
     this.closeCb();
+    // Channels closed by the other side: release the connection under them too. A native connection left open keeps
+    // sending keepalives from the shared UDP socket, and the socket hands the next link's packets from that same address
+    // to it, so the next link to that device dies too (sandbox run 2026-10-14).
+    this.release();
+  }
+  private released = false;
+  private release() {
+    if (this.released) return;
+    this.released = true;
+    this.dispose();
   }
 }
 

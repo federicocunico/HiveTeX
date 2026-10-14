@@ -1,0 +1,220 @@
+diff -ruN turn-0.10.0/src/client/relay_conn/relay_conn_test.rs turn/src/client/relay_conn/relay_conn_test.rs
+--- turn-0.10.0/src/client/relay_conn/relay_conn_test.rs	2006-07-24 03:21:28.000000000 +0200
++++ turn/src/client/relay_conn/relay_conn_test.rs	2026-10-14 11:11:28.272127100 +0200
+@@ -37,6 +37,97 @@
+     }
+ }
+ 
++/// A server that grants permissions one address at a time and refuses a CreatePermission listing several (HiveTeX patch).
++struct OneAddressPerRequestServer {
++    peer_addresses_per_request: Arc<std::sync::Mutex<Vec<usize>>>,
++}
++
++#[async_trait]
++impl RelayConnObserver for OneAddressPerRequestServer {
++    fn turn_server_addr(&self) -> String {
++        String::new()
++    }
++
++    fn username(&self) -> Username {
++        Username::new(ATTR_USERNAME, "username".to_owned())
++    }
++
++    fn realm(&self) -> Realm {
++        Realm::new(ATTR_REALM, "realm".to_owned())
++    }
++
++    async fn write_to(&self, _data: &[u8], _to: &str) -> std::result::Result<usize, util::Error> {
++        Ok(0)
++    }
++
++    async fn perform_transaction(
++        &mut self,
++        msg: &Message,
++        _to: &str,
++        _dont_wait: bool,
++    ) -> Result<TransactionResult> {
++        let peers = msg
++            .attributes
++            .0
++            .iter()
++            .filter(|a| a.typ == ATTR_XOR_PEER_ADDRESS)
++            .count();
++        self.peer_addresses_per_request.lock().unwrap().push(peers);
++        let mut res = Message::new();
++        if peers == 1 {
++            res.build(&[
++                Box::new(TransactionId(msg.transaction_id.0)),
++                Box::new(MessageType::new(METHOD_CREATE_PERMISSION, CLASS_SUCCESS_RESPONSE)),
++            ])?;
++        } else {
++            res.build(&[
++                Box::new(TransactionId(msg.transaction_id.0)),
++                Box::new(MessageType::new(METHOD_CREATE_PERMISSION, CLASS_ERROR_RESPONSE)),
++                Box::new(ErrorCodeAttribute {
++                    code: CODE_BAD_REQUEST,
++                    reason: b"Bad Request".to_vec(),
++                }),
++            ])?;
++        }
++        Ok(TransactionResult {
++            msg: res,
++            from: SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0),
++            retries: 0,
++            err: None,
++        })
++    }
++}
++
++#[tokio::test]
++async fn test_refresh_permissions_one_request_per_address() -> Result<()> {
++    let requests = Arc::new(std::sync::Mutex::new(vec![]));
++    let obs = OneAddressPerRequestServer {
++        peer_addresses_per_request: Arc::clone(&requests),
++    };
++    let (_read_ch_tx, read_ch_rx) = mpsc::channel(100);
++    let config = RelayConnConfig {
++        relayed_addr: SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0),
++        integrity: MessageIntegrity::default(),
++        nonce: Nonce::new(ATTR_NONCE, "nonce".to_owned()),
++        lifetime: Duration::from_secs(600),
++        binding_mgr: Arc::new(Mutex::new(BindingManager::new())),
++        read_ch_rx: Arc::new(Mutex::new(read_ch_rx)),
++    };
++    let rc = RelayConn::new(Arc::new(Mutex::new(obs)), config).await;
++    let mut rci = rc.relay_conn.lock().await;
++    // Two peer addresses already granted, each by its own request (`create_perm`).
++    for ip in [Ipv4Addr::new(192, 0, 2, 10), Ipv4Addr::new(198, 51, 100, 20)] {
++        let perm = Arc::new(Permission::default());
++        perm.set_state(PermState::Permitted);
++        rci.perm_map.insert(&SocketAddr::new(ip.into(), 0), perm);
++    }
++
++    rci.refresh_permissions().await?;
++
++    assert_eq!(*requests.lock().unwrap(), vec![1, 1]);
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn test_relay_conn() -> Result<()> {
+     let obs = DummyRelayConnObserver {
+diff -ruN turn-0.10.0/src/client/relay_conn.rs turn/src/client/relay_conn.rs
+--- turn-0.10.0/src/client/relay_conn.rs	2006-07-24 03:21:28.000000000 +0200
++++ turn/src/client/relay_conn.rs	2026-10-14 11:43:57.903838900 +0200
+@@ -79,7 +79,8 @@
+ impl<T: 'static + RelayConnObserver + Send + Sync> RelayConn<T> {
+     /// Creates a new [`RelayConn`].
+     pub(crate) async fn new(obs: Arc<Mutex<T>>, config: RelayConnConfig) -> Self {
+-        log::debug!("initial lifetime: {} seconds", config.lifetime.as_secs());
++        // HiveTeX patch: info, not debug (connection reports keep info and above): the lifetime decides the refresh period.
++        log::info!("initial lifetime: {} seconds", config.lifetime.as_secs());
+ 
+         let c = RelayConn {
+             refresh_alloc_timer: PeriodicTimer::new(TimerIdRefresh::Alloc, config.lifetime / 2),
+@@ -311,11 +312,13 @@
+             // binding is either ready
+ 
+             // check if the binding needs a refresh
++            // HiveTeX patch: every 2 minutes instead of 5. Some servers grant much shorter lifetimes than RFC 5766's
++            // defaults (ExpressTURN: 240 s allocations); a ChannelBind every 2 minutes per peer costs nothing.
+             if bind_st == BindingState::Ready
+                 && Instant::now()
+                     .checked_duration_since(bind_at)
+                     .unwrap_or_else(|| Duration::from_secs(0))
+-                    > Duration::from_secs(5 * 60)
++                    > Duration::from_secs(2 * 60)
+             {
+                 let binding_mgr = Arc::clone(&self.binding_mgr);
+                 let rc_obs = Arc::clone(&self.obs);
+@@ -503,7 +506,8 @@
+                 self.set_nonce_from_msg(&res);
+                 return Err(Error::ErrTryAgain);
+             } else {
+-                return Ok(());
++                // HiveTeX patch: a refused refresh means the allocation expires; upstream reported success.
++                return Err(Error::Other(format!("{} (error {})", res.typ, code)));
+             }
+         }
+ 
+@@ -512,7 +516,7 @@
+         updated_lifetime.get_from(&res)?;
+ 
+         self.lifetime = updated_lifetime.0;
+-        log::debug!("updated lifetime: {} seconds", self.lifetime.as_secs());
++        log::info!("updated lifetime: {} seconds", self.lifetime.as_secs());
+         Ok(())
+     }
+ 
+@@ -523,11 +527,33 @@
+             return Ok(());
+         }
+ 
+-        if let Err(err) = self.create_permissions(&addrs).await {
+-            if Error::ErrTryAgain != err {
++        // HiveTeX patch: one CreatePermission per peer address, as libwebrtc does. Each permission was granted on its own
++        // (`create_perm`), but some servers refuse a request listing several XOR-PEER-ADDRESS attributes as a whole
++        // (ExpressTURN answers 400 Bad Request): then no permission is refreshed, the one carrying traffic expires and the
++        // relayed path dies about four minutes after it was set up.
++        let mut try_again = false;
++        let mut failed = 0;
++        let mut last_err = None;
++        for addr in &addrs {
++            match self.create_permissions(std::slice::from_ref(addr)).await {
++                Ok(()) => {}
++                Err(Error::ErrTryAgain) => try_again = true,
++                Err(err) => {
++                    log::debug!("fail to refresh permission for {}: {}", addr.ip(), err);
++                    failed += 1;
++                    last_err = Some(err);
++                }
++            }
++        }
++        if try_again {
++            return Err(Error::ErrTryAgain);
++        }
++        if let Some(err) = last_err {
++            if failed == addrs.len() {
+                 log::error!("fail to refresh permissions: {}", err);
++                return Err(err);
+             }
+-            return Err(err);
++            log::warn!("{} of {} permissions not refreshed: {}", failed, addrs.len(), err);
+         }
+ 
+         log::debug!("refresh permissions successful");
+@@ -591,27 +617,24 @@
+                 let lifetime = self.lifetime;
+                 // limit the max retries on errTryAgain to 3
+                 // when stale nonce returns, second retry should succeed
++                // HiveTeX patch: retry only on a stale nonce; upstream also repeated a successful refresh three times.
+                 let mut result = Ok(());
+                 for _ in 0..MAX_RETRY_ATTEMPTS {
+                     result = self.refresh_allocation(lifetime, false).await;
+-                    if let Err(err) = &result {
+-                        if Error::ErrTryAgain != *err {
+-                            break;
+-                        }
++                    if !matches!(&result, Err(Error::ErrTryAgain)) {
++                        break;
+                     }
+                 }
+-                if result.is_err() {
+-                    log::warn!("refresh allocation failed");
++                if let Err(err) = result {
++                    log::warn!("refresh allocation failed: {}", err);
+                 }
+             }
+             TimerIdRefresh::Perms => {
+                 let mut result = Ok(());
+                 for _ in 0..MAX_RETRY_ATTEMPTS {
+                     result = self.refresh_permissions().await;
+-                    if let Err(err) = &result {
+-                        if Error::ErrTryAgain != *err {
+-                            break;
+-                        }
++                    if !matches!(&result, Err(Error::ErrTryAgain)) {
++                        break;
+                     }
+                 }
+                 if result.is_err() {

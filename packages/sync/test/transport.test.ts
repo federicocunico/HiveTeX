@@ -57,6 +57,22 @@ describe('data channel transport (6.1)', () => {
     await new Promise((r) => setTimeout(r, 5));
     await expect.poll(async () => closed, { timeout: 15_000 }).toBe(2);
   });
+
+  it('releases the connection under the channels once when the other side closes them', async () => {
+    const [s1, s2] = fakeChannelPair(64 * 1024);
+    const [b1, b2] = fakeChannelPair(64 * 1024);
+    let released = 0;
+    const a = new DataChannelTransport(s1, b1, 'fpA', 'fpB');
+    const b = new DataChannelTransport(s2, b2, 'fpB', 'fpA', () => released++);
+    let closed = false;
+    b.onClose(() => { closed = true; });
+    a.close(); // the other side gives up the link (e.g. its mesh refused the handshake)
+    await expect.poll(async () => closed, { timeout: 15_000 }).toBe(true);
+    expect(released).toBe(1); // otherwise a native connection lingers on the shared UDP socket
+    b.close();
+    b.fail();
+    expect(released).toBe(1);
+  });
 });
 
 /** A channel whose buffer sits above the high-water mark and never fires `bufferedamountlow`. */

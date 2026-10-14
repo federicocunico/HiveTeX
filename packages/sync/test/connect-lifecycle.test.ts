@@ -330,12 +330,19 @@ describe('signaling heartbeat and session ids (F08)', () => {
     cleanup.push(() => mgr.stop());
     mgr.start();
     await flushMicro();
+    // A live service answers every ping: without pongs a socket counts as silent and is replaced early (the check
+    // compares real `Date.now()` values, so whether that happened depended on how fast this test ran).
+    const answer = (ws: FakeWs) => {
+      ws.onSend = (m) => m.t === 'ping' && ws.say({ t: 'pong' });
+    };
     const first = sockets[0] as FakeWs;
+    answer(first);
     first.say({ t: 'ready', tickets: [] });
     await vi.advanceTimersByTimeAsync(101_000); // rotation closes the first socket, a retry opens the second
     await flushMicro();
     const second = sockets[1] as FakeWs;
     expect(second).toBeDefined();
+    answer(second);
     const before = pings(first);
     second.say({ t: 'ready', tickets: [] });
     await vi.advanceTimersByTimeAsync(65_000);

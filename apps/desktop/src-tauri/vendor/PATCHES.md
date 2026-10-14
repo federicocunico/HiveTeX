@@ -72,6 +72,58 @@ Upstream disposition: not yet proposed. The change is additive and default-off, 
 request with the vnet tests above. If upstream accepts an equivalent API, drop `[patch.crates-io]` and this
 directory.
 
+## turn 0.10.0: TURN permissions refreshed one peer address per request
+
+| | |
+| --- | --- |
+| Upstream | `turn` 0.10.0 from crates.io (part of [webrtc-rs](https://github.com/webrtc-rs/webrtc), MIT OR Apache-2.0) |
+| Upstream archive SHA-256 | `3f5aea1116456e1da71c45586b87c72e3b43164fbf435eb93ff6aa475416a9a4` (`turn-0.10.0.crate`) |
+| Wired in | `[patch.crates-io] turn = { path = "vendor/turn" }` in `apps/desktop/src-tauri/Cargo.toml` |
+| Exact change | [`turn-0.10.0-hivetex.patch`](turn-0.10.0-hivetex.patch) (unified diff against the published crate) |
+| Used by | every TURN (relay candidate) connection of the desktop's native WebRTC stack |
+
+### Why
+
+Every native TURN route through ExpressTURN died about four minutes after it was set up. Measured on 2026-10-14:
+
+- `make rtc-lab PEERS=native SCENARIOS=relay-udp HOLD_S=330`: disconnected after 243 s; browser peers (libwebrtc) held
+  the same server and credentials for 330 s (329/330 pongs). `make sandbox-sync` TURN routes died after 4 min 2 s twice,
+  and a field report (two PCs, 0.7.3) disconnected at +243 s.
+- ExpressTURN grants 240 s allocations (`initial lifetime: 240 seconds`, then 600 and 240 on refresh) and lets channel
+  bindings lapse with them, while the published client refreshes a channel binding only after 5 minutes. With the
+  binding refreshed every 2 minutes the lab hold passes (327/330 pongs over 330 s); with only that change undone it
+  dies again at 244 s. This is the decisive fix.
+- Two more defects showed in the same logs. Permissions were refreshed in **one** CreatePermission listing every peer
+  address, which ExpressTURN refuses as a whole (`CreatePermission error response (error 400: Bad Request)` at +117 s
+  and +237 s in the field report), although each address had been granted on its own. And a successful refresh was
+  repeated three times (the retry loop continued on success).
+
+### What the patch does
+
+In `src/client/relay_conn.rs`:
+
+1. A channel binding in use is refreshed after 2 minutes instead of 5.
+2. `refresh_permissions` sends one CreatePermission per address, as libwebrtc does. A stale nonce still asks the caller
+   to retry; an address the server no longer accepts is logged and skipped; the refresh fails only when every address
+   failed.
+3. The allocation and permission refresh timers retry only on a stale nonce, not after success.
+4. A refused allocation refresh is reported as an error (upstream returned success), with its reason in the warning; the
+   initial and updated allocation lifetimes are logged at info, so connection reports show them.
+
+### Tests
+
+`src/client/relay_conn/relay_conn_test.rs` › `test_refresh_permissions_one_request_per_address`: a server that grants
+single-address requests and answers 400 to a request listing several. Unpatched it fails with exactly the field error;
+patched it sends two one-address requests. The crate suite passes: `cargo test --lib` in `vendor/turn` gives 64 passed.
+In the app crate, `transport::tests::lockfile_pins_the_vendored_patched_turn` checks that `Cargo.lock` resolves `turn`
+to the path source. The binding interval is verified end to end by the lab hold above (it needs a real TURN server's
+timing).
+
+### Updating or dropping the patch
+
+Re-apply it to a newer `turn` (regenerate the `.patch` with `diff -ruN`) and rerun the crate suite and the lab hold
+above. Upstream disposition: not yet proposed; the changes are small and self-contained, suitable for a pull request.
+
 ## tauri-plugin-single-instance 2.4.4: Windows startup handover
 
 Vendored from the published 2.4.4 crate, retaining its MIT/Apache licenses. The existing mutex/window identity is unchanged for older installed versions. Existing-mutex secondaries wait briefly for a delayed IPC window, send with a deadline and always exit. Mutex/window errors fail startup. The app lifecycle harness enables a test-only delayed-window feature and verifies twelve concurrent/cross-path launches; release builds do not enable it.

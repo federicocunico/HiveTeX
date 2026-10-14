@@ -242,6 +242,18 @@ mod tests {
         assert!(vendored.contains("fn mapped_endpoints(&self)") && vendored.contains("fn keeps_ordinary_gathering(&self)"));
     }
 
+    /// The patched TURN client (vendor/PATCHES.md): channel bindings refreshed every 2 minutes and permissions one peer
+    /// address per request. With the published one every ExpressTURN route died after about four minutes.
+    #[test]
+    fn lockfile_pins_the_vendored_patched_turn() {
+        let lock = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock")).unwrap().replace("\r\n", "\n");
+        let block = lock.split("[[package]]\n").find(|b| b.starts_with("name = \"turn\"\n")).expect("turn locked");
+        assert!(block.contains("version = \"0.10.0\"\n"), "{block}");
+        assert!(!block.contains("source = "), "turn must resolve to vendor/turn, not a registry: {block}");
+        let vendored = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/turn/src/client/relay_conn.rs")).unwrap();
+        assert!(vendored.contains("create_permissions(std::slice::from_ref(addr))") && vendored.contains("Duration::from_secs(2 * 60)"));
+    }
+
     #[tokio::test]
     async fn mappings_are_accepted_only_for_the_current_listener_and_withdrawn_on_network_change() {
         let t = Transport::default();

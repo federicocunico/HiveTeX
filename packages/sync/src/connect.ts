@@ -118,6 +118,8 @@ interface RelayStep {
   hello?: RelayHello;
   proof?: unknown;
   confirm?: unknown;
+  /** The sender's direct link to us went silent: take the relay even if that link still looks fine here. */
+  degraded?: unknown;
 }
 const RELAY_LIMIT_CODES = new Set(['relay_limited', 'relay_accounting_unavailable', 'relay_rate_limited', 'relay_backpressure', 'relay_unavailable']);
 
@@ -572,11 +574,17 @@ export class ConnectionManager {
     let opened = '';
     if (!socketWasOpen && (this.doorbellMode || (this.o.doorbell && this.o.zeroIdle))) {
       const since = this.traceSeq;
-      void this.introduce(false);
+      // Ring as well: a co-author linked to us has usually closed its socket too (zero idle), and without it the test's
+      // setup messages have nowhere to go ("not seen on the signaling service").
+      void this.introduce(true);
       const ready = () => this.recent.some((r) => r.seq > since && r.e.ev === 'server.ready');
       const until = Date.now() + (o.replyTimeoutMs ?? 8000);
       while (!ready() && !this.stopped && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
       opened = ready() ? `; opened for this test in ${Date.now() - t0} ms` : '; could not be opened for this test (see socket.* and server.err below)';
+      if (ready() && this.known.has(dev) && !this.onRelay.has(dev)) {
+        while (!this.onRelay.has(dev) && !this.stopped && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+        opened += this.onRelay.has(dev) ? `; the co-author answered the ring after ${Date.now() - t0} ms` : '; the co-author did not answer the ring';
+      }
     }
     const known = this.known.has(dev);
     const onServer = this.onRelay.has(dev);
@@ -764,12 +772,14 @@ export class ConnectionManager {
 
   /**
    * A verified ring for this project arrived. Devices not linked to anyone answer, and within an existing mesh only its
-   * representative (lowest device id): the others are introduced to the newcomer through peer exchange.
+   * representative (lowest device id): the others are introduced to the newcomer through peer exchange. A device with a
+   * single peer answers too: rings carry no sender, and the ringer may be that very peer, whose link to us went silent on
+   * its side only (it then needs us on the server for the relay).
    */
   answerRing() {
     if (this.stopped || !this.doorbellActive()) return;
     const peers = this.o.mesh.peers;
-    if (peers.length > 0 && !peers.every((p) => p.deviceId > this.selfDev)) return;
+    if (peers.length > 1 && !peers.every((p) => p.deviceId > this.selfDev)) return;
     this.stats.answers++;
     const jitter = (this.o.random ?? Math.random)() * (this.o.answerJitterMs ?? 1500);
     this.later(jitter, () => void this.introduce(false));
@@ -1391,14 +1401,20 @@ export class ConnectionManager {
               if (gen === this.gen) this.authenticating.delete(dev);
             });
         // Already synchronizing through the application relay: the new link replaces it only after staying connected
-        // for the probation period (paths that connect and die seconds later never become the route).
+        // for the probation period (paths that connect and die seconds later never become the route). Also while the
+        // relay is still authenticating here: the other device may already route through it and hold this link on
+        // probation, and a greeting sent now would carry a ticket older than any refresh shared over the relay
+        // meanwhile ("stale device ticket" when the other side ends its probation).
         const probation = this.o.directProbationMs ?? 8000;
-        if (probation > 0 && this.onRelayRoute(dev)) return this.probation(dev, link, t, gen, probation, handOver);
+        if (probation > 0 && (this.onRelayRoute(dev) || this.relays.has(dev))) return this.probation(dev, link, t, gen, probation, handOver);
         handOver();
       },
       onDegraded: () => this.degrade(dev),
       onFail: (why) => {
         this.cancel(timer);
+        // Release it, as a timeout does: a native connection left behind keeps checking from the shared UDP socket and
+        // takes the packets of the next attempt to the same address.
+        link.close();
         if (this.links.get(dev) === link) this.links.delete(dev);
         this.lastErrors.set(dev, why);
         this.recordCause(dev, link, initiator, why);
@@ -1622,7 +1638,8 @@ export class ConnectionManager {
    * takes over later through the probation (see `probation`).
    */
   private scheduleRelay(dev: string, ms = this.o.relayAfterMs ?? 0) {
-    if (this.stopped || this.o.applicationRelay === false || this.selfDev > dev || this.relayPending.has(dev)) return;
+    // The lower id starts relays; the higher one too when its direct link to `dev` went silent (the peer may not notice).
+    if (this.stopped || this.o.applicationRelay === false || (this.selfDev > dev && !this.degraded.has(dev)) || this.relayPending.has(dev)) return;
     const failures = this.relayFailures.get(dev) ?? 0;
     const wait = failures ? Math.max(ms, Math.min(60_000, 2000 * 2 ** Math.min(failures - 1, 10))) : ms;
     this.relayPending.add(dev);
@@ -1701,6 +1718,9 @@ export class ConnectionManager {
     this.degraded.add(dev);
     this.evaluate(); // opens the socket (wantSocket): the relay setup goes through the server
     this.scheduleRelay(dev, 0); // starts now if the server lists the device; otherwise when it does (learn)
+    // The other device may have closed its socket (zero idle) and still see the link as fine: ring it so it comes to the
+    // server now, instead of after it declares the link lost.
+    if (this.doorbellActive() || (this.o.doorbell && this.o.zeroIdle)) void this.introduce(true);
   }
 
   private relayFailed(dev: string) {
@@ -1754,7 +1774,8 @@ export class ConnectionManager {
       a.id = hs.hello.generation;
       this.stats.relaySetups++;
       this.relayTimeout(dev, a);
-      if (!this.postRelay(dev, peerSid, encodeRelayHandshake({ g: a.id, hello: hs.hello }))) throw new Error('signaling socket closed');
+      const step: RelayStep = { g: a.id, hello: hs.hello, ...(this.degraded.has(dev) ? { degraded: true } : {}) };
+      if (!this.postRelay(dev, peerSid, encodeRelayHandshake(step))) throw new Error('signaling socket closed');
     } catch {
       if (this.relays.get(dev) !== a) return;
       this.dropRelay(dev, a);
@@ -1787,10 +1808,18 @@ export class ConnectionManager {
     const gen = this.gen;
     let a = this.relays.get(from);
     try {
-      if (b.hello && b.proof === undefined && from < this.selfDev) {
-        // The peer (lower id) starts a generation: answer it, replacing any older attempt of that device.
+      // The peer with the lower id starts a generation. The other one does too when its direct link to us went silent
+      // (only the side that lost the path may notice); an attempt of our own then takes precedence if we are the lower id.
+      const peerDegraded = b.degraded === true;
+      if (b.hello && b.proof === undefined && (from < this.selfDev || (peerDegraded && a?.role !== 'initiator'))) {
+        // Answer it, replacing any older attempt of that device.
         if (a && a.id === b.g) return;
-        if (this.connectedDirect(from) && !this.degraded.has(from)) return; // never downgrade a working direct link
+        if (this.connectedDirect(from) && !this.degraded.has(from)) {
+          if (!peerDegraded) return; // never downgrade a working direct link
+          // The path is lost one way: the link still looks fine here, but nothing reaches the other side.
+          this.tr('link.degraded', from, { by: 'peer', socketOpen: this.socketOpen });
+          this.degraded.add(from);
+        }
         if (a) this.dropRelay(from, a);
         const own: RelayAttempt = { gen, id: b.g, role: 'responder', peerSid: fromSid, handshake: null, transport: null, timer: null };
         a = own;

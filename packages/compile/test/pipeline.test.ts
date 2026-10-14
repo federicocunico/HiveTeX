@@ -246,6 +246,22 @@ describe('manual compile (8.8)', () => {
     expect(latest()?.by.uname).toBe('big'); // ...but the requester got the current result
   });
 
+  it('builds an unchanged project again once after the device switched compilers (desktop app paired)', async () => {
+    net = await Net.create();
+    const big = await device('big', 'owner', 3);
+    await waitFor(() => big.election.leader() === big.node.dev);
+    await big.node.model.createTextNow('main.tex', 'content');
+    await waitFor(() => !!big.leader.lastResult?.ok);
+    const calls = big.engine.calls.length;
+    await big.leader.run();
+    expect(big.engine.calls.length).toBe(calls); // unchanged: the previous result stands
+    big.leader.compilerSwitched();
+    await big.leader.run();
+    expect(big.engine.calls.length).toBe(calls + 1); // the new compiler builds it
+    await big.leader.run();
+    expect(big.engine.calls.length).toBe(calls + 1); // ...once
+  });
+
   it('compiles locally on a non-leader without distributing the result (also offline)', async () => {
     net = await Net.create();
     const small = await device('small', 'editor', 1);

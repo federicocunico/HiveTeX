@@ -1,8 +1,7 @@
 //! Maintenance deletes only app-owned paths; never follow a symlink or Windows junction into a linked project.
 use std::path::Path;
 
-pub static COMPILER_ACTIVITY: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
-pub const CACHE_DIRS: &[&str] = &["builds", "tectonic-cache", "texcache", "downloads", "tectonic.tmp", "tinytex.tmp"];
+pub static COMPILER_ACTIVITY: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());pub const CACHE_DIRS: &[&str] = &["builds", "tectonic-cache", "texcache", "downloads", "tectonic.tmp", "tinytex.tmp"];
 const APP_ID: &str = "app.hivetex.desktop";
 const LEGACY_ID: &str = "app.p2platex.desktop"; // Published v0.1.0/v0.1.1, before the HiveTeX name.
 
@@ -40,7 +39,12 @@ pub fn remove_owned_tree(path: &Path) -> Result<(), String> {
 }
 
 pub fn clear_compiler_cache(root: &Path) -> Result<(), String> {
-    let _exclusive = COMPILER_ACTIVITY.try_write().map_err(|_| "A compile or compiler installation is active. Wait for it to finish, then clear the cache.".to_string())?;
+    clear_compiler_cache_guarded(root, &COMPILER_ACTIVITY)
+}
+
+/// Tests pass a lock of their own: compile tests running in parallel hold the shared one.
+fn clear_compiler_cache_guarded(root: &Path, activity: &tokio::sync::RwLock<()>) -> Result<(), String> {
+    let _exclusive = activity.try_write().map_err(|_| "A compile or compiler installation is active. Wait for it to finish, then clear the cache.".to_string())?;
     let mut roots = vec![root.to_path_buf()];
     if root.file_name().is_some_and(|name| name == APP_ID) {
         if let Some(parent) = root.parent() { roots.push(parent.join(LEGACY_ID)); }
@@ -168,6 +172,11 @@ fn remove_startup(name: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// With a lock of its own: compile tests running in parallel hold the shared one.
+    fn clear(root: &Path) -> Result<(), String> {
+        clear_compiler_cache_guarded(root, &tokio::sync::RwLock::new(()))
+    }
+
     #[cfg(windows)]
     #[test]
     fn credential_cleanup_matches_only_the_exact_app_service() {
@@ -229,8 +238,8 @@ mod tests {
             std::fs::write(root.join(name).join("marker"), name).unwrap();
         }
         std::fs::write(root.join("startup.json"), "settings").unwrap();
-        clear_compiler_cache(&root).unwrap();
-        clear_compiler_cache(&root).unwrap();
+        clear(&root).unwrap();
+        clear(&root).unwrap();
         for name in CACHE_DIRS { assert!(!root.join(name).exists()); }
         for name in ["projects", "tectonic", "tinytex", "stores"] { assert!(root.join(name).join("marker").exists()); }
         assert!(root.join("startup.json").exists());
@@ -239,8 +248,9 @@ mod tests {
 
     #[test]
     fn reset_refuses_active_compilation() {
-        let _active = COMPILER_ACTIVITY.try_read().unwrap();
-        assert!(clear_compiler_cache(Path::new("unused")).unwrap_err().contains("active"));
+        let busy = tokio::sync::RwLock::new(());
+        let _active = busy.try_read().unwrap();
+        assert!(clear_compiler_cache_guarded(Path::new("unused"), &busy).unwrap_err().contains("active"));
     }
 
     #[test]
@@ -252,7 +262,7 @@ mod tests {
             std::fs::write(base.join(id).join("builds/output.pdf"), "cache").unwrap();
             std::fs::write(base.join(id).join("document.tex"), "retain").unwrap();
         }
-        clear_compiler_cache(&base.join(APP_ID)).unwrap();
+        clear(&base.join(APP_ID)).unwrap();
         for id in [APP_ID, LEGACY_ID] {
             assert!(!base.join(id).join("builds").exists());
             assert!(base.join(id).join("document.tex").exists());
@@ -274,7 +284,7 @@ mod tests {
         std::fs::write(external.join("document.tex"), "preserve").unwrap();
         assert!(crate::proc::background_command("cmd.exe").args(["/c", "mklink", "/J"])
             .arg(owned.join("linked")).arg(&external).status().unwrap().success());
-        assert!(clear_compiler_cache(&owned.join("linked")).unwrap_err().contains("linked"));
+        assert!(clear(&owned.join("linked")).unwrap_err().contains("linked"));
         assert!(external.join("builds/output.pdf").exists());
         remove_owned_tree(&owned).unwrap();
         assert_eq!(std::fs::read_to_string(external.join("document.tex")).unwrap(), "preserve");

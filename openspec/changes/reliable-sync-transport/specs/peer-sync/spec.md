@@ -68,6 +68,18 @@ When a WebRTC route stops carrying traffic (its connection reports disconnected 
 - **WHEN** a direct link reports disconnected and recovers before the grace period ends
 - **THEN** edits sent meanwhile through the relay are not applied twice in a way that changes the result, and the direct route resumes
 
+#### Scenario: Only one side notices, sockets closed
+- **WHEN** a WebRTC route stops carrying traffic, only one of the two devices reports it disconnected, and both have closed their signaling sockets
+- **THEN** that device brings the other one to the server (ringing in doorbell mode), the other accepts the relay although its own link still looks connected, whichever of the two has the lower device id, and edits continue within 4 seconds
+
+#### Scenario: Ended links release their connection
+- **WHEN** a WebRTC connection attempt fails or times out, or the other side closes the link
+- **THEN** the client releases the underlying connection at once, so it cannot keep using the shared UDP socket and take the packets of the next link to the same device
+
+#### Scenario: Ticket refreshed during probation
+- **WHEN** a direct link comes up while one device already routes through the relay and the other is still authenticating it, and a device refreshes its ticket over the relay meanwhile
+- **THEN** both devices hold the link on probation and authenticate it with their current tickets afterwards, so the handover is not refused as a stale ticket
+
 ### Requirement: Connection attempts outlive the stack's own checks
 A WebRTC connection attempt SHALL NOT be abandoned by the client before the connection stack itself has had the time it is configured to take for connectivity checks, including relay candidates.
 

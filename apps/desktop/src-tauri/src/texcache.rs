@@ -129,7 +129,12 @@ impl TexCache {
     }
 
     pub fn clear(&self) -> Result<(), String> {
-        let _exclusive = crate::maintenance::COMPILER_ACTIVITY.try_write().map_err(|_| "Compiler activity is in progress; wait for it to finish.".to_string())?;
+        self.clear_guarded(&crate::maintenance::COMPILER_ACTIVITY)
+    }
+
+    /// Tests pass a lock of their own: compile tests running in parallel hold the shared one.
+    fn clear_guarded(&self, activity: &tokio::sync::RwLock<()>) -> Result<(), String> {
+        let _exclusive = activity.try_write().map_err(|_| "Compiler activity is in progress; wait for it to finish.".to_string())?;
         crate::maintenance::remove_owned_tree(&self.root)
     }
 }
@@ -203,7 +208,7 @@ mod tests {
         assert!(matches!(c.get(&missing).await.unwrap(), Lookup::Missing));
         assert_eq!(hits.load(Ordering::SeqCst), 2, "a missing file is not requested again within the hour");
         assert_eq!(c.stats().files, 1);
-        c.clear().unwrap();
+        c.clear_guarded(&tokio::sync::RwLock::new(())).unwrap();
         assert_eq!(c.stats().files, 0);
     }
 }

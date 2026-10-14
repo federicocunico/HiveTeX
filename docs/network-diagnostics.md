@@ -75,8 +75,8 @@ content. **Show connection trace** on the page shows the latest 200 steps live.
 | `link.ice-state` | The ICE agent's own state where the stack reports it (the desktop's native stack): `checking`, `connected`, `disconnected` (no answers for 5 s), `failed` (no working pair after 20 s). |
 | `link.pair` | The candidate pair the native stack selected or switched to: local and remote type, protocol. No addresses. |
 | `link.channels.open`, `link.route`, `link.up` | The data channels opened, the selected pair's candidate types, the link handed to sync. |
-| `link.probation`, `link.probation-ok`, `link.probation-failed` | The link came up while the application relay was the route: it must stay connected for 8 s before it replaces the relay; failed means it dropped meanwhile (edits stayed on the relay). |
-| `link.degraded` | The direct route reported disconnected: the relay is started at once while the link gets its 10 s grace. |
+| `link.probation`, `link.probation-ok`, `link.probation-failed` | The link came up while the application relay was the route (or was still being set up): it must stay connected for 8 s before it replaces the relay; failed means it dropped meanwhile (edits stayed on the relay). |
+| `link.degraded` | The direct route reported disconnected: the relay is started at once (and, on desktop, the other device is rung so it comes to the service) while the link gets its 10 s grace. `by=peer`: the other device reported its side of the link silent while it still looks fine here. |
 | `mesh.auth-ok`, `mesh.auth-failed` | The peers proved their membership over the new link, or that check failed (with the error). |
 | `link.lost`, `peer.lost` | A connected link stopped carrying data (`state`: failed, or disconnected for more than 10 s) and was ended; the device left the mesh, and on-demand signaling reopens to connect it again. |
 | `link.timeout`, `link.failed`, `link.abandoned` | An attempt ended without a link, with the stage it reached (`cause`). |

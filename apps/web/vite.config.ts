@@ -21,6 +21,10 @@ export default defineConfig({
     // Reported to co-authors in connection tests and shown in the network report.
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version),
   },
+  // Dev server (the e2e suite runs on it): find every dependency at startup, also those of lazily loaded views (the
+  // editor, per-icon imports). Otherwise the first page that loads them makes Vite optimize again mid-session and answer
+  // 504 "Outdated Optimize Dep" to modules already requested, and the editor never loads (CI a11y/folders failures).
+  optimizeDeps: { entries: ['index.html', 'src/**/*.{svelte,ts}'] },
   server: {
     port: 1420,
     strictPort: true,
