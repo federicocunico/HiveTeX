@@ -50,5 +50,11 @@ Already installed? *Account → Check for updates* installs this version.
 
 EOF
 
+highlights="docs/releases/${tag}.md"
+if [ -f "$highlights" ]; then
+  cat "$highlights"
+  echo
+fi
+
 # GitHub's changelog since the previous tag (pull requests and contributors, then a "Full Changelog" compare link).
 gh api "repos/${GH_REPO}/releases/generate-notes" -f tag_name="$tag" --jq .body

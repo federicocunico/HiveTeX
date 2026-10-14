@@ -14,6 +14,8 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 if (process.platform !== 'win32') {
   console.log('# lifecycle.mjs: Windows only; skipped');
@@ -21,14 +23,24 @@ if (process.platform !== 'win32') {
 }
 const here = dirname(fileURLToPath(import.meta.url));
 const exe = process.env.HIVETEX_APP ?? join(resolve(here, '../src-tauri/target/debug'), 'hivetex-desktop.exe');
+const copyDir = mkdtempSync(join(tmpdir(), 'hivetex-instance-'));
+assert.equal(dirname(resolve(copyDir)), resolve(tmpdir()), 'temporary executable directory stays within the test temp root');
+const copy = join(copyDir, 'hivetex-desktop.exe');
+copyFileSync(exe, copy);
+// Only this harness's two executables: never kill an installed app while running local regression checks.
+const pathFilter = [exe, copy].map((p) => `$_.Path -eq '${p.replaceAll("'", "''")}'`).join(' -or ');
 
 function ps(script) {
-  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+  // Get-Process -ErrorAction SilentlyContinue returns $? = false when no app exists. That is an empty query,
+  // not a harness failure; genuine terminating errors must still fail.
+  const command = `$ErrorActionPreference = 'Stop'; ${script}; exit 0`;
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true });
+  if (r.status !== 0) throw new Error(`process query failed: ${r.stderr}`);
   return (r.stdout ?? '').trim();
 }
 /** [{ id, title }] of running app processes. */
 const apps = () => {
-  const out = ps("Get-Process hivetex-desktop -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.Id)`t$($_.MainWindowTitle)\" }");
+  const out = ps(`Get-Process hivetex-desktop -ErrorAction SilentlyContinue | Where-Object { ${pathFilter} } | ForEach-Object { "$($_.Id)\u0060t$($_.MainWindowTitle)" }`);
   return out ? out.split(/\r?\n/).map((l) => { const [id, title] = l.split('\t'); return { id: Number(id), title: title ?? '' }; }) : [];
 };
 const workers = (pid) => Number(ps(`(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid} AND Name='node.exe'" | Measure-Object).Count`) || 0);
@@ -41,7 +53,12 @@ async function until(fn, msg, ms = 30_000) {
   }
   throw new Error(`timed out: ${msg} (apps: ${JSON.stringify(apps())})`);
 }
-const killAll = () => ps("Get-Process hivetex-desktop -ErrorAction SilentlyContinue | Stop-Process -Force; Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*hivetex-worker*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }");
+const killAll = () => ps(`Get-Process hivetex-desktop -ErrorAction SilentlyContinue | Where-Object { ${pathFilter} } | Stop-Process -Force`);
+const exited = (child) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => { child.kill(); reject(new Error('secondary launch did not exit within 15 seconds')); }, 15_000);
+  child.once('error', (e) => { clearTimeout(timer); reject(e); });
+  child.once('exit', (code) => { clearTimeout(timer); resolve(code); });
+});
 
 // A debug build loads its page from the web dev server: without it every window shows an error page.
 if (!(await fetch('http://localhost:1420').then((r) => r.ok).catch(() => false))) {
@@ -50,6 +67,16 @@ if (!(await fetch('http://localhost:1420').then((r) => r.ok).catch(() => false))
 }
 killAll();
 try {
+  const primary = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_INSTANCE_WINDOW_MS: '5000' }, stdio: 'ignore' });
+  await until(() => apps().some((a) => a.id === primary.pid), 'primary acquired its startup process');
+  const burst = Array.from({ length: 12 }, (_, i) => spawn(i % 2 ? copy : exe, [], { env: process.env, stdio: 'ignore' }));
+  assert.deepEqual(await Promise.all(burst.map(exited)), Array(12).fill(0), 'all simultaneous/cross-path secondaries hand over and exit');
+  await until(() => apps().some((a) => a.id === primary.pid && a.title === 'HiveTeX'), 'primary window shown');
+  assert.deepEqual(apps().map((a) => a.id), [primary.pid], 'delayed primary is the only app process');
+  assert.equal(workers(primary.pid), 1, 'the startup burst leaves one worker');
+  console.log('ok - 12 simultaneous launches across two executable paths leave one app and worker during delayed startup');
+  killAll();
+
   const first = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_CLOSE_MAIN_MS: '6000' }, stdio: 'ignore', detached: false });
   const pid = first.pid;
   await until(() => apps().some((a) => a.id === pid && a.title === 'HiveTeX'), 'window shown');
@@ -62,8 +89,7 @@ try {
   console.log('ok - closing the window keeps the app and its sync worker running');
 
   const second = spawn(exe, [], { env: process.env, stdio: 'ignore' });
-  const code = await new Promise((r) => { second.on('exit', r); setTimeout(() => r('running'), 20_000); });
-  assert.notEqual(code, 'running', 'second launch did not hand over');
+  assert.equal(await exited(second), 0, 'second launch hands over');
   await until(() => apps().some((a) => a.id === pid && a.title === 'HiveTeX'), 'existing app shows its window again');
   assert.deepEqual(apps().map((a) => a.id), [pid], 'still one app process');
   assert.equal(workers(pid), 1, 'still one sync worker (one network identity per project)');
@@ -101,7 +127,7 @@ try {
 
   // Login startup with "start in background": no window, the worker restores the projects.
   // The test build has its own identifier (tauri.e2e.conf.json), so the installed app's settings are untouched.
-  const { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs');
   const { identifier } = JSON.parse(readFileSync(join(here, 'tauri.e2e.conf.json'), 'utf8'));
   const settings = join(process.env.APPDATA ?? '', identifier, 'startup.json');
   mkdirSync(dirname(settings), { recursive: true });
@@ -121,6 +147,18 @@ try {
     if (saved) writeFileSync(settings, saved); else rmSync(settings, { force: true });
   }
   console.log('ok - a background login start restores sync without a window; a manual launch opens it');
+  const victim = apps()[0].id;
+  const cleanup = spawn(exe, ['--uninstall-cleanup'], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let cleanupLog = '';
+  cleanup.stdout.on('data', chunk => { cleanupLog += chunk.toString(); });
+  cleanup.stderr.on('data', chunk => { cleanupLog += chunk.toString(); });
+  assert.equal(await exited(cleanup), 0, 'live maintenance cleanup failed: ' + cleanupLog);
+  await until(() => apps().length === 0 && workers(victim) === 0, 'cleanup stopped app and worker');
+  for (const profile of [process.env.APPDATA, process.env.LOCALAPPDATA]) {
+    assert.equal(existsSync(join(profile, identifier)), false, 'cleanup removed the isolated app profile');
+  }
+  console.log('ok - maintenance stops a live app and worker and removes its isolated profiles');
 } finally {
   killAll();
+  rmSync(copyDir, { recursive: true, force: true });
 }

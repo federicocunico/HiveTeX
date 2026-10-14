@@ -1,7 +1,7 @@
 {
   "name": "@hivetex/desktop",
   "private": true,
-  "version": "0.7.2",
+  "version": "0.7.3",
   "scripts": {
     "tauri": "tauri",
     "build": "echo \"desktop: built via tauri build\"",

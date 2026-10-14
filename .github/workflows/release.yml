@@ -50,6 +50,7 @@ jobs:
           sparse-checkout: |
             scripts/release-notes.sh
             scripts/deploy-production.mjs
+            docs/releases/
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v5

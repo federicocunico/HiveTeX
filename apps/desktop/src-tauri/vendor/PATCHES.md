@@ -71,3 +71,9 @@ Do not upgrade the transport stack opportunistically. To move to a newer webrtc-
 Upstream disposition: not yet proposed. The change is additive and default-off, so it is suitable as an upstream pull
 request with the vnet tests above. If upstream accepts an equivalent API, drop `[patch.crates-io]` and this
 directory.
+
+## tauri-plugin-single-instance 2.4.4: Windows startup handover
+
+Vendored from the published 2.4.4 crate, retaining its MIT/Apache licenses. The existing mutex/window identity is unchanged for older installed versions. Existing-mutex secondaries wait briefly for a delayed IPC window, send with a deadline and always exit. Mutex/window errors fail startup. The app lifecycle harness enables a test-only delayed-window feature and verifies twelve concurrent/cross-path launches; release builds do not enable it.
+
+The pinned NSIS template in `../windows/installer.nsi` comes from tauri-cli-v2.12.1 (upstream blob `480d30c38bf7b5acc280619aba07d14f9a1e8a0e`). Its MSI replacement command passes `HIVETEX_UPGRADE=1`, replacement calls pass `/UPDATE`, and uninstall confirmation explains mandatory local data removal. Profile deletion uses the maintenance command; explicit removal clears installer preferences. Recheck these edits before upgrading the bundler template.
