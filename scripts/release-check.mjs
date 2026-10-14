@@ -14,10 +14,6 @@ if (process.env.FORCE === '1') {
 
 const sh = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8' }).trim();
 const gh = ['gh', 'C:/Program Files/GitHub CLI/gh.exe'].find((g) => spawnSync(g, ['--version']).status === 0 || (g.includes('/') && existsSync(g)));
-if (!gh) {
-  console.error('The GitHub CLI (gh) is needed to check CI before tagging. Install it, or run with FORCE=1.');
-  process.exit(1);
-}
 
 const sha = process.env.RELEASE_SHA || sh('git', ['rev-parse', 'HEAD']); // RELEASE_SHA: check another commit
 spawnSync('git', ['fetch', '--quiet', 'origin'], { stdio: 'ignore' });
@@ -27,7 +23,23 @@ if (!pushed) {
   process.exit(1);
 }
 
-const runs = JSON.parse(sh(gh, ['run', 'list', '--commit', sha, '--json', 'name,status,conclusion,event', '--limit', '50']));
+let runs;
+try {
+  if (!gh) throw new Error('GitHub CLI is unavailable');
+  runs = JSON.parse(sh(gh, ['run', 'list', '--commit', sha, '--json', 'name,status,conclusion,event', '--limit', '50']));
+} catch {
+  // Public Actions metadata needs no additional workflow permissions or CLI credentials.
+  const remote = sh('git', ['remote', 'get-url', 'origin']);
+  const repo = process.env.GITHUB_REPOSITORY || remote.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/)?.[1];
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '')) throw new Error('Cannot identify the GitHub repository for source checks');
+  const results = await Promise.all(['ci.yml', 'desktop.yml'].map(async workflow => {
+    const response = await fetch('https://api.github.com/repos/' + repo + '/actions/workflows/' + workflow + '/runs?head_sha=' + sha + '&per_page=100', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30000) });
+    if (!response.ok) throw new Error('Public source-check metadata failed: HTTP ' + response.status);
+    const body = await response.json();
+    return body.workflow_runs.filter(run => run.head_sha === sha && run.head_repository?.full_name === repo);
+  }));
+  runs = results.flat();
+}
 const need = ['CI', 'Desktop'];
 const problems = [];
 for (const name of need) {

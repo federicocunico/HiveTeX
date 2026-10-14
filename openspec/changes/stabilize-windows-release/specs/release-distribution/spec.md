@@ -40,7 +40,7 @@ The maintainer SHALL be able to build and check Windows installers manually with
 ## ADDED Requirements
 
 ### Requirement: Complete explicit Windows uninstall
-An explicit uninstall SHALL stop HiveTeX and its owned workers, remove the program, app-owned per-user local and roaming data, caches, managed compilers, retained project replicas, credentials and login startup. It SHALL NOT remove external project folders or separately installed TeX distributions. Upgrade replacement SHALL preserve user state. Cleanup failures SHALL be reported and SHALL NOT be silently treated as successful cleanup.
+Explicit Windows uninstall SHALL stop the app and its workers and remove program files, per-user local/roaming profiles, caches, managed compilers, offline replicas, credentials and startup. External project folders and separate TeX installations SHALL remain. Upgrades SHALL preserve user state. Cleanup SHALL wait boundedly for stopped processes to release profile handles and report persistent failures.
 
 #### Scenario: Uninstall the setup installation
 - **WHEN** the user uninstalls HiveTeX installed using the setup executable
@@ -57,6 +57,10 @@ An explicit uninstall SHALL stop HiveTeX and its owned workers, remove the progr
 #### Scenario: Residue from the former p2platex name
 - **WHEN** earlier releases left app.p2platex.desktop data, credentials or login startup
 - **THEN** explicit uninstall removes those app-owned residues alongside current HiveTeX state
+
+#### Scenario: WebView releases its files after shutdown
+- **WHEN** a stopped app has WebView profile handles that close shortly afterwards
+- **THEN** uninstall waits within its deadline and removes the profile; a persistent lock reports failure
 
 #### Scenario: External project folder
 - **WHEN** the app previously linked a folder outside its own data directories

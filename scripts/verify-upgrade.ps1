@@ -51,9 +51,11 @@ function Assert-One([string]$scenario) {
   Write-Host "$scenario -> $($found.Count) HiveTeX entries"
   if ($found.Count -ne 1) { throw "$scenario expected exactly one HiveTeX installation" }
 }
-function Has-Credential {
-  $output = cmdkey.exe "/list:$credential"
-  return ($output -join "`n") -match [regex]::Escape($credential)
+function Has-Credential([string]$target = $credential) {
+  $output = cmdkey.exe "/list:$target"
+  # The heading repeats the requested name even when no credential exists. Match only an actual Target row.
+  $pattern = '^\s*Target:\s+(?:LegacyGeneric:target=)?' + [regex]::Escape($target) + '\s*$'
+  return [bool](@($output | Where-Object { $_ -match $pattern }).Count)
 }
 function Seed-Data {
   foreach ($dir in $owned) {
@@ -74,7 +76,7 @@ function Assert-Preserved {
     if (-not (Test-Path -LiteralPath (Join-Path $dir 'stores\project-marker'))) { throw 'Upgrade removed a retained project' }
     if (-not (Test-Path -LiteralPath (Join-Path $dir 'tectonic-cache\cache-marker'))) { throw 'Upgrade removed compiler state' }
   }
-  if (-not (Has-Credential)) { throw 'Upgrade removed the saved credential' }
+  if (-not (Has-Credential) -or -not (Has-Credential $legacyCredential)) { throw 'Upgrade removed a saved credential' }
 }
 function Start-Installed {
   $entry = @(Get-Installed)[0]
@@ -108,7 +110,7 @@ function Assert-Clean {
   }
   foreach ($dir in $owned) { if (Test-Path -LiteralPath $dir) { throw "Uninstall left user data: $dir" } }
   if (Has-Credential) { throw 'Uninstall left an app credential' }
-  if ((cmdkey.exe "/list:$legacyCredential") -match [regex]::Escape($legacyCredential)) { throw 'Uninstall left a legacy app credential' }
+  if (Has-Credential $legacyCredential) { throw 'Uninstall left a legacy app credential' }
   if (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'HiveTeX' -ErrorAction SilentlyContinue) { throw 'Uninstall left login startup enabled' }
   if ((Get-Content -LiteralPath (Join-Path $external 'main.tex') -Raw).Trim() -ne 'external document') { throw 'Uninstall damaged an external project' }
 }
