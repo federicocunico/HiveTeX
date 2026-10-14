@@ -598,7 +598,7 @@ describe("application relay between current clients (3.x)", () => {
     const held: Array<() => void> = [];
     const addTransport = slow.mesh.addTransport.bind(slow.mesh);
     slow.mesh.addTransport = (t) => {
-      if (holding && t.authenticationBinding.kind === "relay") {
+      if (holding && t.authenticationBinding?.kind === "relay") {
         const onMessage = t.onMessage.bind(t);
         let n = 0;
         t.onMessage = (cb) => onMessage((c, d) => (holding && ++n > 1 ? held.push(() => cb(c, d)) : cb(c, d)));
