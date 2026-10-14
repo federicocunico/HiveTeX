@@ -23,9 +23,33 @@ New-Item -ItemType Directory -Path $external | Out-Null
 Set-Content -LiteralPath (Join-Path $external 'main.tex') -Value 'external document'
 
 function Invoke-Program([string]$exe, [string[]]$arguments) {
-  $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
-  if (-not $process.WaitForExit(120000)) { Stop-Process -Id $process.Id -Force; throw "Installer operation timed out: $exe" }
-  if ($process.ExitCode -notin @(0, 3010)) { throw "Installer operation failed: $exe (exit $($process.ExitCode))" }
+  Write-Host "Starting installer: $exe $($arguments -join ' ')"
+  $msiLog = $null
+  if ([IO.Path]::GetFileName($exe) -eq 'msiexec.exe') {
+    $msiLog = Join-Path $work ("msi-" + [guid]::NewGuid().ToString('N') + '.log')
+    $arguments += @('/L*v', ('"' + $msiLog + '"'))
+  }
+  # CreateProcess avoids ShellExecute/UAC handover blocking before a process handle exists.
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = if ([IO.Path]::IsPathRooted($exe)) { [IO.Path]::GetFullPath($exe) } else { $exe }
+  $startInfo.Arguments = $arguments -join ' '
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.WorkingDirectory = [IO.Path]::GetFullPath($work)
+  $process = [Diagnostics.Process]::Start($startInfo)
+  Write-Host "Installer PID: $($process.Id)"
+  if (-not $process.WaitForExit(120000)) {
+    $process.Kill()
+    if ($msiLog -and (Test-Path -LiteralPath $msiLog)) { Get-Content -LiteralPath $msiLog -Tail 100 | Write-Host }
+    throw "Installer operation timed out: $exe"
+  }
+  $result = $process.ExitCode
+  if ($result -notin @(0, 3010)) {
+    if ($msiLog -and (Test-Path -LiteralPath $msiLog)) { Get-Content -LiteralPath $msiLog -Tail 150 | Write-Host }
+    throw "Installer operation failed: $exe (exit $result)"
+  }
+  $process.Dispose()
+  Write-Host "Installer completed: $exe (exit $result)"
 }
 function Get-Installed {
   foreach ($registry in @('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall')) {
@@ -58,6 +82,7 @@ function Has-Credential([string]$target = $credential) {
   return [bool](@($output | Where-Object { $_ -match $pattern }).Count)
 }
 function Seed-Data {
+  Write-Host 'Seeding current/legacy profile and credential fixtures'
   foreach ($dir in $owned) {
     New-Item -ItemType Directory -Force (Join-Path $dir 'stores') | Out-Null
     New-Item -ItemType Directory -Force (Join-Path $dir 'tectonic-cache') | Out-Null
@@ -79,6 +104,7 @@ function Assert-Preserved {
   if (-not (Has-Credential) -or -not (Has-Credential $legacyCredential)) { throw 'Upgrade removed a saved credential' }
 }
 function Start-Installed {
+  Write-Host 'Launching the installed app before uninstall'
   $entry = @(Get-Installed)[0]
   $programDir = $entry.InstallLocation
   if (-not $programDir) {
@@ -95,7 +121,7 @@ function Start-Installed {
   $script:installedAppId = $app.Id
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do {
-    $workers = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($app.Id) AND Name='node.exe'")
+    $workers = @(Get-CimInstance Win32_Process -OperationTimeoutSec 5 -Filter "ParentProcessId=$($app.Id) AND Name='node.exe'")
     if ($workers.Count -eq 1) { return }
     if ($app.HasExited) { throw 'Installed app exited before starting its worker' }
     Start-Sleep -Milliseconds 200
@@ -103,10 +129,11 @@ function Start-Installed {
   throw 'Installed app did not start exactly one worker'
 }
 function Assert-Clean {
+  Write-Host 'Checking complete profile, credential and process removal'
   if ($script:installedExe -and (Test-Path -LiteralPath $script:installedExe)) { throw 'Uninstall left the program executable' }
   if ($script:installedAppId) {
     if (Get-Process -Id $script:installedAppId -ErrorAction SilentlyContinue) { throw 'Uninstall left the running app' }
-    if (@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$script:installedAppId AND Name='node.exe'").Count) { throw 'Uninstall left the owned worker' }
+    if (@(Get-CimInstance Win32_Process -OperationTimeoutSec 5 -Filter "ParentProcessId=$script:installedAppId AND Name='node.exe'").Count) { throw 'Uninstall left the owned worker' }
   }
   foreach ($dir in $owned) { if (Test-Path -LiteralPath $dir) { throw "Uninstall left user data: $dir" } }
   if (Has-Credential) { throw 'Uninstall left an app credential' }

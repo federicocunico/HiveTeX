@@ -38,7 +38,10 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: apps/desktop/src-tauri }
+        with:
+          workspaces: apps/desktop/src-tauri
+          cache-on-failure: true
+          cache-workspace-crates: true
       - name: Windows TeX (TinyTeX)
         shell: pwsh
         run: |
@@ -88,7 +91,10 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: apps/desktop/src-tauri }
+        with:
+          workspaces: apps/desktop/src-tauri
+          cache-on-failure: true
+          cache-workspace-crates: true
       - run: pnpm install --frozen-lockfile
       - run: cargo install tauri-driver --locked
       - run: pnpm exec playwright install chromium
@@ -155,7 +161,10 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: apps/desktop/src-tauri }
+        with:
+          workspaces: apps/desktop/src-tauri
+          cache-on-failure: true
+          cache-workspace-crates: true
       - name: Install dependencies
         shell: bash
         run: |
@@ -200,6 +209,7 @@ jobs:
           projectPath: apps/desktop
           args: ${{ env.TAURI_ARGS }}
       - name: Upgrade and complete uninstall checks
+        timeout-minutes: 10
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

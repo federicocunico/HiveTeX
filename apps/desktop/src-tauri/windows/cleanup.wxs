@@ -20,7 +20,7 @@
         Key="Software\hivetex\HiveTeX" Type="raw" Win64="yes" />
     </Property>
     <CustomAction Id="HiveTeXMissingSetupDirectory" Error="Cannot locate the earlier HiveTeX setup directory. Repair that installation before installing MSI." />
-    <CustomAction Id="HiveTeXRemoveSetup" Directory="INSTALLDIR"
+    <CustomAction Id="HiveTeXRemoveSetup" Directory="TARGETDIR"
       ExeCommand="[HIVETEX_NSIS_UNINSTALL] /S /UPDATE _?=[HIVETEX_NSIS_DIR]" Return="check" />
     <CustomAction Id="HiveTeXCleanup" FileKey="Path" ExeCommand="--uninstall-cleanup" Return="check" />
     <InstallExecuteSequence>
