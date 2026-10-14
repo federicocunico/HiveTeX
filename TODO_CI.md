@@ -1,105 +1,81 @@
 # CI/CD: what is missing
 
-Status after investigating the failed run [`CI` #37941941428](https://github.com/federicocunico/HiveTeX/actions/runs/37941941428)
-(commit `411377b`). As of run [#37947085763](https://github.com/federicocunico/HiveTeX/actions/runs/37947085763) **CI and Desktop are green**
-(`full-flow.spec.ts` still needed one retry).
+Status on 2026-10-14 (master `c266362`): **CI, Desktop and Deploy are green**. Pushes to master deploy production
+through the Deploy workflow after CI passes (docs/deployment.md section 3). The fixes from the first CI bring-up
+(timing in `pipeline.test.ts`, server hook timeouts, the phone-width header, the MiKTeX setup, the `master` trigger,
+`LICENSE`) are in this file's git history.
 
-## Fixed in this commit
+## Open CI issues
 
-| Problem | Cause | Fix |
-|---|---|---|
-| `CI / test` failed at *Lint, type-check and unit tests* | `@hivetex/compile` › `pipeline.test.ts` › "compiles … on the leader only" expected 0 compiles on a non-leader and got 1. The test used a 50 ms election heartbeat, so a peer counted as gone after 150 ms. On the 2-vCPU runner, with turbo running every package's tests in parallel, a short event-loop stall made a non-leader elect itself and compile once. Production uses 2 s × 3 beats plus a 1.5 s settle, so the app was not affected. | Test timing raised to a 100 ms heartbeat (300 ms timeout) and a 400 ms settle. Passes 4 parallel copies locally and a full Linux reproduction of the CI job. |
-| `CI / test` failed again: `server` › `projects.test.ts` "Hook timed out in 10000ms" | Every server test boots an in-memory PGlite database and applies the migrations in `beforeEach` (about 1.5 s locally, over 10 s on the loaded runner) | `server/vitest.config.ts`: 60 s hook and test timeouts |
-| `CI / e2e` failed: "layout … at phone width" | At 390 px the header (username + "Sign out") overflowed whenever the random test username was long enough, so the test was flaky | Header wraps and truncates long usernames (`app.css`); the test now always uses a 28-char username (fails without the fix, passes with it) |
-| `CI / e2e` `full-flow.spec.ts` timed out (4 min) waiting for the joined peer to receive the file tree | Intermittent WebRTC connection set-up between three browsers on a 2-vCPU runner (known flakiness, see below) | CI retries flaky e2e tests up to 2 times (still reported as flaky) and `actionTimeout` is 30 s so a stuck step fails fast |
-| `Desktop / rust-tests (windows)` failed: `tex::tests::compiles_a_sample_document` with an empty log | A fresh MiKTeX from Chocolatey has no package database and no auto-install, so the engine exits before writing a log | Workflow configures MiKTeX (AutoInstall, package database, fndb), and *Detect TeX* now compiles a sample with `pdflatex` and `latexmk` and prints the output |
-| `Desktop` workflow never ran | It triggers on pushes to `main`, but the repository branch is `master` | Triggers on `[main, master]` |
-| `LICENSE` missing | README and package.json declare AGPL-3.0-or-later but the file was absent | Added the official AGPL-3.0 text (bootstrap task 1.4) |
+- [ ] `CI / browser-diagnostics` (windows-2025, `continue-on-error`) fails on every run:
+      `e2e/desktop-helper.spec.ts:51` (*"Compile with my desktop app" pairs once, then builds go to the desktop app*)
+      has failed since the quick-compiler commit `728307b`. In the same job `e2e/a11y.spec.ts:9` and
+      `e2e/folders.spec.ts:49` are flaky (they pass on retry). Fix or quarantine them before making the job blocking.
+- [ ] Desktop Rust tests: 4 tests (`maintenance::tests::reset_clears_only_cache_and_is_idempotent`,
+      `cache_reset_includes_legacy_builds_and_preserves_legacy_documents`, `cleanup_does_not_follow_a_directory_junction`,
+      `texcache::tests::downloads_once_then_serves_from_disk_and_remembers_missing_files`) fail locally under
+      `cargo test --lib` on Windows and pass with `--test-threads=1`. They likely share process state such as
+      environment variables or a directory. CI is green, so it is a latent race.
+- [ ] `e2e/full-flow.spec.ts` still sometimes needs a retry (WebRTC set-up between three browsers on a 2-vCPU runner).
+- [ ] The two-machine sync checks are manual, not in CI. `make sandbox-sync` (this PC plus Windows Sandbox, fault
+      injection with `FAULT=deaf|deaf-silent|no-udp`, `MATRIX=...`) and `make rtc-lab` (browser and native WebRTC per
+      ICE scenario) need Windows Sandbox and a click on the sandbox firewall prompt. The relay-first logic is covered in
+      CI by `server/test/application-relay-e2e.test.ts` and the `packages/sync` lifecycle and probe tests; the 5-minute
+      relay soak (`RELAY_SOAK_S=300`) is opt-in.
 
-The rest of the CI job was reproduced on Linux before pushing, in the Playwright `v1.64.0-noble` image with the same
-steps as `ci.yml`. It all passes: install, Makefile smoke test, turbo build/lint/test, svelte-check, bundle budget
-(217 / 250 KB), audit (1 moderate, below the `high` threshold) and all 16 e2e tests.
+## Secrets and variables (Settings → Secrets and variables → Actions)
 
-## Still missing (needs you: accounts, secrets or decisions)
-
-### Secrets and variables (Settings → Secrets and variables → Actions)
 - [x] `TAURI_SIGNING_PRIVATE_KEY` is set from `~/.tauri/hivetex.key` (empty password, matches the committed public key).
       Keep a backup of that file: without it, installed apps cannot verify future updates.
+- [x] `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `VERCEL_AUTOMATION_BYPASS_SECRET` (secrets) and
+      `HIVETEX_API_BASE=https://hivetex.vercel.app` (variable; release builds bake it in as `VITE_API_BASE`).
 - [ ] Optional macOS signing/notarization: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
       `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Without them, builds are ad-hoc signed: macOS asks once
       (*Open Anyway*).
 - [ ] Optional Windows code signing (not wired yet). Without it, SmartScreen warns on first install.
-- [ ] Repository variable `HIVETEX_API_BASE` (the deployed control-plane URL), once the server is deployed. Release
-      builds bake it in as `VITE_API_BASE`; v0.1.0 was built without it, so testers set the server on the sign-in screen.
 
-### Deployment (no workflow exists yet)
-- [ ] Link the repo to Vercel (`npx vercel@latest link`, or import it in the Vercel dashboard). The Git integration then
-      builds a preview per push and production on `master`, with no workflow needed. Alternatively add a deploy job with
-      `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`.
-- [ ] Provision Neon + Upstash from the Vercel Marketplace and set the remaining env vars from `.env.example`
-      (`TICKET_*`, `GMAIL_*`, optional `GITHUB_APP_*`, `CF_TURN_*`).
-- [ ] Run migrations on each deploy: `make migrate-prod` after `make env-pull`, or a CI step with `DATABASE_URL` as a
-      secret.
+## Deployment
 
-### Workflow hygiene
+- [x] The Deploy workflows (`deploy.yml`, `deploy-production.yml`) build a Git-source production deployment through the
+      Vercel API after trusted CI succeeds, verify its SHA and health, then promote it. Vercel's own Git deploys stay
+      disabled.
+- [x] Neon and Upstash provisioned from the Vercel Marketplace; migrations run in the Vercel build.
+- [x] Production env: tickets, Gmail, `BOOTSTRAP_ADMIN`, ExpressTURN (`TURN_*`) and the application relay
+      (`APPLICATION_RELAY`, `RELAY_*`, `USAGE_LOG`, added 2026-10-14).
+- [ ] Optional: `GITHUB_APP_*` (GitHub backup) and `CF_TURN_*` (second TURN provider) are not set.
+
+## Workflow hygiene
+
 - [x] Actions moved to their Node 24 majors (`checkout@v5`, `setup-node@v5`, `pnpm/action-setup@v5`,
-      `upload-artifact@v6`; `rust-cache@v2` and `tauri-action@v0` already run on Node 24). Done in `local-folder-projects`.
-- [x] `make test-stack` runs nightly and on demand: `.github/workflows/stack-nightly.yml` (Actions → Stack (nightly) → Run
-      workflow). It became reliable once the signaling reconnect race below was fixed.
-- [x] Desktop UI tests: `Desktop / desktop-e2e` drives the real app over WebDriver (`tauri-driver`) on Linux (xvfb +
-      WebKitWebDriver) and Windows (msedgedriver matched to the runner's WebView2). Locally: `make desktop-e2e`.
-      The Windows leg is `continue-on-error` because hosted runners sometimes update WebView2 before the matching
-      driver is published; Linux gates the workflow. Revisit once a few weeks of runs show it stable.
-- [x] `Desktop / desktop-e2e` on Windows passes on `windows-2022`. On `windows-2025`, WebView2 >= 133 never opens the
-      DevTools port msedgedriver needs ([actions/runner-images#14738](https://github.com/actions/runner-images/issues/14738)).
-      The job stays non-blocking until it has passed for a while.
-- [ ] Decide on the default branch name (`master` vs `main`). The workflows accept both, but docs and tooling assume
-      `main`.
+      `upload-artifact@v6`; `rust-cache@v2` and `tauri-action@v0` already run on Node 24).
+- [x] `make test-stack` runs nightly and on demand: `.github/workflows/stack-nightly.yml`.
+- [x] Desktop UI tests: `Desktop / desktop-e2e` drives the real app over WebDriver on Linux and Windows
+      (`make desktop-e2e` locally). The Windows leg stays `continue-on-error`: on `windows-2025`, WebView2 >= 133 never
+      opens the DevTools port msedgedriver needs
+      ([actions/runner-images#14738](https://github.com/actions/runner-images/issues/14738)); it passes on `windows-2022`.
+- [ ] Decide on the default branch name (`master` vs `main`). The workflows accept both, but some docs and tooling
+      assume `main`.
 
-### Unverified until the workflows run on GitHub
-- [x] `Desktop / rust-tests` on macOS (BasicTeX) and Ubuntu (TeX Live) pass, including real LaTeX compilation.
-- [x] `Desktop / rust-tests` on Windows (MiKTeX via Chocolatey) pass after the MiKTeX setup fix, and `Desktop / e2e-sync` passes.
-- [x] `Desktop / build` on tag `v0.1.0`: draft release with Windows, macOS (universal) and Linux installers and a signed
-      `latest.json`. One Windows upload failed with "other side closed" (transient; the repository was renamed
-      meanwhile) and passed on re-run.
+## Known product issues that affect CI stability
 
-### Known product issues that affect CI stability
-- [x] `packages/sync` › `mirror.test.ts` flakes were two real races, fixed in `realtime-sync-and-desktop-fixes`: a file caught
-      mid-rewrite was imported as "all deleted" (reordering a co-author's edit), and an in-flight write resurrected a file
-      under its old name after a rename. The suite passes 24/24 under 3x parallel load.
-- [x] Same-device reconnect race in signaling (an old session's delayed cleanup dropped the reloaded device's new
-      connection): fixed with per-connection session ids (presence `sid|ticket`, compare-and-delete, `sid` on join/leave,
-      clients ignore stale leaves), plus a stale-link deadlock in `ConnectionManager` and a test bug when the editor
-      was the leader (see `local-folder-projects` design D9). `e2e/full-flow.spec.ts` passed 10 consecutive runs on the dev
-      server and 10 on the Docker stack.
-- [x] `e2e/realtime.spec.ts` (seven browsers) sometimes never reached a full mesh ("3 peers online"): signals relayed
-      through the mesh went to a peer that was not linked to the target and were dropped. Fixed by routing through a
-      peer that announced a link to the target (see `local-folder-projects` design D9); 3/3 on the Docker stack.
 - [ ] Linux desktop without a Secret Service (no gnome-keyring/KWallet, e.g. a bare window manager): device keys cannot be
       stored, so the device never registers and projects open read-only with 0 peers, without a clear message. CI
       provides an unlocked gnome-keyring for `desktop-e2e`. Product follow-up: show an explicit "no keychain" error.
-- [ ] The public SwiftLaTeX TeX file server (`texlive2.swiftlatex.com`) was answering HTTP 522 on 2026-10-09. CI is
-      not affected because e2e uses the fake engine, but in-browser compilation in production depends on it. Consider
+- [ ] The public SwiftLaTeX TeX file server (`texlive2.swiftlatex.com`) answered HTTP 522 on 2026-10-09. CI is not
+      affected because e2e uses the fake engine, but in-browser compilation in production depends on it. Consider
       self-hosting (`make up PROFILES=texlive`, see `docs/local-stack.md`).
-
-## Security-hardening tasks left open at archive time
-
-- [x] 4.2 (manual `make desktop-dev` check of "Link folder" + folder import through `mirror_pick`): now automated by
-      `make desktop-e2e` / `Desktop / desktop-e2e` (link a folder, open a marker folder, create from a folder, import a
-      folder, external edits).
 
 ## Bootstrap tasks left open at archive time
 
-Archived as `openspec/changes/archive/2026-10-09-bootstrap-p2p-latex-platform/` with these tasks still open. They all
-need accounts, secrets or time that CI cannot provide:
+From `openspec/changes/archive/2026-10-09-bootstrap-p2p-latex-platform/`:
 
-- [ ] 1.3: run `vercel build` / `vercel dev` locally to verify the static + function output and the headers (needs `vercel login` + `vercel link`).
-- [ ] 2.1: provision Neon and Upstash via the Vercel Marketplace, then check `vercel env pull`.
-- [ ] 3.4: send a manual smoke email through Gmail SMTP with real credentials (the code and the test double are done).
-- [ ] 8.5: real in-browser compile with SwiftLaTeX in Playwright. The public TeX server returned HTTP 522; e2e uses the fake
-      engine. Persisting downloaded packages in Cache Storage is also still open.
-- [x] 9.5: signed release builds via tag `v*` (v0.1.0, see above).
+- [x] 1.3 / 2.1: superseded. Neon and Upstash are provisioned and every production build runs on Vercel through the
+      Deploy workflow with a health check.
+- [ ] 3.4: send a manual smoke email through Gmail SMTP with the production credentials.
+- [ ] 8.5: real in-browser compile with SwiftLaTeX in Playwright (blocked by the public TeX server, see above).
+      Persisting downloaded packages in Cache Storage is also still open.
+- [x] 9.5: signed release builds via tag `v*` (latest v0.7.1).
 - [ ] 10.7: check the GitHub App setup in `docs/github-backup.md` against a freshly created App.
 - [ ] 11.1: full e2e on a Vercel preview (2 web clients + 1 desktop).
-- [ ] 11.3: measure free-tier usage over a 1-week beta.
-- [ ] 11.4: seed the production admin, promote to production, publish a desktop release, run a production smoke test.
+- [ ] 11.3: measure free-tier usage over a 1-week beta. `USAGE_LOG=1` is on in production; see TODO.md (Upstash baseline).
+- [x] 11.4: production is promoted, the admin is bootstrapped and releases are published.

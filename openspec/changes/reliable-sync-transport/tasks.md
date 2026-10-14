@@ -39,7 +39,7 @@
 ## 6. Production relay
 
 - [ ] 6.1 Measure baseline and relay command usage (`USAGE_LOG=1` in production, relay runs of `make sandbox-sync` against a preview) and compute `RELAY_PROVIDER_COMMANDS`, `RELAY_BASELINE_COMMANDS` and per-account limits; verify `relayLimitsFromEnv` accepts the profile and the numbers are recorded in `docs/deployment.md`
-- [ ] 6.2 Add the relay variables to `scripts/setup.mjs` prompts (values never printed) and deploy with a commit authored by the Vercel team member's address; verify `/api/health` and that a fresh session's `ready` advertises the relay capability
+- [x] 6.2 Add the relay variables to `scripts/setup.mjs` prompts (values never printed) and deploy with a commit authored by the Vercel team member's address; verify `/api/health` and that a fresh session's `ready` advertises the relay capability
 - [x] 6.3 Document cost per relayed MiB and per relay hour, the rollback (unset `RELAY_PROVIDER_COMMANDS`) and the gates from `docs/application-relay-security.md`; verify the deployment doc lists each
 
 ## 7. Native stack decision record
