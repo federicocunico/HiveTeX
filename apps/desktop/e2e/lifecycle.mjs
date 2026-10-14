@@ -73,6 +73,7 @@ try {
   assert.deepEqual(await Promise.all(burst.map(exited)), Array(12).fill(0), 'all simultaneous/cross-path secondaries hand over and exit');
   await until(() => apps().some((a) => a.id === primary.pid && a.title === 'HiveTeX'), 'primary window shown');
   assert.deepEqual(apps().map((a) => a.id), [primary.pid], 'delayed primary is the only app process');
+  await until(() => workers(primary.pid) > 0, 'primary worker started after the window');
   assert.equal(workers(primary.pid), 1, 'the startup burst leaves one worker');
   console.log('ok - 12 simultaneous launches across two executable paths leave one app and worker during delayed startup');
   killAll();
@@ -80,6 +81,7 @@ try {
   const first = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_CLOSE_MAIN_MS: '6000' }, stdio: 'ignore', detached: false });
   const pid = first.pid;
   await until(() => apps().some((a) => a.id === pid && a.title === 'HiveTeX'), 'window shown');
+  await until(() => workers(pid) > 0, 'sync worker started after the window');
   assert.equal(workers(pid), 1, 'one sync worker');
   await until(() => apps().some((a) => a.id === pid && a.title !== 'HiveTeX'), 'window closed');
   // Keeps running in the background with its worker.
@@ -143,6 +145,8 @@ try {
     // A manual launch with the same setting still opens the window.
     const manual = spawn(exe, [], { env: process.env, stdio: 'ignore' });
     await until(() => apps().some((a) => a.id === manual.pid && a.title === 'HiveTeX'), 'manual launch opens the window');
+    await until(() => workers(manual.pid) > 0, 'manual launch starts its worker');
+    assert.equal(workers(manual.pid), 1, 'manual launch leaves one worker');
   } finally {
     if (saved) writeFileSync(settings, saved); else rmSync(settings, { force: true });
   }
