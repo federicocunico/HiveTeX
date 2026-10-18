@@ -10,7 +10,11 @@ paths = [
   # Unmodified third-party sources vendored for a pinned patch (vendor/PATCHES.md), e.g. their upstream CI config.
   '''apps/desktop/src-tauri/vendor/''',
 ]
-# A structurally valid but fake ticket (fake signature) that tests log redaction.
+# Allowlist regexes match the whole line, so a URL prefix can mark the token after it.
+regexTarget = "line"
 regexes = [
+  # A structurally valid but fake ticket (fake signature) that tests log redaction.
   '''eyJhbGciOiJFZERTQSJ9\.eyJwaWQiOiJwcm9qZWN0LTEifQ\.c2lnbmF0dXJlLWJ5dGVzLWhlcmU''',
+  # One-time e-mail confirmation links of local test accounts, printed by the local server into desktop e2e logs.
+  '''http://localhost:1420/#/verify\?token=''',
 ]

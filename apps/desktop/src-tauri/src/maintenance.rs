@@ -91,8 +91,8 @@ pub fn uninstall(identifier: &str, startup_name: &str) -> Result<(), String> {
     for key in ["APPDATA", "LOCALAPPDATA"] {
         let base = std::env::var_os(key).map(std::path::PathBuf::from).ok_or_else(|| format!("{key} is unavailable"))?;
         if !base.is_absolute() { return Err(format!("{key} must be an absolute profile path")); }
-        remove_stopped_profile(&base.join(identifier), std::time::Duration::from_secs(5))?;
-        if identifier == APP_ID { remove_stopped_profile(&base.join(LEGACY_ID), std::time::Duration::from_secs(5))?; }
+        remove_stopped_profile(&base.join(identifier), std::time::Duration::from_secs(15))?;
+        if identifier == APP_ID { remove_stopped_profile(&base.join(LEGACY_ID), std::time::Duration::from_secs(15))?; }
     }
     Ok(())
 }
@@ -114,7 +114,27 @@ fn stop_apps(identifier: &str) -> Result<(), String> {
             process.wait();
         }
     }
+    stop_webviews(&system, identifier, user);
     Ok(())
+}
+
+/// WebView2 browser processes are not in the app's job and can outlive it for seconds, holding the profile open.
+/// Stop only those of this user whose data folder is this identity's own profile.
+#[cfg(windows)]
+fn stop_webviews(system: &sysinfo::System, identifier: &str, user: &sysinfo::Uid) {
+    let Some(base) = std::env::var_os("LOCALAPPDATA") else { return };
+    let profile = std::path::Path::new(&base).join(identifier).to_string_lossy().to_lowercase();
+    for process in system.processes().values() {
+        if !process.name().eq_ignore_ascii_case("msedgewebview2.exe") || process.user_id() != Some(user) { continue; }
+        let ours = process.cmd().iter().any(|arg| {
+            let arg = arg.to_string_lossy().to_lowercase();
+            arg.strip_prefix("--user-data-dir=").is_some_and(|dir| {
+                let dir = dir.trim_matches('"');
+                dir == profile || dir.strip_prefix(&profile).is_some_and(|rest| rest.starts_with('\\'))
+            })
+        });
+        if ours && process.kill() { process.wait(); }
+    }
 }
 
 #[cfg(windows)]

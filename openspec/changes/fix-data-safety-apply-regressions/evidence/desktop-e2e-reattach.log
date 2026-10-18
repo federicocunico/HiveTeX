@@ -195,7 +195,7 @@ TAP version 13
 [mail] to=deskmvdnhr990@example.com subject=Verify your HiveTeX email
 Hi deskmvdnhr990,
 
-Confirm your email: http://localhost:1420/#/verify?token=qtIzACoaAeMW5RUF-abSi1TTExeS5dAIpJzks16rapE
+Confirm your email: http://localhost:1420/#/verify?token=REDACTED
 
 This link expires in 24 hours.
 
@@ -240,7 +240,7 @@ ok 6 - the web app pairs with the desktop app (confirmed here), compiles through
 [mail] to=webrelmvdnjql18@example.com subject=Verify your HiveTeX email
 Hi webrelmvdnjql18,
 
-Confirm your email: http://localhost:1420/#/verify?token=6U9k9ezwoC-j9ZJKiYmP18BzrFJ-x1VlX6aUQSDj43c
+Confirm your email: http://localhost:1420/#/verify?token=REDACTED
 
 This link expires in 24 hours.
 
@@ -273,7 +273,7 @@ ok 7 - application relay: the desktop app and a browser without any WebRTC path 
 [mail] to=web137mvdnjvxq10@example.com subject=Verify your HiveTeX email
 Hi web137mvdnjvxq10,
 
-Confirm your email: http://localhost:1420/#/verify?token=E4ZcIJ2kEgMoFOdjCoozLZ1Dxuy1jjh00KlAe74d_98
+Confirm your email: http://localhost:1420/#/verify?token=REDACTED
 
 This link expires in 24 hours.
 
@@ -288,7 +288,7 @@ ok 8 - application relay only (13.7): payload loss, socket rotation and instance
 [mail] to=webbellmvdnlovu12@example.com subject=Verify your HiveTeX email
 Hi webbellmvdnlovu12,
 
-Confirm your email: http://localhost:1420/#/verify?token=H1s_XuSBEcHrrG13pNpZtLbqAX0X70W7BoYRSSYRfX0
+Confirm your email: http://localhost:1420/#/verify?token=REDACTED
 
 This link expires in 24 hours.
 
