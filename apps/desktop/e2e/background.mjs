@@ -3,15 +3,19 @@
  * Windows: run after the other desktop harnesses, with :3000/:1420 up and a test-picker debug build.
  * Uses WebView2's loopback CDP test port, not WebDriver (which terminates an app with no window).
  * No production IPC permission is added. The process/worker count, presence, hashes and current device IDs are checked.
+ * Only processes of HIVETEX_APP (default: the E2E build, harness.mjs) count, so an installed app may stay open. The app
+ * ends through `app_quit`; forced termination is the fallback. Report: BACKGROUND_OUT, default <E2E_OUT>/acceptance-background.json.
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { chromium } from '@playwright/test';
+import { appExe, ensureNoTestInstance, quitThroughPage, stopApp, targetDir } from './harness.mjs';
 
 assert.equal(process.platform, 'win32', 'this native harness requires Windows');
-const exe = process.env.HIVETEX_APP ?? resolve('apps/desktop/src-tauri/target/debug/hivetex-desktop.exe');
+const exe = process.env.HIVETEX_APP ?? appExe;
+const reportFile = process.env.BACKGROUND_OUT ?? join(process.env.E2E_OUT || join(targetDir, 'e2e-results'), 'acceptance-background.json');
 const port = Number(process.env.HIVETEX_CDP_PORT ?? 9447);
 const origin = 'http://localhost:1420';
 const pw = 'correct horse battery staple';
@@ -27,8 +31,8 @@ const ps = (script) => {
   return r.stdout.trim();
 };
 const apps = () => {
-  const value = JSON.parse(ps("@(Get-Process hivetex-desktop -ErrorAction SilentlyContinue | Select-Object Id,MainWindowTitle) | ConvertTo-Json -Compress") || '[]');
-  return Array.isArray(value) ? value : [value];
+  const value = JSON.parse(ps(`@(Get-Process hivetex-desktop -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${exe.replaceAll("'", "''")}' } | Select-Object Id,MainWindowTitle) | ConvertTo-Json -Compress`) || '[]');
+  return (Array.isArray(value) ? value : [value]).filter(Boolean);
 };
 const workerCount = (pid) => Number(ps(`(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid} AND Name='node.exe'" | Measure-Object).Count`));
 const workerPid = (pid) => Number(ps(`(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid} AND Name='node.exe'" | Select-Object -First 1).ProcessId`));
@@ -97,6 +101,7 @@ async function replica(p, project, marker) {
   }
 }
 
+await ensureNoTestInstance();
 assert.deepEqual(apps(), [], 'finish other desktop harnesses before this one');
 try {
   const initialRelay = relayOnly ? await metrics() : null;
@@ -257,7 +262,8 @@ try {
   report.phases.push('logout stops both scopes and no delayed callback resurrects them');
   await invoke('app_quit', { discard: false }).catch(() => {});
   await until(() => apps().length === 0, 'durable quit');
-  writeFileSync(process.env.BACKGROUND_OUT ?? 'acceptance-background.json', JSON.stringify(report, null, 2));
+  mkdirSync(dirname(reportFile), { recursive: true });
+  writeFileSync(reportFile, JSON.stringify(report, null, 2));
   console.log('ok - no-renderer two-project bootstrap, text/assets, presence, pause, restart and logout');
 } finally {
   const states = await Promise.all(clients.map((p) => p.evaluate(() => {
@@ -267,7 +273,7 @@ try {
   }).catch(() => null)));
   if (states.length) console.log('# final browser states ' + JSON.stringify(states));
   await browser?.close();
+  // Only this harness's native app executable: quit through its page when it still has one, else forced.
+  for (const a of apps()) console.log(`# app ${a.Id}: ${await stopApp(a.Id, page && !page.isClosed() ? () => quitThroughPage(page) : null)}`);
   await cdp?.close().catch(() => {});
-  // Only this harness's native app executable; the initial empty-process assertion excludes another running app.
-  for (const a of apps()) ps(`Stop-Process -Id ${a.Id} -Force`);
 }

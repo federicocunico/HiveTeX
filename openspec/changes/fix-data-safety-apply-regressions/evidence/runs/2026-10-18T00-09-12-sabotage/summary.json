@@ -1,0 +1,610 @@
+{
+  "runId": "2026-10-18T00-09-12-sabotage",
+  "server": "http://localhost:3000",
+  "scenarios": [
+    "basic",
+    "assets",
+    "rename-delete",
+    "offline",
+    "crash",
+    "author",
+    "recovery",
+    "folder",
+    "mixed"
+  ],
+  "fault": null,
+  "sabotage": true,
+  "out": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox\\2026-10-18T00-09-12-sabotage",
+  "targetDir": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-acceptance-cargo-target",
+  "steps": [
+    {
+      "name": "preflight: disk, leftover instances, host profile, host firewall",
+      "ok": true,
+      "ms": 3017,
+      "value": {
+        "freeOut": "112.7 GiB",
+        "firewall": "profile Public facing the sandbox is disabled"
+      }
+    },
+    {
+      "name": "stage the app for both machines",
+      "ok": true,
+      "ms": 82,
+      "value": {
+        "app": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox\\share\\app\\hivetex-desktop.exe",
+        "built": "2026-10-18T00:06:35.687Z"
+      }
+    },
+    {
+      "name": "start the local server with signaling and request logs",
+      "ok": true,
+      "ms": 2606,
+      "value": {
+        "node": "C:\\Program Files\\nodejs\\node.exe",
+        "relay": true,
+        "applicationRelay": true
+      }
+    },
+    {
+      "name": "start the web app for the browser (mixed)",
+      "ok": true,
+      "ms": 2066
+    },
+    {
+      "name": "start Windows Sandbox and verify its firewall",
+      "ok": true,
+      "ms": 25396,
+      "value": {
+        "id": "06949aef-aa48-4155-87fd-507e22326e00",
+        "ip": "172.17.254.232",
+        "gateway": "172.17.240.1",
+        "sandboxFirewall": "Domain=off Private=off Public=off",
+        "hostFacing": "vEthernet (Default Switch) Public disabled"
+      }
+    },
+    {
+      "name": "reachability: sandbox -> host TCP :3000, UDP echo both ways",
+      "ok": true,
+      "ms": 10117,
+      "value": {
+        "tcp": {
+          "tcp": true,
+          "gateway": "172.17.240.1"
+        },
+        "udpSandboxToHost": {
+          "ok": true,
+          "ms": 318
+        },
+        "udpHostToSandbox": {
+          "ok": true,
+          "ms": 312
+        }
+      }
+    },
+    {
+      "name": "launch the app on both machines",
+      "ok": true,
+      "ms": 2668
+    },
+    {
+      "name": "attach to both apps (DevTools)",
+      "ok": true,
+      "ms": 2018
+    },
+    {
+      "name": "register an account on each machine",
+      "ok": true,
+      "ms": 2479,
+      "value": {
+        "host": "hostAmvd2ink1",
+        "sandbox": "sbBmvd2ink1"
+      }
+    },
+    {
+      "name": "host creates the project; joiners become editors",
+      "ok": true,
+      "ms": 2545,
+      "value": {
+        "slug": "sync-mvd2ink1-hqqupir53btftprt"
+      }
+    },
+    {
+      "name": "sandbox joins the project",
+      "ok": true,
+      "ms": 3052
+    },
+    {
+      "name": "the sandbox joined as editor",
+      "ok": true,
+      "ms": 2
+    },
+    {
+      "name": "SABOTAGE: both apps discard text received from the other",
+      "ok": true,
+      "ms": 2
+    },
+    {
+      "name": "peers see each other with a route",
+      "ok": true,
+      "ms": 3,
+      "value": {
+        "host": [
+          {
+            "dev": "b37f145d5395a58b6019f4c8bb1bb3a9",
+            "uname": "sbbmvd2ink1",
+            "route": "relay",
+            "role": "editor",
+            "limited": null
+          }
+        ],
+        "sandbox": [
+          {
+            "dev": "5fd283967d267dc17ed3c1cf70be905e",
+            "uname": "hostamvd2ink1",
+            "route": "relay",
+            "role": "owner",
+            "limited": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "host → sandbox: a new file arrives",
+      "ok": false,
+      "ms": 30170,
+      "error": "main.tex on the sandbox: timed out after 30000 ms (false)"
+    },
+    {
+      "name": "sandbox → host: a new file arrives",
+      "ok": false,
+      "ms": 30288,
+      "error": "notes.tex on the host: timed out after 30000 ms (false)"
+    },
+    {
+      "name": "sandbox → host: an edit to the host’s file arrives",
+      "ok": false,
+      "ms": 2,
+      "error": "main.tex never reached the sandbox"
+    },
+    {
+      "name": "concurrent edits on both sides converge",
+      "ok": false,
+      "ms": 1,
+      "error": "main.tex never reached the sandbox"
+    },
+    {
+      "name": "an edit arrives within 5 s each way",
+      "ok": false,
+      "ms": 1,
+      "error": "main.tex never reached the sandbox"
+    },
+    {
+      "name": "scenario assets",
+      "ok": true,
+      "ms": 11547,
+      "value": {
+        "files": 4,
+        "assets": 2
+      }
+    },
+    {
+      "name": "scenario rename-delete",
+      "ok": false,
+      "ms": 30132,
+      "error": "edit target on the sandbox: timed out after 30000 ms (false)"
+    },
+    {
+      "name": "scenario offline",
+      "ok": false,
+      "ms": 30104,
+      "error": "7c29427cf3e1f62083 on the sandbox: timed out after 30000 ms (\"\")"
+    },
+    {
+      "name": "scenario crash",
+      "ok": false,
+      "ms": 30210,
+      "error": "crash file on the host: timed out after 30000 ms (\"\")"
+    },
+    {
+      "name": "scenario author",
+      "ok": false,
+      "ms": 30149,
+      "error": "host file on the sandbox: timed out after 30000 ms (\"\")"
+    },
+    {
+      "name": "scenario recovery",
+      "ok": false,
+      "ms": 30199,
+      "error": "recovery file on the host: timed out after 30000 ms (false)"
+    },
+    {
+      "name": "scenario folder",
+      "ok": false,
+      "ms": 34366,
+      "error": "sandbox edit in the host folder: timed out after 30000 ms (false)"
+    },
+    {
+      "name": "scenario mixed",
+      "ok": false,
+      "ms": 37751,
+      "error": "sandbox edit in the browser: timed out after 30000 ms (false)"
+    },
+    {
+      "name": "connection test (Test connection) on both sides at once",
+      "ok": true,
+      "ms": 105
+    },
+    {
+      "name": "collect diagnostics and logs",
+      "ok": true,
+      "ms": 3755,
+      "value": {
+        "traceSteps": {
+          "host": 241,
+          "sandbox": 242,
+          "browser": 165
+        },
+        "routes": {
+          "host": [
+            "turn",
+            "direct"
+          ],
+          "sandbox": [
+            "turn",
+            "turn"
+          ]
+        }
+      }
+    }
+  ],
+  "startedAt": "2026-10-18T00:09:12.384Z",
+  "preflight": {
+    "disk": {
+      "out": {
+        "dir": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox",
+        "free": 121055371264,
+        "freeGiB": "112.7 GiB"
+      },
+      "target": {
+        "dir": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-acceptance-cargo-target",
+        "free": 121055371264,
+        "freeGiB": "112.7 GiB"
+      }
+    },
+    "leftover": [],
+    "profile": {
+      "profiles": [
+        "C:\\Users\\feder\\AppData\\Roaming\\app.hivetex.desktop.e2e",
+        "C:\\Users\\feder\\AppData\\Local\\app.hivetex.desktop.e2e"
+      ],
+      "setAside": []
+    }
+  },
+  "hostFirewall": {
+    "programs": {
+      "app": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox\\share\\app\\hivetex-desktop.exe",
+      "server": "C:\\Program Files\\nodejs\\node.exe",
+      "browser": "C:\\Users\\feder\\AppData\\Local\\ms-playwright\\chromium-1248\\chrome-win64\\chrome.exe"
+    },
+    "profiles": [
+      {
+        "name": "Domain",
+        "enabled": true,
+        "inbound": "Block",
+        "allowInboundRules": "True"
+      },
+      {
+        "name": "Private",
+        "enabled": false,
+        "inbound": "Block",
+        "allowInboundRules": "True"
+      },
+      {
+        "name": "Public",
+        "enabled": false,
+        "inbound": "Block",
+        "allowInboundRules": "True"
+      }
+    ],
+    "interfaces": [
+      {
+        "alias": "vEthernet (WSL (Hyper-V firewall))",
+        "ip": "172.17.224.1",
+        "prefix": 20,
+        "category": null
+      },
+      {
+        "alias": "vEthernet (Default Switch)",
+        "ip": "172.17.240.1",
+        "prefix": 20,
+        "category": null
+      }
+    ],
+    "rules": [
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Outbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Photoshop 2025\\node.exe",
+        "enabled": true,
+        "direction": "Outbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Photoshop 2025\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Common Files\\Adobe\\Creative Cloud Libraries\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Outbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Common Files\\Adobe\\Creative Cloud Libraries\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "Evented I/O for V8 JavaScript",
+        "program": "C:\\Program Files\\Autodesk\\Desktop Connect\\forever\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Any"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v23.7.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v23.7.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\program files\\nodejs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\program files\\nodejs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "node.exe",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v22.22.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "node.exe",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v22.22.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\release\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\release\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\appdata\\local\\hivetex\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\appdata\\local\\hivetex\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-synctest\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-synctest\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-syncinv\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-syncinv\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      }
+    ],
+    "facing": {
+      "alias": "vEthernet (Default Switch)",
+      "ip": "172.17.240.1",
+      "prefix": 20,
+      "category": null
+    },
+    "facingProfile": "Public",
+    "facingProfileEnabled": false,
+    "assumed": false,
+    "missingAllow": [],
+    "blocking": [],
+    "verdict": "profile Public facing the sandbox is disabled"
+  },
+  "sandboxFirewall": {
+    "fault": "",
+    "ok": true,
+    "gateway": "172.17.240.1",
+    "profiles": [
+      {
+        "name": "Domain",
+        "enabled": false,
+        "inbound": "Block",
+        "outbound": "Allow"
+      },
+      {
+        "name": "Private",
+        "enabled": false,
+        "inbound": "Block",
+        "outbound": "Allow"
+      },
+      {
+        "name": "Public",
+        "enabled": false,
+        "inbound": "Block",
+        "outbound": "Allow"
+      }
+    ],
+    "rules": [
+      {
+        "name": "hivetex-cdp",
+        "enabled": "True",
+        "direction": "Inbound",
+        "action": "Allow"
+      },
+      {
+        "name": "hivetex-echo",
+        "enabled": "True",
+        "direction": "Inbound",
+        "action": "Allow"
+      },
+      {
+        "name": "hivetex-app",
+        "enabled": "True",
+        "direction": "Inbound",
+        "action": "Allow"
+      }
+    ]
+  },
+  "reachability": {
+    "tcp": {
+      "tcp": true,
+      "gateway": "172.17.240.1"
+    },
+    "udpSandboxToHost": {
+      "ok": true,
+      "ms": 318
+    },
+    "udpHostToSandbox": {
+      "ok": true,
+      "ms": 312
+    }
+  },
+  "folders": {
+    "host": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox\\2026-10-18T00-09-12-sabotage\\host\\folder",
+    "sandbox": "C:\\hx-folder"
+  },
+  "probe": {
+    "host": "Connected through the TURN relay.",
+    "sandbox": "Connected through the TURN relay."
+  },
+  "ended": {
+    "host": "quit"
+  },
+  "finishedAt": "2026-10-18T00:15:14.500Z",
+  "result": "FAIL"
+}

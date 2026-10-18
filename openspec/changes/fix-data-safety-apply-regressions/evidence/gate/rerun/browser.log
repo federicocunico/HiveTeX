@@ -1,0 +1,81 @@
+
+Running 22 tests using 1 worker
+
+  ✓   1 e2e\changes.spec.ts:7:1 › changes view: a folder edit (e.g. Claude Code) is listed with its diff and can be undone for everyone (5.9s)
+[WebServer] 11:54:07 AM [vite] ws proxy error:
+[WebServer] Error: read ECONNRESET
+[WebServer]     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[WebServer] 11:54:07 AM [vite] ws proxy socket error:
+[WebServer] Error: read ECONNRESET
+[WebServer]     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+  ✓   2 e2e\compile-modes.spec.ts:5:1 › builds stay on each device, including after legacy preference migration and peer disconnect (4.3s)
+  ✓   3 e2e\compiler-state.spec.ts:5:1 › compiler state: shown in the status bar, missing packages explained, Account > Compiler on the web (5.2) (3.1s)
+  ✓   4 e2e\compiler-state.spec.ts:24:1 › compiler state: "no compiler here" when the browser cannot compile and nothing else can (934ms)
+  ✓   5 e2e\folder-import.spec.ts:5:1 › browser folder imports never bind a mirror and legacy remembered folders stay untouched (1.3s)
+[WebServer] 11:54:13 AM [vite] ws proxy error:
+[WebServer] Error: write ECONNABORTED
+[WebServer]     at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+[WebServer]     at writeGeneric (node:internal/stream_base_commons:150:3)
+[WebServer]     at Socket._writeGeneric (node:net:966:11)
+[WebServer]     at Socket._write (node:net:978:8)
+[WebServer]     at writeOrBuffer (node:internal/streams/writable:572:12)
+[WebServer]     at _write (node:internal/streams/writable:501:10)
+[WebServer]     at Writable.write (node:internal/streams/writable:510:10)
+[WebServer]     at Socket.ondata (node:internal/streams/readable:1009:22)
+[WebServer]     at Socket.emit (node:events:519:28)
+[WebServer]     at addChunk (node:internal/streams/readable:561:12)
+[WebServer] 11:54:13 AM [vite] ws proxy socket error:
+[WebServer] Error: write ECONNABORTED
+[WebServer]     at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+[WebServer]     at writeGeneric (node:internal/stream_base_commons:150:3)
+[WebServer]     at Socket._writeGeneric (node:net:966:11)
+[WebServer]     at Socket._write (node:net:978:8)
+[WebServer]     at writeOrBuffer (node:internal/streams/writable:572:12)
+[WebServer]     at _write (node:internal/streams/writable:501:10)
+[WebServer]     at Writable.write (node:internal/streams/writable:510:10)
+[WebServer]     at Socket.ondata (node:internal/streams/readable:1009:22)
+[WebServer]     at Socket.emit (node:events:519:28)
+[WebServer]     at addChunk (node:internal/streams/readable:561:12)
+  ✓   6 e2e\full-flow.spec.ts:6:1 › three clients: concurrent edits, independent local builds, read-only viewer and member removal (11.1, web part) (24.6s)
+  ✓   7 e2e\local-real-compile.spec.ts:6:1 › a real WASM compiler builds a local PDF without a co-author (6.4s)
+[WebServer] 11:54:48 AM [vite] ws proxy error:
+[WebServer] Error: write ECONNABORTED
+[WebServer]     at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+[WebServer]     at writeGeneric (node:internal/stream_base_commons:150:3)
+[WebServer]     at Socket._writeGeneric (node:net:966:11)
+[WebServer]     at Socket._write (node:net:978:8)
+[WebServer]     at writeOrBuffer (node:internal/streams/writable:572:12)
+[WebServer]     at _write (node:internal/streams/writable:501:10)
+[WebServer]     at Writable.write (node:internal/streams/writable:510:10)
+[WebServer]     at Socket.ondata (node:internal/streams/readable:1009:22)
+[WebServer]     at Socket.emit (node:events:519:28)
+[WebServer]     at Readable.read (node:internal/streams/readable:782:10)
+[WebServer] 11:54:48 AM [vite] ws proxy socket error:
+[WebServer] Error: write ECONNABORTED
+[WebServer]     at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+[WebServer]     at writeGeneric (node:internal/stream_base_commons:150:3)
+[WebServer]     at Socket._writeGeneric (node:net:966:11)
+[WebServer]     at Socket._write (node:net:978:8)
+[WebServer]     at writeOrBuffer (node:internal/streams/writable:572:12)
+[WebServer]     at _write (node:internal/streams/writable:501:10)
+[WebServer]     at Writable.write (node:internal/streams/writable:510:10)
+[WebServer]     at Socket.ondata (node:internal/streams/readable:1009:22)
+[WebServer]     at Socket.emit (node:events:519:28)
+[WebServer]     at Readable.read (node:internal/streams/readable:782:10)
+  ✓   8 e2e\offline-and-compile.spec.ts:5:1 › offline edits on both sides merge automatically after reconnecting (6.8) (3.8s)
+  ✓   9 e2e\offline-and-compile.spec.ts:68:1 › compiles in the browser and shows the PDF with an up-to-date indicator (7.4, 8.5) (5.0s)
+  ✓  10 e2e\offline-and-compile.spec.ts:92:1 › reconnect with a binary transfer in flight: the exact bytes arrive and the status settles (10.4s)
+  ✓  11 e2e\recovery.spec.ts:7:1 › concurrent delete/edit remains downloadable and explicitly restorable from Recovery on both browsers (3.0s)
+  ✓  12 e2e\workspace.spec.ts:15:1 › the header holds at most four actions besides More, and More holds the rest (839ms)
+  ✓  13 e2e\workspace.spec.ts:33:1 › rail: switch panels, collapse on re-click, and remember the choice (1.1s)
+  ✓  14 e2e\workspace.spec.ts:52:1 › unseen changes from a co-author show on the Changes rail button until the panel is opened (2.3s)
+  ✓  15 e2e\workspace.spec.ts:76:1 › panes: keyboard resize, hide and show the PDF, focus mode restores the layout (1.1s)
+  ✓  16 e2e\workspace.spec.ts:110:1 › at 1024 px one of editor and PDF shows, with a toggle, and nothing overflows (1.0s)
+  ✓  17 e2e\workspace.spec.ts:127:1 › a toast still showing never covers the buttons of a dialog opened after it (1.0s)
+  ✓  18 e2e\workspace.spec.ts:153:1 › in a narrow PDF pane, "compiled by" moves to its own line instead of being squeezed out (989ms)
+  ✓  19 e2e\workspace.spec.ts:167:1 › a failing compile is listed under Problems, and Go to line moves the cursor there (1.2s)
+  ✓  20 e2e\workspace.spec.ts:186:1 › the status bar and PDF bar speak plainly (6.8s)
+  ✓  21 e2e\workspace.spec.ts:218:1 › a selection is highlighted on every line it covers, including the line with the cursor (both themes) (1.4s)
+  ✓  22 e2e\workspace.spec.ts:256:1 › a file with Windows line endings (CRLF) stays editable and in sync with the shared text (883ms)
+
+  22 passed (1.6m)

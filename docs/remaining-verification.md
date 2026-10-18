@@ -105,7 +105,7 @@ section of the page then shows the native link's candidate types and selected pa
 The desktop test build runs on this PC and inside Windows Sandbox (a VM behind its own NAT). The script registers an
 account on each, shares a project (the sandbox joins as editor), checks a new file and an edit in each direction and
 concurrent edits, runs *Test connection* on both sides at once, and writes everything to
-`apps/desktop/src-tauri/target/sandbox-sync/<run>/` (`summary.json`, `timeline.txt` with both traces and the server's
+`<E2E target>/sandbox-sync/<run>/`, by default `apps/desktop/src-tauri/target/e2e/sandbox-sync/<run>/` (`summary.json`, `timeline.txt` with both traces and the server's
 signaling log merged by time, per-side diagnostics and logs). The sandbox window opens; the app installed on this PC is
 not touched (the test build has its own identifier and credential store).
 

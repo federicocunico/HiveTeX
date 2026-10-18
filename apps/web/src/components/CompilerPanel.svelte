@@ -180,7 +180,7 @@
           <span>Full LaTeX (TinyTeX {managed.tinytex.version}) · {mb(managed.tinytex.bytes)}</span>
           <button class="small" disabled={!!busy} onclick={() => remove('tinytex')} data-testid="remove-tinytex">Remove</button>
         {:else if managed.tinytex_download}
-          <button class="small" disabled={!!busy} onclick={() => install('tinytex')} data-testid="install-tinytex" title="TeX Live with pdfLaTeX, XeLaTeX and LuaLaTeX; missing packages are installed as documents need them. Its builds can be shared with co-authors.">Install full LaTeX ({mb(managed.tinytex_download)} download)</button>
+          <button class="small" disabled={!!busy} onclick={() => install('tinytex')} data-testid="install-tinytex" title="TeX Live with pdfLaTeX, XeLaTeX and LuaLaTeX; missing packages are installed as documents need them.">Install full LaTeX ({mb(managed.tinytex_download)} download)</button>
         {/if}
       </div>
       {#if busy && progress}<p class="muted" role="status">Downloading {progress}…</p>{/if}

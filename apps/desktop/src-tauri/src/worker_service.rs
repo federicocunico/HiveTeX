@@ -186,6 +186,10 @@ impl WorkerService {
 fn renderer_method(m: &str) -> bool {
     if matches!(m, "blob.has" | "blob.held" | "blob.begin" | "blob.chunk" | "blob.commit" | "blob.abort" | "project.recovery") { return true; }
     if m == "catalog.pause" || m == "account.freeze" { return true; }
+    // History, Recovery and export of the data-safety work: project-scoped like the calls below.
+    if matches!(m, "project.recoveryFiles" | "project.recoveryState" | "project.previewRestore" | "project.undoInterrupted" | "project.undoAbandon"
+        | "project.metaKeys" | "project.storeDocs" | "project.storeExportOpen" | "project.storeExportRead" | "project.storeExportClose"
+        | "project.exportDocOpen" | "project.exportDocRead" | "mesh.reconcileDoc") { return true; }
     matches!(m, "catalog.activate" | "catalog.list" | "catalog.select" | "catalog.settings" | "project.open" | "project.detach" | "account.stop" | "project.status" | "project.pause" | "project.sync" | "project.probe" | "project.refresh" | "project.flush" | "doc.attach" | "doc.edit" | "project.command" | "conflict.text" | "conflict.file" | "project.history" | "project.snapshots" | "project.snapshot" | "project.docs" | "blob.read" | "blob.add" | "project.meta" | "project.metaSet" | "project.merge" | "project.folderConflict" | "project.presence" | "mesh.app" | "mesh.reconcile" | "mesh.openDoc")
 }
 
@@ -343,6 +347,9 @@ fn dispatch_store(app: &tauri::AppHandle, id: u32, cmd: &str, a: &Value) -> Resu
     macro_rules! reply { ($expr:expr) => { serde_json::to_value($expr?).map_err(|_| "encode store reply".to_string()) }; }
     use crate::store_cmd as s;
     match cmd {
+        "store_export_open" => reply!(s::store_export_open(app.state(), id)),
+        "store_export_read" => reply!(s::store_export_read(app.state(), id, arg(a, "token")?, arg(a, "offset")?)),
+        "store_export_close" => reply!(s::store_export_close(app.state(), id, arg(a, "token")?)),
         "store_transact" => reply!(s::store_transact(app.state(), id, arg(a, "ops")?)),
         "store_load" => reply!(s::store_load(app.state(), id, arg(a, "doc")?)),
         "store_list_docs" => reply!(s::store_list_docs(app.state(), id)),
@@ -356,7 +363,7 @@ fn dispatch_store(app: &tauri::AppHandle, id: u32, cmd: &str, a: &Value) -> Resu
         "store_put_snapshot" => reply!(s::store_put_snapshot(app.state(), id, arg(a, "sid")?, arg(a, "at")?, arg(a, "value")?)),
         "store_list_snapshots" => reply!(s::store_list_snapshots(app.state(), id)),
         "store_get_meta" => reply!(s::store_get_meta(app.state(), id, arg(a, "key")?)),
-        "store_list_meta" => reply!(s::store_list_meta(app.state(), id)),
+        "store_list_meta" => reply!(s::store_list_meta(app.state(), id, a["prefix"].as_str().map(String::from), a["after"].as_str().map(String::from), a["limit"].as_u64().map(|n| n.min(u32::MAX as u64) as u32))),
         "store_put_change" => reply!(s::store_put_change(app.state(), id, arg(a, "cid")?, arg(a, "endedAt")?, arg(a, "value")?)),
         "store_list_changes" => reply!(s::store_list_changes(app.state(), id)),
         "store_prune_changes" => reply!(s::store_prune_changes(app.state(), id, arg(a, "now")?)),
@@ -419,6 +426,25 @@ mod tests {
         assert!(!renderer_method("fs.read"));
         assert!(renderer_method("doc.edit"));
         assert!(renderer_method("account.stop"));
+    }
+    /// Every worker method the desktop renderer calls passes the gate: a refused one fails only in the real app.
+    #[test]
+    fn every_renderer_call_is_allowed() {
+        let src = include_str!("../../../../packages/sync/src/worker/renderer.ts");
+        let mut names = Vec::new();
+        for (i, _) in src.match_indices("call") {
+            let mut rest = &src[i + 4..];
+            if rest.starts_with('<') {
+                match rest.find(">(") { Some(n) => rest = &rest[n + 1..], None => continue }
+            }
+            let Some(rest) = rest.strip_prefix('(') else { continue };
+            let Some(q) = rest.chars().next().filter(|c| *c == '\'' || *c == '"') else { continue };
+            let Some(end) = rest[1..].find(q) else { continue };
+            names.push(rest[1..1 + end].to_string());
+        }
+        assert!(names.len() > 20, "found only {names:?}");
+        let refused: Vec<_> = names.iter().filter(|m| !renderer_method(m)).collect();
+        assert!(refused.is_empty(), "renderer calls refused by renderer_method: {refused:?}");
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn late_rtc_allocation_is_closed_without_touching_the_replacement_project() {

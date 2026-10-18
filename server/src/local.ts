@@ -29,6 +29,8 @@ export const devFaults = { relayDrop: 0 };
 export interface LocalOptions {
   dataDir?: string | undefined; // undefined => in-memory
   port?: number;
+  /** Listen address; `HOST` (tests use 127.0.0.1, so nothing listens on a real interface). Default: every interface. */
+  host?: string | undefined;
   appOrigin?: string;
   log?: boolean;
 }
@@ -146,7 +148,8 @@ export async function startLocal(opts: LocalOptions = {}) {
     const e = { t: Date.now(), conn, dir, type: m.t, from: short(m.from), to: short(m.to), dev: short(m.dev), ack: m.ack === undefined ? undefined : String(m.ack).slice(0, 12), online: m.online, code: m.code, others: Array.isArray(m.tickets) ? m.tickets.length : undefined, bytes: typeof raw === 'string' ? raw.length : undefined };
     appendFileSync(signalLog, JSON.stringify(e) + '\n');
   };
-  const server = serve({ fetch, port });
+  const host = opts.host ?? (process.env.HOST || undefined);
+  const server = serve({ fetch, port, ...(host ? { hostname: host } : {}) });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   (server as import('node:http').Server).on('upgrade', (req, socket, head) => {
     logRequest('WS', (req.url ?? '').split('?')[0] ?? '', req.headers.origin, req.headers['user-agent']);
@@ -159,7 +162,7 @@ export async function startLocal(opts: LocalOptions = {}) {
       ws.on('close', (code) => { if (signalLog) appendFileSync(signalLog, JSON.stringify({ t: Date.now(), conn, dir: 'closed', code }) + '\n'); void h.onClose(); });
     });
   });
-  console.log(`hivetex local API on http://localhost:${port}`);
+  console.log(`hivetex local API on http://${host ?? 'localhost'}:${port}${host ? '' : ' (every interface)'}`);
   return { server, deps, close: () => server.close() };
 }
 

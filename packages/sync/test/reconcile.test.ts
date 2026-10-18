@@ -148,13 +148,13 @@ describe('document reconciliation (5.2)', () => {
     expect(b.model.availability(fileDocId(empty))).toBe('complete');
 
     ga.closed = true;
-    const sent = gb.sent;
+    const sent = gb.sentTypes.get(MsgType.STEP1) ?? 0;
     const [r1, r2] = await Promise.all([
       b.mesh.reconcile(fileDocId(id), { timeoutMs: 60 }),
       b.mesh.reconcile(fileDocId(id), { timeoutMs: 60 }),
     ]);
     expect([r1.outcome, r2.outcome]).toEqual(['timeout', 'timeout']);
-    expect(gb.sent - sent).toBe(1); // the second request waited behind the first
+    expect((gb.sentTypes.get(MsgType.STEP1) ?? 0) - sent).toBe(1); // history traffic cannot answer a reconciliation
     // the first exchange's answer finally arrives: it answers an abandoned request, not a later one
     await ga.release();
     await settle(60);

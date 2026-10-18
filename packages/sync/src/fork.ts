@@ -1,6 +1,7 @@
 import { ROOT_DOC_ID } from '@hivetex/protocol';
 import * as Y from 'yjs';
 import { PeerConnection } from './connection.js';
+import { AuthoredOrigin } from './authorship.js';
 import {
   type ConflictHunk,
   type FileConflict,
@@ -145,6 +146,7 @@ function docFromState(state: Uint8Array | undefined) {
 function filesOf(root: Y.Doc): FileList {
   const out: FileList = {};
   (root.getMap('files') as Y.Map<Y.Map<unknown>>).forEach((m, id) => {
+    if (m.get('deleted')) return;
     const kind = m.get('kind') as FileKind;
     out[id] = { path: String(m.get('path')), kind, hash: kind === 'binary' ? String(m.get('hash') ?? '') : null };
   });
@@ -160,7 +162,7 @@ function journalOps(j: ForkJournal): StoreOp[] {
   ];
 }
 
-const isRemote = (origin: unknown) => origin instanceof PeerConnection;
+const isRemote = (origin: unknown) => origin instanceof PeerConnection || origin instanceof AuthoredOrigin;
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export class OfflineFork {

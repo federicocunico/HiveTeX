@@ -1,0 +1,4 @@
+scenario     result  route    sync<=5s (h->s/s->h ms)  hold (late/edits, median ms, rotation)  failed steps
+relay-stun   PASS    relay    yes 80/51                0/60, 59, ok                            
+deaf         PASS    relay    yes 60/53                0/60, 82, ok                            
+no-udp       PASS    relay    yes 62/46                0/60, 64, ok                            

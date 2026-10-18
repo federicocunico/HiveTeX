@@ -1,7 +1,10 @@
 import { ROOT_DOC_ID, fileDocId } from '@hivetex/protocol';
 import diff from 'fast-diff';
 import * as Y from 'yjs';
-import { DocPersister, type HistorySnapshot, type PersistOptions, type Persistence, type StoreOp } from './persistence.js';
+import { DocPersister, type ChangeSet, type HistorySnapshot, type OperationRecord, type PersistOptions, type Persistence, type StoreOp } from './persistence.js';
+import { AuthoredOrigin } from './authorship.js';
+import { MIRROR_ORIGIN, IMPORT_ORIGIN, RESTORE_ORIGIN } from './origins.js';
+import { PeerConnection } from './connection.js';
 
 export type FileKind = 'text' | 'binary' | 'dir';
 
@@ -12,6 +15,19 @@ export interface FileEntry {
   /** SHA-256 hex of the content, for binary files. */
   hash?: string;
   size?: number;
+}
+
+/** Value of the root `tombstones` map: the removed entry (every field, binary versions included) and its deletion. */
+export interface Tombstone { v: 1; entry: { path: string; kind: FileKind; hash?: string; size?: number; [field: string]: unknown }; deletion: DeletedFile['deletion'] }
+
+/** Origin of the one-time conversion of development-store tombstones (see convertLegacyTombstones). */
+export const LEGACY_TOMBSTONE_ORIGIN = 'legacy-tombstone-conversion';
+
+export interface DeletedFile extends FileEntry {
+  deletion: { v: 1; id: string; at: number; path: string; hash?: string; vector?: number[]; author?: ChangeSet['source']; resolvedFrom?: string };
+  /** Content or path changed after, or concurrently with, the deletion. Kept until explicitly resolved. */
+  conflict: boolean;
+  conflictUnknown?: boolean;
 }
 
 /**
@@ -77,6 +93,9 @@ export type Availability = 'unknown' | 'partial' | 'complete';
 
 /** Metadata key of the persisted completeness record (see ProjectModel.markComplete). */
 const AVAILABILITY_KEY = 'availability';
+// Include Yjs's delete set: a deletion of characters does not advance its state vector.
+export const docFrontier = (doc: Y.Doc) => [...Y.encodeStateVector(doc), -1, ...Y.encodeStateAsUpdate(doc, Y.encodeStateVector(doc))];
+const frontier = docFrontier;
 
 /** Whether this device's edits are safely stored locally; independent of whether any peer has them. */
 export interface SaveState {
@@ -93,6 +112,31 @@ export interface SaveState {
  * delete+create), which makes concurrent rename+edit converge without duplicates.
  */
 export class ProjectModel {
+  private durability = new Set<Promise<unknown>>();
+  private durabilityErrors = new Map<string, unknown>();
+  private durabilityWaiters = new Set<(error: unknown) => void>();
+  trackDurability(work: Promise<unknown>) {
+    this.durability.add(work);
+    void work.then(() => this.durability.delete(work), () => this.durability.delete(work));
+  }
+  /** Keys whose failure stays visible in saveState and keeps retrying, but does not make flush() reject (provenance). */
+  private softErrors = new Set<string>();
+  durabilityError(key: string, error: unknown | null, opts: { blocking?: boolean } = {}) {
+    if (error === null) { this.durabilityErrors.delete(key); this.softErrors.delete(key); }
+    else if (opts.blocking === false) { this.durabilityErrors.set(key, error); this.softErrors.add(key); }
+    else { this.durabilityErrors.set(key, error); this.softErrors.delete(key); for (const reject of this.durabilityWaiters) reject(error); }
+    this.refreshSave();
+  }
+  localAuthor: { uid?: string; device?: string; name: string } = { name: 'This device' };
+  private operationListeners = new Set<(record: OperationRecord) => void>();
+  onOperation(cb: (record: OperationRecord) => void) { this.operationListeners.add(cb); return () => this.operationListeners.delete(cb); }
+
+  operationSource(origin: unknown): ChangeSet['source'] {
+    if (origin instanceof AuthoredOrigin) return { kind: 'peer', name: origin.claims.uname, uid: origin.claims.uid, device: origin.claims.dev, provenance: 'verified' };
+    if (origin instanceof PeerConnection) return { kind: 'peer', name: 'Unknown original author (legacy sync)', provenance: 'unknown' };
+    const kind = origin === MIRROR_ORIGIN || (origin as { kind?: string } | null)?.kind === 'folder' ? 'folder' : origin === 'changelog-undo' ? 'undo' : origin === IMPORT_ORIGIN ? 'import' : origin === RESTORE_ORIGIN ? 'restore' : 'editor';
+    return { kind, ...this.localAuthor, ...(this.localAuthor.uid ? { actorName: this.localAuthor.name } : {}), ...(kind === 'folder' ? { name: 'Folder on this device' } : kind === 'undo' ? { name: 'Undo' } : {}) };
+  }
   private rootDoc = new Y.Doc();
   private docs = new Map<string, Y.Doc>();
   private replacedListeners = new Set<(docId: string) => void>();
@@ -236,6 +280,8 @@ export class ProjectModel {
   private persistenceOptions(): PersistOptions {
     return {
       ...this.persistOpts,
+      describeOrigin: (origin) => this.operationSource(origin),
+      onOperation: (record) => { for (const cb of this.operationListeners) cb(record); },
       onStatus: (docId) => {
         this.persistOpts.onStatus?.(docId);
         this.refreshSave();
@@ -247,6 +293,7 @@ export class ProjectModel {
   get saveState(): SaveState {
     const docs: string[] = [];
     let error: unknown = null;
+    for (const [key, value] of this.durabilityErrors) { docs.push(`history:${key}`); error ??= value; }
     for (const [id, p] of this.persisters) {
       const st = p.status;
       if (!st.failing) continue;
@@ -285,9 +332,17 @@ export class ProjectModel {
   }
 
   async init() {
+    const format = await this.store.getMeta('safetyFormat') as { v?: number } | undefined;
+    if (format && format.v !== 1) throw new Error('Unsupported recovery format; preserve and export this store with a compatible version');
+    if (!format) await this.store.setMeta('safetyFormat', { v: 1 });
+    if (!this.localAuthor.uid) {
+      const author = await this.store.getMeta('localAuthor') as typeof this.localAuthor | undefined;
+      if (author && typeof author.uid === 'string' && typeof author.name === 'string') this.localAuthor = author;
+    }
     const p = new DocPersister(this.store, ROOT_DOC_ID, this.root, this.persistenceOptions());
     this.persisters.set(ROOT_DOC_ID, p);
     await p.hydrate();
+    this.convertLegacyTombstones();
     await this.loadAvailability();
   }
 
@@ -450,12 +505,20 @@ export class ProjectModel {
   }
 
   async flush() {
+    for (const [key, error] of this.durabilityErrors) if (!this.softErrors.has(key)) throw error;
+    let reject: (error: unknown) => void = () => {};
+    const failed = new Promise<never>((_resolve, rej) => { reject = rej; });
+    failed.catch(() => {});
+    this.durabilityWaiters.add(reject);
+    try {
     await Promise.all([...this.persisters.values()].map((p) => p.flush()));
+    await Promise.race([Promise.all([...this.durability]), failed]);
     if (this.availTimer) {
       clearTimeout(this.availTimer);
       this.availTimer = null;
       await this.writeAvailability();
     }
+    } finally { this.durabilityWaiters.delete(reject); }
   }
 
   /** Writes everything and stops. Rejects if some edits could not be saved (they stay in memory, and the failure stays visible). */
@@ -474,6 +537,7 @@ export class ProjectModel {
   list(): FileEntry[] {
     const out: FileEntry[] = [];
     this.files.forEach((m, id) => {
+      if (m.get('deleted')) return;
       const raw = String(m.get('path'));
       out.push({
         id,
@@ -536,17 +600,18 @@ export class ProjectModel {
 
   /** Creates a text file and waits until its content has been written. */
   async createTextNow(path: string, content = '', origin: unknown = LOCAL_ORIGIN, canApply: () => boolean = () => true): Promise<string> {
+    assertSafe(path);
     if (!canApply()) throw new Error('denied');
-    const id = this.createText(path, '', origin);
-    if (content) {
-      const d = await this.getDoc(fileDocId(id));
-      if (!canApply()) throw new Error('denied');
-      d.transact(() => d.getText('t').insert(0, content), origin);
-    }
+    const id = newId(), d = await this.getDoc(fileDocId(id));
+    if (!canApply()) throw new Error('denied');
+    // Loading precedes the mutation boundary: a demotion cannot leave a published empty entry behind.
+    if (content) d.transact(() => d.getText('t').insert(0, content), origin);
+    this.markComplete(fileDocId(id));
+    this.putEntry(id, { path, kind: 'text' }, origin);
     return id;
   }
 
-  createDir(path: string): string {
+  createDir(path: string, origin: unknown = LOCAL_ORIGIN): string {
     assertSafe(path);
     const id = newId();
     this.root.transact(() => {
@@ -554,7 +619,7 @@ export class ProjectModel {
       m.set('path', path);
       m.set('kind', 'dir');
       this.files.set(id, m);
-    }, LOCAL_ORIGIN);
+    }, origin);
     return id;
   }
 
@@ -567,6 +632,7 @@ export class ProjectModel {
       m.set('kind', 'binary');
       m.set('hash', hash);
       m.set('size', size);
+      m.set(`version:${hash}`, { hash, size, parent: null, at: Date.now() });
       this.files.set(id, m);
     }, origin);
     return id;
@@ -575,9 +641,62 @@ export class ProjectModel {
   setBinary(id: string, hash: string, size: number, origin: unknown = LOCAL_ORIGIN) {
     this.root.transact(() => {
       const m = this.files.get(id);
+      const parent = m?.get('hash');
+      if (parent && !m?.has(`version:${parent}`)) m?.set(`version:${parent}`, { hash: parent, size: m.get('size') ?? 0, parent: null, at: Date.now() });
+      if (parent !== hash) m?.set(`version:${hash}`, { hash, size, parent: parent ?? null, at: Date.now() });
       m?.set('hash', hash);
       m?.set('size', size);
     }, origin);
+  }
+
+  binaryVersions(id: string): Array<{ hash: string; size: number; parent: string | null; at: number }> {
+    const m = this.files.get(id);
+    return m ? [...m].filter(([key]) => key.startsWith('version:')).map(([, v]) => v as { hash: string; size: number; parent: string | null; at: number }) : [];
+  }
+
+  binaryConflicts(): Array<{ id: string; path: string; hashes: string[] }> {
+    const result: Array<{ id: string; path: string; hashes: string[] }> = [];
+    for (const f of this.list()) if (f.kind === 'binary') {
+      const resolution = this.files.get(f.id)?.get('binaryResolution') as { hash: string; seen: string[] } | undefined;
+      const branches = new Map<string, string[]>();
+      for (const v of this.binaryVersions(f.id)) if (v.parent) {
+        const values = branches.get(v.parent) ?? []; values.push(v.hash); branches.set(v.parent, values);
+      }
+      const hashes = [...new Set([...branches.values()].filter((g) => g.length > 1 && (!resolution || g.some((h) => !resolution.seen.includes(h)))).flat())];
+      if (hashes.length && resolution && !hashes.includes(resolution.hash)) hashes.push(resolution.hash);
+      if (hashes.length) result.push({ id: f.id, path: f.path, hashes });
+    }
+    return result;
+  }
+
+  resolveBinary(id: string, hash: string, canApply: () => boolean = () => true, expectedRevision?: number) {
+    const version = this.binaryVersions(id).find((v) => v.hash === hash);
+    if (!version) throw new Error('Unknown binary version');
+    if (expectedRevision !== undefined && this.changeSeq !== expectedRevision) throw new Error('File changed after conflict preview; refresh before deciding');
+    if (!canApply()) throw new Error('denied');
+    this.root.transact(() => {
+      const entry = this.files.get(id);
+      entry?.set('hash', version.hash); entry?.set('size', version.size);
+      entry?.set('binaryResolution', { hash, seen: this.binaryVersions(id).map((v) => v.hash), id: newId(), at: Date.now(), author: this.operationSource(LOCAL_ORIGIN) });
+    }, LOCAL_ORIGIN);
+  }
+
+  async recoveryFiles(): Promise<Array<FileEntry & { orphan?: boolean; conflict?: boolean; deletionId?: string }>> {
+    const known = await this.knownDocIds();
+    const deleted = this.deletedFiles().map((f) => ({ ...f, deletionId: f.deletion.id }));
+    const entries = new Set([...this.list(), ...deleted].map((f) => f.id));
+    const orphans = known.filter((doc) => doc.startsWith('f:') && !entries.has(doc.slice(2)))
+      .map((doc) => ({ id: doc.slice(2), path: `Recovered/${doc.slice(2)}.tex`, kind: 'text' as const, orphan: true }));
+    return [...deleted, ...orphans];
+  }
+
+  async recoveryState() {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const revision = this.changeSeq;
+      const files = await this.recoveryFiles();
+      if (revision === this.changeSeq) return { files, binary: this.binaryConflicts(), revision };
+    }
+    throw new Error('Recovery changed while loading; refresh before deciding');
   }
 
   /** Rename and move are the same operation: change the path. */
@@ -596,8 +715,95 @@ export class ProjectModel {
     }, LOCAL_ORIGIN);
   }
 
+  /** Recoverable deletions: entries moved out of `files`, so a previous release (0.8.0) sees an ordinary deletion. */
+  get tombstones(): Y.Map<Tombstone> {
+    return this.root.getMap('tombstones') as Y.Map<Tombstone>;
+  }
+
   delete(id: string, origin: unknown = LOCAL_ORIGIN) {
-    this.root.transact(() => this.files.delete(id), origin);
+    const m = this.files.get(id);
+    if (!m || m.get('deleted')) return;
+    const doc = this.docs.get(fileDocId(id));
+    const deletion: DeletedFile['deletion'] = {
+      v: 1, id: newId(), at: Date.now(), path: String(m.get('path')),
+      author: this.operationSource(origin),
+      ...(m.get('hash') ? { hash: String(m.get('hash')) } : {}),
+      ...(doc && this.availability(fileDocId(id)) === 'complete' ? { vector: frontier(doc) } : {}),
+    };
+    // The entry (same id) and its document stay recoverable; a concurrent edit is compared against the frontier.
+    this.root.transact(() => { this.tombstones.set(id, { v: 1, entry: m.toJSON() as Tombstone['entry'], deletion }); this.files.delete(id); }, origin);
+  }
+
+  /** Moves development-store tombstones (a `deleted` field inside `files`) to the tombstone map. Idempotent. */
+  convertLegacyTombstones() {
+    const legacy = [...this.files].filter(([, m]) => (m.get('deleted') as { v?: unknown } | undefined)?.v === 1);
+    if (!legacy.length) return 0;
+    this.root.transact(() => {
+      for (const [id, m] of legacy) {
+        const { deleted, ...entry } = m.toJSON() as Tombstone['entry'] & { deleted: DeletedFile['deletion'] };
+        if (!this.tombstones.has(id)) this.tombstones.set(id, { v: 1, entry, deletion: deleted });
+        this.files.delete(id);
+      }
+    }, LEGACY_TOMBSTONE_ORIGIN);
+    return legacy.length;
+  }
+
+  deletedFiles(): DeletedFile[] {
+    const result: DeletedFile[] = [];
+    const add = (id: string, entry: Record<string, unknown>, deletion: DeletedFile['deletion'] | undefined) => {
+      if (!deletion || deletion.v !== 1) return;
+      const kind = entry.kind as FileKind;
+      const doc = this.docs.get(fileDocId(id));
+      const vector = doc ? frontier(doc) : undefined;
+      const conflictUnknown = kind === 'text' && (!doc || this.availability(fileDocId(id)) !== 'complete' || !deletion.vector);
+      const conflict = String(entry.path) !== deletion.path || (kind === 'binary'
+        ? entry.hash !== deletion.hash
+        : kind === 'text' && (!vector || !deletion.vector || vector.length !== deletion.vector.length || vector.some((v, i) => v !== deletion.vector?.[i])));
+      result.push({ id, path: String(entry.path), kind, deletion, conflict, conflictUnknown,
+        ...(entry.hash ? { hash: String(entry.hash) } : {}),
+        ...(entry.size !== undefined ? { size: Number(entry.size) } : {}),
+      });
+    };
+    // A live entry wins over a tombstone (a restore concurrent with another deletion): nothing visible is hidden.
+    this.tombstones.forEach((t, id) => { if (!this.files.has(id) && t?.v === 1 && t.entry) add(id, t.entry, t.deletion); });
+    this.files.forEach((m, id) => { add(id, m.toJSON() as Record<string, unknown>, m.get('deleted') as DeletedFile['deletion'] | undefined); });
+    return result.sort((a, b) => b.deletion.at - a.deletion.at);
+  }
+
+  /** Explicit, collaborative recovery. The deletion token prevents a stale dialog from undoing a newer delete. */
+  restoreDeleted(id: string, deletionId: string, path?: string, canApply: () => boolean = () => true) {
+    const f = this.deletedFiles().find((item) => item.id === id && item.deletion.id === deletionId);
+    if (!f) throw new Error('Deletion changed; refresh Recovery before restoring');
+    const dest = path ?? f.path;
+    assertSafe(dest);
+    if (this.find(dest)) throw new Error('Recovery path is occupied; choose another name');
+    if (!canApply()) throw new Error('denied');
+    this.root.transact(() => {
+      const legacy = this.files.get(id);
+      if (legacy) { legacy.set('path', dest); legacy.delete('deleted'); return; }
+      const t = this.tombstones.get(id);
+      const m = new Y.Map<unknown>();
+      for (const [k, v] of Object.entries(t?.entry ?? {})) if (k !== 'deleted') m.set(k, v);
+      m.set('path', dest);
+      this.files.set(id, m);
+      this.tombstones.delete(id);
+    }, LOCAL_ORIGIN);
+  }
+
+  confirmDeletion(id: string, deletionId: string, expectedRevision: number, canApply: () => boolean = () => true) {
+    const f = this.deletedFiles().find((item) => item.id === id && item.deletion.id === deletionId);
+    if (!f || this.changeSeq !== expectedRevision) throw new Error('File changed after conflict preview; refresh before deciding');
+    if (!canApply()) throw new Error('denied');
+    if (f.kind === 'text' && this.availability(fileDocId(id)) !== 'complete') throw new Error('File content is not complete; receive it before resolving the deletion');
+    const doc = this.docs.get(fileDocId(id));
+    const deletion = { ...f.deletion, id: newId(), at: Date.now(), path: f.path,
+      author: this.operationSource(LOCAL_ORIGIN), resolvedFrom: f.deletion.id,
+      ...(f.hash ? { hash: f.hash } : {}), ...(doc ? { vector: frontier(doc) } : {}) };
+    this.root.transact(() => {
+      const legacy = this.files.get(id);
+      if (legacy) legacy.set('deleted', deletion);
+      else this.tombstones.set(id, { ...this.tombstones.get(id)!, deletion });
+    }, LOCAL_ORIGIN);
   }
 
   /**
@@ -613,6 +819,7 @@ export class ProjectModel {
   async dedupeIdentical(opts: { settled?: (docId: string) => boolean } = {}): Promise<number> {
     const byPath = new Map<string, Array<{ id: string; kind: FileKind; hash?: string }>>();
     this.files.forEach((m, id) => {
+      if (m.get('deleted')) return;
       const path = String(m.get('path'));
       const arr = byPath.get(path) ?? [];
       arr.push({ id, kind: m.get('kind') as FileKind, ...(m.get('hash') ? { hash: String(m.get('hash')) } : {}) });
@@ -647,7 +854,7 @@ export class ProjectModel {
         }
         // Nothing is awaited from here to the deletion: the checks and the delete happen as one step.
         if (entryOf(keep.id) !== start[0] || entryOf(e.id) !== start[1] || sig(keep.id) !== start[2] || sig(e.id) !== start[3] || !still()) continue;
-        this.files.delete(e.id);
+        this.delete(e.id);
         removed++;
       }
     }
@@ -660,7 +867,7 @@ export class ProjectModel {
    * text files are overwritten as minimal edits (keeping their identity for open editors). Paths are validated
    * before anything changes.
    */
-  async applyBatch(ops: BatchOp[], canApply: () => boolean = () => true): Promise<{ created: Map<string, string> }> {
+  async applyBatch(ops: BatchOp[], canApply: () => boolean = () => true, origin: unknown = IMPORT_ORIGIN): Promise<{ created: Map<string, string> }> {
     for (const o of ops) if (o.op === 'text' || o.op === 'binary') assertSafe(o.path);
     const created = new Map<string, string>();
     const newTexts: Array<{ id: string; path: string; text: string }> = [];
@@ -678,25 +885,18 @@ export class ProjectModel {
     if (!canApply()) throw new Error('denied');
     for (const t of newTexts) {
       this.markComplete(fileDocId(t.id));
-      if (t.text) textDocs.get(t.id)?.insert(0, t.text);
+      if (t.text) textDocs.get(t.id)?.doc?.transact(() => textDocs.get(t.id)?.insert(0, t.text), origin);
     }
     this.root.transact(() => {
       for (const o of ops) {
-        if (o.op === 'delete') this.files.delete(o.id);
+        if (o.op === 'delete') this.delete(o.id, origin);
         else if (o.op === 'setting') this.settings.set(o.key, o.value);
         else if (o.op === 'binary') {
           const cur = o.id ? this.files.get(o.id) : undefined;
           if (cur) {
-            cur.set('hash', o.hash);
-            cur.set('size', o.size);
+            this.setBinary(o.id!, o.hash, o.size, origin);
           } else {
-            const id = newId();
-            const m = new Y.Map<unknown>();
-            m.set('path', o.path);
-            m.set('kind', 'binary');
-            m.set('hash', o.hash);
-            m.set('size', o.size);
-            this.files.set(id, m);
+            const id = this.createBinary(o.path, o.hash, o.size, origin);
             created.set(o.path, id);
           }
         }
@@ -707,12 +907,19 @@ export class ProjectModel {
         m.set('kind', 'text');
         this.files.set(t.id, m);
       }
-    }, LOCAL_ORIGIN);
-    for (const o of ops) if (o.op === 'text' && o.id) applyTextDiff(textDocs.get(o.id) as Y.Text, o.text);
+    }, origin);
+    for (const o of ops) if (o.op === 'text' && o.id) applyTextDiff(textDocs.get(o.id) as Y.Text, o.text, origin);
     return { created };
   }
 
   // ---- history ----
+
+  async previewRestore(snapshotId: string): Promise<{ requestId: string; revision: number; snapshot: HistorySnapshot }> {
+    const snapshot = (await this.store.listSnapshots()).find((s) => s.id === snapshotId);
+    if (!snapshot) throw new Error('snapshot not found');
+    for (const f of snapshot.files) if (f.kind === 'binary' && (!f.hash || !(await this.store.getBlob(f.hash)))) throw new Error(`Restore asset is unavailable: ${f.path}`);
+    return { requestId: crypto.randomUUID(), revision: this.changeSeq, snapshot };
+  }
 
   /** Records the project's content for History. Refuses while text is missing: a snapshot with empty stand-ins would restore as deletions. */
   async captureSnapshot(): Promise<HistorySnapshot> {
@@ -720,13 +927,20 @@ export class ProjectModel {
     if (this.availability(ROOT_DOC_ID) !== 'complete' || missing.length > 0) {
       throw new Error(`Not every file has been received yet, so no snapshot was taken: ${missing.length ? missing.map((f) => f.path).join(', ') : 'the file list'}`);
     }
-    const files: HistorySnapshot['files'] = [];
-    for (const f of this.list()) {
-      if (f.kind === 'text') files.push({ path: f.path, kind: 'text', text: (await this.openText(f.id)).toString() });
-      else if (f.kind === 'binary') files.push({ path: f.path, kind: 'binary', ...(f.hash ? { hash: f.hash } : {}), size: f.size ?? 0 });
-      else files.push({ path: f.path, kind: 'dir' });
+    // Complete every lazy load first, then capture tree, texts and settings synchronously at one revision.
+    for (let pass = 0; ; pass++) {
+      await Promise.all(this.list().filter((f) => f.kind === 'text').map((f) => this.openText(f.id)));
+      if (this.list().every((f) => f.kind !== 'text' || this.docs.has(fileDocId(f.id)))) break;
+      if (pass >= 5) throw new Error('Project kept changing while preparing the snapshot; retry');
     }
-    const snap: HistorySnapshot = { id: newId(), at: Date.now(), files };
+    if (this.missingText().length) throw new Error('Snapshot content is incomplete');
+    if (new Set(this.list().map((f) => f.path)).size !== this.list().length) throw new Error('Duplicate project paths must be renamed before taking a restorable snapshot');
+    const files: HistorySnapshot['files'] = this.list().map((f) => f.kind === 'text'
+      ? { path: f.path, kind: 'text', text: this.docs.get(fileDocId(f.id))!.getText('t').toString() }
+      : f.kind === 'binary' ? { path: f.path, kind: 'binary', ...(f.hash ? { hash: f.hash } : {}), size: f.size ?? 0 }
+      : { path: f.path, kind: 'dir' });
+    const snap: HistorySnapshot = { id: newId(), at: Date.now(), files, settings: structuredClone(this.settings.toJSON()) };
+    for (const f of files) if (f.kind === 'binary' && (!f.hash || !(await this.store.getBlob(f.hash)))) throw new Error(`Snapshot asset is unavailable: ${f.path}`);
     await this.store.putSnapshot(snap);
     return snap;
   }
@@ -735,39 +949,112 @@ export class ProjectModel {
    * Restores a snapshot as ordinary edits (so it syncs to everyone and can itself be undone by
    * restoring the pre-restore snapshot, which is captured first).
    */
-  async restore(snapshotId: string, canApply: () => boolean = () => true): Promise<{ undoId: string }> {
+  private restoring = new Map<string, Promise<{ undoId: string }>>();
+  restore(snapshotId: string, canApply: () => boolean = () => true, expectedRevision?: number, requestId: string = crypto.randomUUID()): Promise<{ undoId: string }> {
+    const known = this.restoring.get(requestId);
+    if (known) return known;
+    const run = this.runRestore(snapshotId, canApply, expectedRevision, requestId);
+    this.restoring.set(requestId, run);
+    void run.then(() => this.restoring.delete(requestId), () => this.restoring.delete(requestId));
+    return run;
+  }
+
+  /** Checkpoints of interrupted restores, newest first (keys under `restore:pending:` only). */
+  async interruptedRestores(): Promise<Array<RestoreRequest & { requestId: string }>> {
+    const keys = (await this.store.listMetaKeys?.('restore:pending:') ?? []).filter((k) => k.startsWith('restore:pending:'));
+    const all = await Promise.all(keys.map(async (k) => ({ ...(await this.store.getMeta(k) as RestoreRequest), requestId: k.slice(16) })));
+    return all.filter((r) => r.stage === 'prepared').sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+  }
+
+  /** Cancels an interrupted restore by restoring its recovery point (the state before it), then closes it. */
+  async abandonRestore(requestId: string, canApply: () => boolean = () => true): Promise<{ undoId: string }> {
+    const journalId = `restore:pending:${requestId}`;
+    const prior = await this.store.getMeta(journalId) as RestoreRequest | undefined;
+    if (prior?.stage !== 'prepared') throw new Error('No interrupted restore to cancel; refresh History');
+    const result = await this.restore(prior.undoId, canApply, undefined, `${requestId.slice(0, 90)}-cancel`);
+    await this.store.setMeta(journalId, { ...prior, stage: 'abandoned' });
+    return result;
+  }
+
+  private async runRestore(snapshotId: string, canApply: () => boolean, expectedRevision: number | undefined, requestId: string): Promise<{ undoId: string }> {
+    if (!/^[a-zA-Z0-9-]{1,100}$/.test(requestId)) throw new Error('Invalid restore request identifier');
     const snaps = await this.store.listSnapshots();
     const target = snaps.find((s) => s.id === snapshotId);
     if (!target) throw new Error('snapshot not found');
-    const undo = await this.captureSnapshot();
-    if (!canApply()) throw new Error('denied');
+    const prior = await this.store.getMeta(`restore:pending:${requestId}`) as RestoreRequest | undefined;
+    if (prior?.snapshotId !== undefined && prior.snapshotId !== snapshotId) throw new Error('Restore request belongs to another snapshot');
+    if (prior?.stage === 'completed') return { undoId: prior.undoId };
+    if (prior?.stage === 'abandoned') throw new Error('This restore was cancelled; preview the version again to restore it');
+    // An interrupted restore is completed from the current state (History "Complete"), keeping its original recovery point.
+    const resume = prior?.stage === 'prepared' ? prior : undefined;
+    const revision = resume ? this.changeSeq : expectedRevision ?? this.changeSeq;
+    if (new Set(target.files.map((f) => f.path)).size !== target.files.length) throw new Error('Snapshot contains ambiguous duplicate paths; recover its versions separately');
+    for (const f of target.files) {
+      assertSafe(f.path);
+      if (f.kind === 'binary' && (!f.hash || !(await this.store.getBlob(f.hash)))) throw new Error(`Restore asset is unavailable: ${f.path}`);
+      if (f.kind === 'text' && typeof f.text !== 'string') throw new Error(`Restore text is unavailable: ${f.path}`);
+    }
+    const undo = resume ? { id: resume.undoId } : await this.captureSnapshot();
     const want = new Map(target.files.map((f) => [f.path, f]));
     const have = new Map(this.list().map((f) => [f.path, f]));
-    for (const [path, f] of have) if (!want.has(path)) this.delete(f.id);
+    // All loading, recovery capture and I/O precedes the synchronous mutation boundary.
+    await Promise.all([...have.values()].filter((f) => f.kind === 'text').map((f) => this.openText(f.id)));
+    const stagedTexts = new Map<string, { id: string; doc: Y.Doc }>();
+    for (const f of target.files) if (f.kind === 'text' && have.get(f.path)?.kind !== 'text') {
+      const id = newId(); stagedTexts.set(f.path, { id, doc: await this.getDoc(fileDocId(id)) });
+    }
+    const journalId = `restore:pending:${requestId}`;
+    const changed = 'Project changed after restore preview; refresh the preview before replacing any files';
+    // Preconditions precede the checkpoint: a refused restore leaves nothing pending (D4).
+    if (!canApply()) throw new Error('denied');
+    if (this.changeSeq !== revision) throw new Error(changed);
+    if (!resume) {
+      await this.store.setMeta(journalId, { v: 1, stage: 'prepared', snapshotId, undoId: undo.id, revision, at: Date.now() } satisfies RestoreRequest);
+      // The checkpoint write yields: withdraw it if the project moved meanwhile, before any mutation.
+      if (!canApply() || this.changeSeq !== revision) {
+        await this.store.setMeta(journalId, { v: 1, stage: 'withdrawn', snapshotId, undoId: undo.id, revision, at: Date.now() } satisfies RestoreRequest);
+        throw new Error(canApply() ? changed : 'denied');
+      }
+    }
+    // No awaits until the full plan is applied. A crash is recoverable from the prepared journal and undo snapshot.
+    for (const [path, f] of have) if (!want.has(path)) this.delete(f.id, RESTORE_ORIGIN);
     for (const [path, w] of want) {
       if (!canApply()) throw new Error('denied');
       const cur = have.get(path);
       if (w.kind === 'text') {
         if (cur && cur.kind === 'text') {
-          const text = await this.openText(cur.id);
-          if (!canApply()) throw new Error('denied');
-          applyTextDiff(text, w.text ?? '');
+          const text = this.docs.get(fileDocId(cur.id))!.getText('t');
+          applyTextDiff(text, w.text ?? '', RESTORE_ORIGIN);
         }
         else {
-          if (cur) this.delete(cur.id);
-          await this.createTextNow(path, w.text ?? '', LOCAL_ORIGIN, canApply);
+          if (cur) this.delete(cur.id, RESTORE_ORIGIN);
+          const staged = stagedTexts.get(path)!;
+          applyTextDiff(staged.doc.getText('t'), w.text ?? '', RESTORE_ORIGIN);
+          this.markComplete(fileDocId(staged.id));
+          this.putEntry(staged.id, { path, kind: 'text' }, RESTORE_ORIGIN);
         }
       } else if (w.kind === 'binary') {
-        if (cur?.kind === 'binary') this.setBinary(cur.id, w.hash ?? '', w.size ?? 0);
+        if (cur?.kind === 'binary') this.setBinary(cur.id, w.hash ?? '', w.size ?? 0, RESTORE_ORIGIN);
         else {
-          if (cur) this.delete(cur.id);
-          this.createBinary(path, w.hash ?? '', w.size ?? 0);
+          if (cur) this.delete(cur.id, RESTORE_ORIGIN);
+          this.createBinary(path, w.hash ?? '', w.size ?? 0, RESTORE_ORIGIN);
         }
-      } else if (!cur) this.createDir(path);
+      } else if (cur?.kind !== 'dir') { if (cur) this.delete(cur.id, RESTORE_ORIGIN); this.createDir(path, RESTORE_ORIGIN); }
     }
+    if (target.settings) this.root.transact(() => {
+      for (const key of [...this.settings.keys()]) if (!(key in target.settings!)) this.settings.delete(key);
+      for (const [key, value] of Object.entries(target.settings!)) this.settings.set(key, structuredClone(value));
+    }, RESTORE_ORIGIN);
+    await this.flush();
+    await this.store.transact([
+      { op: 'meta', key: journalId, value: { v: 1, stage: 'completed', snapshotId, undoId: undo.id, revision } },
+    ]);
     return { undoId: undo.id };
   }
 }
+
+/** Durable checkpoint `restore:pending:<request id>`; `undoId` is the snapshot captured before the restore. */
+export interface RestoreRequest { v: 1; stage: 'prepared' | 'completed' | 'abandoned' | 'withdrawn'; snapshotId: string; undoId: string; revision?: number; at?: number }
 
 function withSuffix(path: string, n: number) {
   const i = path.lastIndexOf('.');

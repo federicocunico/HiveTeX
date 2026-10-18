@@ -12,8 +12,12 @@ export async function openDesktopWorker(
     import("@tauri-apps/api/event"),
   ]);
   const listeners = new Map<string, Set<(data: any) => void>>();
-  const off = await listen<{ event: string; data: string }>("worker://event", (event) => {
+  // The worker generation this editor is attached to; a `ready` from a later one means the worker restarted.
+  let generation = 0;
+  let restarted: ((gen: number) => void) | null = null;
+  const off = await listen<{ event: string; data: unknown; gen?: number }>("worker://event", (event) => {
     const frame = event.payload;
+    if (frame.event === "ready" && typeof frame.gen === "number") restarted?.(frame.gen);
     if (typeof frame.data === "string")
       for (const cb of listeners.get(frame.event) ?? []) cb(decodeValue(frame.data));
   });
@@ -51,13 +55,25 @@ export async function openDesktopWorker(
       role: project.role,
       createdHere,
     });
+    generation = (await invoke<{ generation: number }>("worker_diagnostics")).generation;
   } catch (e) {
     off();
     throw e;
   }
+  // Reattach after a restart; a failure (the new worker still starting) is retried with a growing delay.
+  restarted = (gen) => {
+    if (gen <= generation) return;
+    generation = gen;
+    const attempt = (n: number) =>
+      void renderer.reattach().catch(() => {
+        if (n < 6 && generation === gen) setTimeout(() => attempt(n + 1), 500 * 2 ** n);
+      });
+    attempt(0);
+  };
   return {
     renderer,
     close: async () => {
+      restarted = null;
       await renderer.close();
       off();
     },

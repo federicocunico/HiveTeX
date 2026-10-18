@@ -20,9 +20,11 @@ export default defineConfig({
     : {
         webServer: [
           {
+            // Loopback only: nothing the run starts listens on a real interface (no firewall prompt, docs/testing.md).
+            // Vite already listens on localhost; `localhost:3000` (its proxy, the tests) reaches 127.0.0.1.
             command: 'pnpm --filter @hivetex/server dev',
-            url: 'http://localhost:3000/api/health',
-            env: { MEMORY_DB: '1', PORT: '3000', E2E_FAKE_GITHUB: '1', E2E_NO_LIMITS: '1', APPLICATION_RELAY: process.env.APPLICATION_RELAY ?? '' },
+            url: 'http://127.0.0.1:3000/api/health',
+            env: { MEMORY_DB: '1', HOST: '127.0.0.1', PORT: '3000', E2E_FAKE_GITHUB: '1', E2E_NO_LIMITS: '1', APPLICATION_RELAY: process.env.APPLICATION_RELAY ?? '' },
             reuseExistingServer: !process.env.CI,
             timeout: 120_000,
           },

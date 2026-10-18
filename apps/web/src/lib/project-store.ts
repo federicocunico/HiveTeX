@@ -1,5 +1,6 @@
 import type { Persistence } from '@hivetex/sync';
 import { sessionOrigin, isDesktop } from './api.js';
+import { toast } from '../ui/toast.svelte.js';
 
 /**
  * The one place that opens, copies and deletes a project's stored contents (5.5). In the browser that is the IndexedDB
@@ -20,6 +21,14 @@ export function nativeStoreEnabled() {
   } catch {
     return isDesktop;
   }
+}
+
+/** Opens a project's IndexedDB store; an upgrade held by another tab, or superseded by a newer one, is said (5.6). */
+function openIndexedDb(sync: typeof import('@hivetex/sync'), name: string) {
+  return sync.IndexedDbPersistence.open(name, indexedDB, {
+    onBlocked: () => toast('Another HiveTeX tab or window still has this project open with an older version. Close it to continue opening the project here.', 'info', 15_000),
+    onVersionChange: () => toast('A newer HiveTeX version opened this project in another tab. Reload this tab to keep editing here.', 'error', 30_000),
+  });
 }
 
 async function invoke() {
@@ -63,20 +72,20 @@ export async function hasNativeProjectStore(ref: StoreRef): Promise<boolean> {
 
 export async function openProjectStore(ref: StoreRef): Promise<OpenedStore> {
   const sync = await import('@hivetex/sync');
-  if (!isDesktop) return { store: await sync.IndexedDbPersistence.open(legacyName(ref)), kind: 'indexeddb' };
+  if (!isDesktop) return { store: await openIndexedDb(sync, legacyName(ref)), kind: 'indexeddb' };
   const call = await invoke();
   const scope = await scopeOf(ref);
   const manifests = new sync.NativeManifestStore(call);
   const openNative = () => sync.NativePersistence.open(call, scope);
   const m = await manifests.read(scope);
   if (m?.active === 'native') return { store: await openNative(), kind: 'native' };
-  if (!nativeStoreEnabled()) return { store: await sync.IndexedDbPersistence.open(legacyName(ref)), kind: 'indexeddb' };
+  if (!nativeStoreEnabled()) return { store: await openIndexedDb(sync, legacyName(ref)), kind: 'indexeddb' };
   if (!(await legacyExists(legacyName(ref)))) {
     // Nothing to migrate: a new project starts in the native store.
     await manifests.write({ v: 1, project: scope, state: 'done', active: 'native', sourceSchema: sync.LEGACY_SCHEMA, targetSchema: sync.NATIVE_SCHEMA, association: null, progress: { docs: [], blobs: [] }, updatedAt: Date.now() });
     return { store: await openNative(), kind: 'native' };
   }
-  const source = await sync.IndexedDbPersistence.open(legacyName(ref));
+  const source = await openIndexedDb(sync, legacyName(ref));
   try {
     lock ??= new sync.MemoryMigrationLock();
     // Current membership does not establish who authored an older unscoped cache.
@@ -100,7 +109,7 @@ export async function openProjectStore(ref: StoreRef): Promise<OpenedStore> {
 /** Explicit confirmation belongs to the native manifest; the original cache remains untouched. */
 export async function confirmLegacyAssociation(ref: StoreRef): Promise<void> {
   const sync = await import('@hivetex/sync');
-  const source = await sync.IndexedDbPersistence.open(legacyName(ref));
+  const source = await openIndexedDb(sync, legacyName(ref));
   const expected = associationOf(ref);
   try {
     const recorded = await source.getMeta('storeAssociation') as { server: string; account: string } | undefined;
@@ -116,7 +125,7 @@ export async function confirmLegacyAssociation(ref: StoreRef): Promise<void> {
 /** Complete local recovery of an unassociated cache: raw Yjs identities, metadata/recovery, assets and history. */
 export async function exportLegacyRecovery(ref: StoreRef): Promise<Uint8Array> {
   const sync = await import('@hivetex/sync');
-  const source = await sync.IndexedDbPersistence.open(legacyName(ref));
+  const source = await openIndexedDb(sync, legacyName(ref));
   try {
     const docs = await Promise.all((await source.listDocs()).map(async (id) => ({ id, updates: await source.load(id) })));
     const blobs = await Promise.all((await source.listBlobs()).map(async (hash) => ({ hash, bytes: await source.getBlob(hash) })));
@@ -169,11 +178,11 @@ export async function exportToLegacy(ref: StoreRef): Promise<{ docs: number; blo
     r.onsuccess = r.onerror = r.onblocked = () => resolve();
   });
   const native = await sync.NativePersistence.open(call, scope);
-  const legacy = await sync.IndexedDbPersistence.open(legacyName(ref));
+  const legacy = await openIndexedDb(sync, legacyName(ref));
   try {
     const counts = await sync.copyStore(native, legacy);
     const [a, b] = await Promise.all([sync.storeDigest(native), sync.storeDigest(legacy)]);
-    if (a.sha256 !== b.sha256) throw new Error('the exported copy does not match the native store');
+    if (a.sha256 !== b.sha256) throw new Error(`the exported copy does not match the native store (${(Object.keys(a.parts) as Array<keyof typeof a.parts>).filter((key) => a.parts[key] !== b.parts[key]).join(', ')})`);
     await manifests.write({ ...m, state: 'pending', active: 'legacy', progress: { docs: [], blobs: [] }, updatedAt: Date.now() });
     return { docs: counts.docs, blobs: counts.blobs };
   } finally {

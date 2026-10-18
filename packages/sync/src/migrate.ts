@@ -1,4 +1,5 @@
 import type { ChangeSet, HistorySnapshot, Persistence } from './persistence.js';
+import { isBytes } from './bytes.js';
 
 /**
  * Store migration (D4, 5.3-5.4): copies everything a project store holds (raw Yjs updates per document, blobs, history
@@ -34,7 +35,7 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
 }
 /** Canonical JSON: sorted keys, bytes as hex (so digests do not depend on insertion order or encoding). */
 function canonical(v: unknown): string {
-  if (v instanceof Uint8Array) return JSON.stringify({ $u8: Array.from(v, (x) => x.toString(16).padStart(2, '0')).join('') });
+  if (isBytes(v)) return JSON.stringify({ $u8: Array.from(v, (x) => x.toString(16).padStart(2, '0')).join('') });
   if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
   if (v && typeof v === 'object') {
     const o = v as Record<string, unknown>;

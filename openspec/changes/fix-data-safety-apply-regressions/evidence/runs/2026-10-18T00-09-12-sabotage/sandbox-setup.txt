@@ -1,0 +1,52 @@
+﻿setup ok=True fault= gateway=172.17.240.1 error=
+
+Name    Enabled DefaultInboundAction DefaultOutboundAction
+----    ------- -------------------- ---------------------
+Domain    False                Block                 Allow
+Private   False                Block                 Allow
+Public    False                Block                 Allow
+
+
+
+DisplayName  Enabled Direction Action
+-----------  ------- --------- ------
+hivetex-cdp     True   Inbound  Allow
+hivetex-echo    True   Inbound  Allow
+hivetex-app     True   Inbound  Allow
+
+
+
+Listen on ipv4:             Connect to ipv4:
+
+Address         Port        Address         Port
+--------------- ----------  --------------- ----------
+127.0.0.1       3000        172.17.240.1    3000
+0.0.0.0         9303        127.0.0.1       9302
+
+
+Windows IP Configuration
+
+   Host Name . . . . . . . . . . . . : e95feab0-bb4f-4a7b-9e0d-0675e3fc2731
+   Primary Dns Suffix  . . . . . . . : 
+   Node Type . . . . . . . . . . . . : Mixed
+   IP Routing Enabled. . . . . . . . : No
+   WINS Proxy Enabled. . . . . . . . : No
+
+Ethernet adapter Ethernet:
+
+   Connection-specific DNS Suffix  . : mshome.net
+   Description . . . . . . . . . . . : Microsoft Hyper-V Network Adapter
+   Physical Address. . . . . . . . . : 00-15-5D-34-B4-00
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fe80::1a0b:2b25:41c6:132c%205(Preferred) 
+   IPv4 Address. . . . . . . . . . . : 172.17.254.232(Preferred) 
+   Subnet Mask . . . . . . . . . . . : 255.255.240.0
+   Lease Obtained. . . . . . . . . . : Sunday, October 18, 2026 2:09:23 AM
+   Lease Expires . . . . . . . . . . : Monday, October 19, 2026 2:09:22 AM
+   Default Gateway . . . . . . . . . : 172.17.240.1
+   DHCP Server . . . . . . . . . . . : 172.17.240.1
+   DHCPv6 IAID . . . . . . . . . . . : -855632547
+   DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-32-65-C6-8B-00-15-5D-34-B4-00
+   DNS Servers . . . . . . . . . . . : 172.17.240.1
+   NetBIOS over Tcpip. . . . . . . . : Enabled

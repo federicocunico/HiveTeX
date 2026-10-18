@@ -1,44 +1,42 @@
-# Compilation: who builds the PDF and how
+# Local PDF compilation
 
-Nobody pays for a build server. Whichever connected device is best placed compiles for everyone and the PDF travels
-peer-to-peer.
+Every device builds its own PDF. Co-authors synchronize project sources and input assets; generated PDF, log and
+SyncTeX results are held in the foreground session and are not added to the shared blob store. A PDF deliberately
+uploaded as a project input remains a synchronized asset.
 
-## Election
+Distributed compilation, election, capability advertisements, peer build requests and remote results have been removed.
+Ambiguous case/Unicode/reserved or file-directory paths stop the build with a diagnostic before inputs reach a compiler;
+rename the conflicting paths and retry. Project versions stay in History. The last successful PDF is kept in memory for
+the open session only; after reopening, the project builds again.
+Older `auto` and `peers` preferences migrate to `local` with a notice that stays until it is dismissed (status bar or
+Account → Compiler) and links to local setup when the device has no compiler. Every Compile action, including keyboard
+shortcuts (Ctrl/Cmd+Enter, Ctrl/Cmd+S, Ctrl/Cmd+Shift+Enter) and viewer builds, uses this machine. Background seeds never
+load a compiler.
 
-Every device advertises a **capability record** (engine kind, TeX engines it can run, benchmark, power state, load, opt-out)
-and a heartbeat every 2 s; both are relayed across the mesh. Each peer computes the same winner:
+Blobs a 0.8.0 build leader stored as shared assets (PDF, log, SyncTeX) are not announced or served to peers: a device
+offers only blobs that live files, their earlier versions and deletions, or History snapshots refer to
+(`referencedBlobs`, `packages/sync/src/blobs.ts`).
 
-```
-score = engineBase (native 100 | in-browser 25) × performance × power (mains 1.0 | battery > 50 % 0.5 | else 0.2)
-        × (1 − cpuLoad)        — 0 if opted out, if the project's engine is unsupported, or if the device is a viewer
-```
+## Pipeline
 
-* the sitting leader gets a 15 % hysteresis bonus (no flapping);
-* a device silent for 3 heartbeats is dropped (failover in well under 10 s); a closed connection is dropped immediately;
-* split meshes elect one leader per side and converge to one after they reunite.
+`LocalCompiler` captures complete sources, asset hashes, main document and engine as one immutable input. After edits
+settle (1.2 s debounce, 5 s maximum wait), it builds locally. A running request coalesces additional requests into one
+follow-up build. Changing compiler or settings invalidates cached results. The previous good PDF stays visible after
+LaTeX errors, missing content or timeout, with its outdated status preserved.
 
-Owners/editors can switch **"Let this device compile for the others"** off in *Project settings*.
+Missing sources and assets are reported by name. Empty stand-ins are never compiled. Sources can be acquired from peers
+through ordinary sync, but no build request or output travels to a co-author. Complete local projects compile without peers.
 
-## Compiler preference (per device)
+Browser worker startup has a finite deadline (30 s), as does each build. The engine's `.wasm` is downloaded first, under
+its own limit, so a slow first download is not taken for a silent worker. Every folder and file sent to the worker must
+be confirmed before it builds; a refused write fails the build and the next one starts a clean worker. Cancellation and
+worker crashes terminate the worker and settle the request; a retry starts a clean instance. Closing a project ends its
+workers, and stops a native build: the desktop app kills that build's process tree (`tex_cancel`).
 
-Each device chooses how it takes part. The choice is in **Account → Compiler**, or in the **Compile** menu of a
-project's status bar, applies to every project, and takes effect at once:
-
-| Mode | Compiles here | Can lead (compile for others) | PDF shown |
-|---|---|---|---|
-| **This device** (default) | after every edit (and *Compile on this device only*) | no | this device's own |
-| **Shared** (deprecated) | when it is the best connected device | yes, unless *Let this device compile for the others* is off (Project settings) | the leader's |
-| **Use peers** (deprecated) | never; no LaTeX needed, the in-browser compiler is not downloaded | no | the leader's |
-
-- **Every device builds its own PDF by default** (since 0.8.0). Shared builds depend on another device's compiler and
-  connection, and field reports showed builds failing on customer machines that way, so both shared modes are
-  deprecated: still available in Account → Compiler and the status bar, and possibly removed in a later release. A
-  device that still had the old default (*Automatic*) is moved to *This device* once; choosing a shared mode afterwards
-  is kept.
-- With **Use peers**, someone in the project must be able to compile. When nobody can, the status bar shows *No co-author can
-  compile right now*: switch to *This device* (with LaTeX installed, or the in-browser compiler on the web), or ask a
-  co-author with LaTeX to open the project.
-- Builds made with *This device* are not sent to anyone; devices in a shared mode keep their leader among themselves.
+A failed server HEAD probe does not disable an available local format cache. An unreachable TeX file server is checked
+again after 15 s (a reachable one is remembered for 10 minutes), and Compile retries an engine that was unavailable when
+the project opened. Missing uncached dependencies still need a package server. This does not imply the website shell can
+start offline without having been cached independently.
 
 ## Compiler check at start (desktop)
 
@@ -58,54 +56,31 @@ result shows in **Account → Compiler** (*Check now* runs it again; *Use system
 repaired the compiler, or could not, says so in a notice. Desktop UI test builds skip the check unless
 `HIVETEX_COMPILER_CHECK=1`.
 - A desktop without LaTeX sets up the quick compiler at its first compile (see Engines); set `hivetex.autoCompiler` to
-  `0` in its local storage to rely on peers instead.
-
-## Pipeline
-
-1. After edits settle (1.2 s debounce, 5 s max wait) the leader captures the project, compiles incrementally and publishes
-   `{stateHash, pdfHash, synctexHash, diagnostics, log}`; the PDF and SyncTeX file travel as content-addressed blobs.
-2. A request during a running compile queues exactly one follow-up run. **Recompile** is available to every role.
-3. Failed builds publish the parsed errors/warnings; the last good PDF stays visible. The PDF bar shows *Outdated: N edits since the
-   last compile* while edits are newer than the displayed PDF, and *Up to date* otherwise.
-4. **Compile on this device only** (in the menu next to Recompile, or Ctrl+Shift+Enter) builds on the current device only (works offline) and does not distribute anything.
-
-### Complete inputs and result identity
-
-* **A build uses one captured set of inputs**: every text file, every image, the main document and the TeX engine, fixed together
-  when the build starts. The `stateHash` of the result is computed from exactly those bytes and settings, so an edit that
-  arrives while an image is still being fetched makes the result *outdated* and is built next; it never changes which state the
-  finished PDF claims to show.
-* **Settings are part of the identity.** Choosing another main document or engine invalidates the last PDF even though no file
-  changed: the leader rebuilds, and the PDF bar shows *Outdated* until it has. The check that drives *Outdated* uses the same
-  identity as the build.
-* **Nothing is built without its content.** If a file the project lists has not arrived (a new leader that has the file list
-  but not every text, or an image nobody online holds) the leader waits up to 8 s for it, then publishes an *incomplete*
-  result that names the files (`! Compile not started: these project files are not available ...`). The previous good PDF stays
-  visible, nothing is compiled with empty stand-ins, and the leader tries again every 5 s and on every edit. *Compile on this
-  device only* shows the same message as an error. A project that is complete on the device compiles offline.
+  `0` in its local storage to configure a local compiler manually instead.
 
 ## Engines
 
 Nothing has to be installed to compile. Each device uses the first compiler available, in this order:
 
-| # | Where | Compiler | Builds shared with co-authors |
+| # | Where | Compiler | Build location |
 |---|---|---|---|
-| 1 | Desktop | **Full LaTeX**: a TinyTeX that HiveTeX installs on request (Account → Compiler, ~70 MB download). Missing packages are installed automatically during a build (`tlmgr`), then the build is retried | yes |
-| 2 | Desktop | **Your TeX distribution** (TeX Live / MiKTeX / MacTeX on `PATH`) | yes |
-| 3 | Desktop | **Quick compiler**: Tectonic (~10–21 MB), set up automatically at the first compile on a computer without TeX. It downloads each package the first time a document needs it and caches it | **no**: this device only |
-| 4 | Web | **Your desktop app**, if it runs on the same computer and you paired this browser with it (*Compile with my desktop app*) | as for the compiler the desktop app uses |
-| 5 | Web / desktop | **In-browser compiler**: SwiftLaTeX pdfTeX/XeTeX (WebAssembly, in a worker); used only when its TeX file server answers | yes |
+| 1 | Desktop | **Full LaTeX**: a TinyTeX that HiveTeX installs on request (Account → Compiler, ~70 MB download). Missing packages are installed automatically during a build (`tlmgr`), then the build is retried | this device |
+| 2 | Desktop | **Your TeX distribution** (TeX Live / MiKTeX / MacTeX on `PATH`) | this device |
+| 3 | Desktop | **Quick compiler**: Tectonic (~10–21 MB), set up automatically at the first compile on a computer without TeX. It downloads each package the first time a document needs it and caches it | this device |
+| 4 | Web | **Your desktop app**, if it runs on the same computer and you paired this browser with it (*Compile with my desktop app*) | same computer |
+| 5 | Web / desktop | **In-browser compiler**: SwiftLaTeX pdfTeX/XeTeX (WebAssembly, in a worker); uses a reachable TeX file server or its locally cached format | this device |
 
 - Desktop builds run in a persistent per-project work directory; only changed files are written. Shell-escape is
   disabled, nothing is written outside the project, `latexmk -norc` ignores project `latexmkrc` files, and a
-  wall-clock timeout (default 120 s) and memory limit apply, with the whole process tree killed on timeout.
+  wall-clock timeout (default 120 s) and memory limit apply, with the whole process tree killed on timeout or when the
+  build is cancelled.
 - Reads outside the project are refused (MiKTeX) or detected through the recorder, with the result withheld (TeX Live,
-  TinyTeX). Tectonic writes no recorder and reads absolute paths even with `--untrusted`. That is why the quick
-  compiler builds for its own device only: it never leads a project and its PDFs are never sent to anyone. The status
-  bar says *builds stay on this device*.
+  TinyTeX). Tectonic writes no recorder and reads absolute paths even with `--untrusted`, so the quick compiler cannot
+  confine reads; like every compiler's, its results stay on the building device. The status bar marks it *builds stay
+  on this device*.
 - The quick compiler always runs XeTeX. pdfLaTeX projects usually build unchanged; when one does not, install full
   LaTeX.
-- LuaLaTeX needs a TeX distribution or full LaTeX. A device that cannot run the project's engine is never elected.
+- LuaLaTeX needs a TeX distribution or full LaTeX. A device that cannot run the project's engine shows a local setup error.
 - When a package is missing, the build output explains what to do (install full LaTeX, check the name, ...). The raw
   log stays available.
 - Every program the desktop app starts on its own (TeX detection, the build, `kpsewhich`, `tlmgr`) runs without a
@@ -164,7 +139,7 @@ The desktop app looks for `pdflatex`, `xelatex`, `lualatex` (and `latexmk`) on `
 The status bar shows which compiler the device uses (*TeX Live*, *MiKTeX*, *full LaTeX*, *quick compiler*,
 *desktop app (…)*, *in-browser compiler*) and what it is doing (*Setting up the quick compiler (5 / 21 MB)*,
 *downloading tikz-cd.sty*, *installing pgf*). The Rust tests (`cargo test --lib` in `apps/desktop/src-tauri`) compile real documents when a distribution is
-installed and skip otherwise; the CI workflow `.github/workflows/desktop.yml` runs them on Windows, macOS and Linux.
+installed and skip otherwise; the CI workflow `.github/workflows/desktop.yml` requires them on Windows with TinyTeX installed.
 
 ## Self-hosting a TeX file server for the browser engine
 
@@ -174,7 +149,7 @@ by a third party and may be unavailable; point `VITE_TEXLIVE_URL` (or the *texli
 
 ## SyncTeX
 
-The leader publishes `main.synctex.gz`. Double-click a PDF location to jump to the source line; press **Ctrl+Alt+J** in the
+A local build retains `main.synctex.gz` on this device. Double-click a PDF location to jump to the source line; press **Ctrl+Alt+J** in the
 editor to highlight the matching position in the PDF. (Browser-engine builds have no SyncTeX data.)
 
 ## Recovery after older Windows installs

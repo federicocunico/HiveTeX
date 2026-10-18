@@ -27,7 +27,6 @@ async-trait = "0.1"
 quick-xml = "=0.38.4"
 bytes = "1"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
-starship-battery = "0.10"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 sha2 = "0.10"
@@ -56,7 +55,7 @@ tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Registry", "Win32_Security", "Win32_Security_Credentials"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Registry", "Win32_Security", "Win32_Security_Credentials", "Win32_Storage_FileSystem"] }
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

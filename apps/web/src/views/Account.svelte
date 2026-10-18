@@ -4,17 +4,14 @@
   import { go } from '../lib/router.svelte.js';
   import { texliveEndpoint } from '../lib/wasm-engine.js';
   import CompilerPanel from '../components/CompilerPanel.svelte';
-  import { COMPILE_MODES, COMPILE_MODE_KEY, type CompileMode, readCompileMode } from '../lib/compile-mode.js';
+  import { compileMigrationPending, dismissCompileMigrationNotice, readCompileMode } from '../lib/compile-mode.js';
   import { resetLayout } from '../lib/layout.svelte.js';
   import { FONT_MAX, FONT_MIN, type Keymap, prefs, setPref } from '../lib/preferences.svelte.js';
   import { Monitor, Moon, Sun } from '../ui/icons.js';
   import Icon from '../ui/Icon.svelte';
 
-  let compileMode = $state<CompileMode>(readCompileMode());
-  function saveCompileMode(mode: CompileMode) {
-    compileMode = mode;
-    safeStorage(COMPILE_MODE_KEY, mode);
-  }
+  readCompileMode();
+  let compileMigration = $state(compileMigrationPending());
 
   let current = $state('');
   let next = $state('');
@@ -137,13 +134,8 @@
 
   <div class="card" data-testid="compiler-settings">
     <h2>Compiler</h2>
-    <p class="muted" style="margin-top: 0">How this device takes part in building PDFs, for every project.</p>
-    {#each COMPILE_MODES as m (m.id)}
-      <label class="row" style="align-items: flex-start; gap: 8px; margin-bottom: 6px">
-        <input type="radio" name="compile-mode" value={m.id} checked={compileMode === m.id} onchange={() => saveCompileMode(m.id)} />
-        <span><strong>{m.label}</strong><br /><small class="muted">{m.hint}</small></span>
-      </label>
-    {/each}
+    <p class="muted" style="margin-top: 0">Every project builds on this computer using its local compiler.</p>
+    {#if compileMigration}<p role="status" data-testid="compile-migration">Shared compilation was removed. This device now builds its own PDF: if it has no compiler yet, set one up below. <button type="button" class="small" onclick={() => { dismissCompileMigrationNotice(); compileMigration = false; }} data-testid="compile-migration-dismiss">Dismiss</button></p>{/if}
     <CompilerPanel />
   </div>
 

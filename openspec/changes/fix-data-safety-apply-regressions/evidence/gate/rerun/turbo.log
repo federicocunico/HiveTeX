@@ -1,0 +1,18 @@
+
+   • Packages in scope: @hivetex/compile, @hivetex/crypto, @hivetex/desktop, @hivetex/github, @hivetex/protocol, @hivetex/server, @hivetex/sync, @hivetex/ui, @hivetex/web
+   • Running build, lint in 9 packages
+   • Remote caching disabled, using shared worktree cache
+
+
+ Tasks:    18 successful, 18 total
+Cached:    0 cached, 18 total
+  Time:    26.729s 
+
+ WARNING  no output files found for task @hivetex/compile#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/crypto#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/desktop#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/github#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/protocol#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/server#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/sync#build. Please check your `outputs` key in `turbo.json`
+ WARNING  no output files found for task @hivetex/ui#build. Please check your `outputs` key in `turbo.json`

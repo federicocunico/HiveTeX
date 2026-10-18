@@ -10,6 +10,7 @@ export class Gate implements PeerTransport {
   bypass = false;
   held: Array<{ channel: ChannelName; data: Uint8Array }> = [];
   sent = 0;
+  sentTypes = new Map<number, number>();
   constructor(private inner: PeerTransport) {}
   get authenticationBinding() {
     return this.inner.authenticationBinding;
@@ -22,6 +23,8 @@ export class Gate implements PeerTransport {
   }
   async send(channel: ChannelName, data: Uint8Array) {
     this.sent++;
+    const type = (data[0] ?? 0) & 0x7f;
+    this.sentTypes.set(type, (this.sentTypes.get(type) ?? 0) + 1);
     if (this.closed && !this.bypass) {
       this.held.push({ channel, data });
       return;

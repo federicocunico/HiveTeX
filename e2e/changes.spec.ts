@@ -40,7 +40,7 @@ test('changes view: a folder edit (e.g. Claude Code) is listed with its diff and
 
   // the guest (editor) sees the owner's edits attributed to the owner
   await guest.page.getByTestId('changes-btn').click();
-  await expect(guest.page.locator('[data-testid=change-set][data-source=peer]').first()).toContainText(owner.username);
+  await expect(guest.page.locator('[data-testid=change-set][data-source=peer]').filter({ hasText: owner.username }).first()).toBeVisible();
   await oc.close();
   await gc.close();
 });

@@ -1,0 +1,8 @@
+
+Name    Enabled DefaultOutboundAction
+----    ------- ---------------------
+Domain    False                 Allow
+Private   False                 Allow
+Public    False                 Allow
+
+

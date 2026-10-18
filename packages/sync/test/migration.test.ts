@@ -20,6 +20,7 @@ async function legacy() {
   }
   await store.setMeta('availability', { root: 'complete' });
   await model.flush();
+  await model.destroy();
   return store;
 }
 const MUTATIONS = new Set(['transact', 'append', 'compact', 'putBlob', 'putSnapshot', 'setMeta', 'putChangeSet']);
@@ -58,8 +59,11 @@ describe('resumable desktop store migration (5.4)', () => {
   it('survives a failure at every target write and every manifest write, resuming with the source intact', async () => {
     // Count the actual transitions. An unawaited native close used to create unrelated "interruptions" past the writes.
     let targetWrites = 0, manifestWrites = 0;
+    // Exercise every transition of the same frozen source. A freshly authored source can coalesce its root updates
+    // differently with the 1 ms timer, changing the number of compact/append calls between fault points.
+    const source = await legacy();
     const baseline = fakeNative(), baselineManifests = new MemoryManifestStore();
-    await migrateProject({ project: 'baseline', source: await legacy(), lock: new MemoryMigrationLock(), association: assoc, checkpointEvery: 2,
+    await migrateProject({ project: 'baseline', source, lock: new MemoryMigrationLock(), association: assoc, checkpointEvery: 2,
       manifests: { read: (p) => baselineManifests.read(p), write: async (m) => { manifestWrites++; await baselineManifests.write(m); } },
       openTarget: async () => new Proxy(await NativePersistence.open(baseline.invoke, 'd'.repeat(64)), {
         get(t, key, receiver) {
@@ -72,7 +76,6 @@ describe('resumable desktop store migration (5.4)', () => {
     let interruptions = 0;
     for (const where of ['target', 'manifest'] as const) {
       for (let n = 1; n <= (where === 'target' ? targetWrites : manifestWrites); n++) {
-        const source = await legacy();
         const sourceBefore = (await storeDigest(source)).sha256;
         const f = fakeNative();
         const manifests = new MemoryManifestStore();

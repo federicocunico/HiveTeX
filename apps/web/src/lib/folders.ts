@@ -1,7 +1,8 @@
 import { type FolderMarker, MARKER_FILE, parseMarker } from '@hivetex/sync';
 import { isDesktop } from './api.js';
-import { folderAccessSupported, pickDirectory } from './fs-access.js';
+import { folderAccessSupported, pickDirectory, webFs } from './fs-access.js';
 import { type Location, folderLabel, setLocation } from './locations.js';
+import { readLoose, type Progress } from './import/sources.js';
 
 /** A folder the user just picked: a desktop path (allowlisted by the native picker) or a web directory handle. */
 export type PickedFolder = { label: string; desktopPath: string } | { label: string; handle: FileSystemDirectoryHandle };
@@ -50,10 +51,29 @@ export async function readFolderMarker(f: PickedFolder): Promise<FolderMarker | 
   }
 }
 
-/** Makes the folder the project's location on this device; the workspace binds it when the project opens. */
-export function rememberFolder(projectId: string, f: PickedFolder) {
-  const loc: Location = 'handle' in f ? { kind: 'folder', label: f.label, handle: f.handle } : { kind: 'folder', label: f.label, desktopPath: f.desktopPath };
+const pendingBrowserImports = new Map<string, FileSystemDirectoryHandle>();
+export function takeBrowserFolderImport(projectId: string) {
+  const handle = pendingBrowserImports.get(projectId);
+  pendingBrowserImports.delete(projectId);
+  return handle;
+}
+/** Browser folders are one-shot imports. Only the native adapter can be a bidirectional location. */
+export async function rememberFolder(projectId: string, f: PickedFolder) {
+  if ('handle' in f) { pendingBrowserImports.set(projectId, f.handle); return; }
+  const loc: Location = { kind: 'folder', label: f.label, desktopPath: f.desktopPath };
   return setLocation(projectId, loc);
+}
+
+export async function readBrowserFolder(handle: FileSystemDirectoryHandle, progress?: Progress) {
+  const fs = webFs(handle);
+  try {
+    const items = (await fs.list()).map((file) => ({ ...file, read: async () => {
+      const bytes = await fs.read(file.path);
+      if (!bytes) throw new Error(`Folder file disappeared during import: ${file.path}`);
+      return bytes;
+    } }));
+    return await readLoose(handle.name, items, { stripRoot: false }, progress);
+  } finally { fs.dispose(); }
 }
 
 /** Readable prefix suggestion; only the server assigns a share-ID suffix. */

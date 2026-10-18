@@ -1145,7 +1145,9 @@ export class ConnectionManager {
       this.backoff = Math.min(this.backoff * 2, 30_000);
     };
     ws.onclose = lost;
-    ws.onerror = () => ws.close();
+    // Node's WebSocket (undici) fails a socket closed while connecting and fires `error` again, synchronously: without
+    // detaching first this recursed until the stack overflowed and the desktop worker exited (no network at all).
+    ws.onerror = () => { ws.onerror = null; try { ws.close(); } catch { /* already closed */ } };
     // No answer to a ping: treat the socket as lost now (a close handshake over a dead path may never complete) and
     // reconnect; the late close event of this socket is then ignored.
     silent = () => {

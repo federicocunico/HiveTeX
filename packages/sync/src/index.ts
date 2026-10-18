@@ -25,3 +25,6 @@ export * from './transfer-budget.js';
 export * from './merge.js';
 export * from './fork.js';
 export * from './snapshot.js';
+export * from './recovery.js';
+export * from './path-collisions.js';
+export * from './authorship.js';

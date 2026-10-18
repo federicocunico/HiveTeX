@@ -89,7 +89,12 @@ export function fakeNative() {
         return n as T;
       }
       case 'store_close': open.delete(scopeOf.get(a.id as number) ?? ''); stores.delete(a.id as number); return undefined as T;
-      case 'store_list_meta': return [...s.meta.keys()].sort() as T;
+      case 'store_list_meta': {
+        // Same contract as store.rs list_meta_page: prefix range after a cursor, bounded pages.
+        const prefix = (a.prefix as string | undefined) ?? '', after = (a.after as string | undefined) ?? '';
+        const keys = [...s.meta.keys()].filter((k) => k.startsWith(prefix) && k > after).sort();
+        return (a.limit === undefined ? keys : keys.slice(0, a.limit as number)) as T;
+      }
       case 'store_ingress_put': { const k = `${a.attachment}\0${String(a.seq).padStart(16, '0')}`; if (!s.ingress.has(k)) s.ingress.set(k, { attachment: a.attachment as string, seq: a.seq as number, doc: a.doc as string, b64: a.b64 as string, source: a.source as string }); return undefined as T; }
       case 'store_ingress_ack': for (const [k, e] of s.ingress) if (e.attachment === a.attachment && e.seq <= (a.seq as number) && !e.denied) s.ingress.delete(k); return undefined as T;
       case 'store_ingress_get': return [...s.ingress.values()].find(e=>e.attachment===a.attachment && e.seq===a.seq) as T;

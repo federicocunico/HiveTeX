@@ -1,0 +1,112 @@
+TAP version 13
+# Subtest: failed or unavailable diagnostics are warnings, including setup failure
+ok 1 - failed or unavailable diagnostics are warnings, including setup failure
+  ---
+  duration_ms: 0.6254
+  type: 'test'
+  ...
+# Subtest: passing-on-retry diagnostics still warn; a clean result does not
+ok 2 - passing-on-retry diagnostics still warn; a clean result does not
+  ---
+  duration_ms: 0.1298
+  type: 'test'
+  ...
+# Subtest: stable release selection excludes prerelease/draft and invalid tags
+ok 3 - stable release selection excludes prerelease/draft and invalid tags
+  ---
+  duration_ms: 0.8216
+  type: 'test'
+  ...
+# Subtest: resolves both lightweight and annotated tags to an immutable commit
+ok 4 - resolves both lightweight and annotated tags to an immutable commit
+  ---
+  duration_ms: 0.2195
+  type: 'test'
+  ...
+# Subtest: CI accepts only exact-source trusted push runs and waits boundedly for active CI
+ok 5 - CI accepts only exact-source trusted push runs and waits boundedly for active CI
+  ---
+  duration_ms: 1.7373
+  type: 'test'
+  ...
+# Subtest: release preparation rejects changed source, drafts and prereleases
+ok 6 - release preparation rejects changed source, drafts and prereleases
+  ---
+  duration_ms: 0.4965
+  type: 'test'
+  ...
+# Subtest: uses the release commit when master advances and preserves explicit checkout verification
+ok 7 - uses the release commit when master advances and preserves explicit checkout verification
+  ---
+  duration_ms: 1.487
+  type: 'test'
+  ...
+# Subtest: skips stale master, older stable release and an ancestor of deployed production
+ok 8 - skips stale master, older stable release and an ancestor of deployed production
+  ---
+  duration_ms: 0.4246
+  type: 'test'
+  ...
+# Subtest: duplicate notifications verify the already-current source without uploading
+ok 9 - duplicate notifications verify the already-current source without uploading
+  ---
+  duration_ms: 0.2447
+  type: 'test'
+  ...
+# Subtest: legacy CLI git metadata establishes source ordering without bypassing project or SHA checks
+ok 10 - legacy CLI git metadata establishes source ordering without bypassing project or SHA checks
+  ---
+  duration_ms: 0.5588
+  type: 'test'
+  ...
+# Subtest: unknown/divergent production fails and explicit baseline is bound to its deployment ID
+ok 11 - unknown/divergent production fails and explicit baseline is bound to its deployment ID
+  ---
+  duration_ms: 0.9608
+  type: 'test'
+  ...
+# Subtest: build/migration and unhealthy new deployment failures never promote an old healthy endpoint
+ok 12 - build/migration and unhealthy new deployment failures never promote an old healthy endpoint
+  ---
+  duration_ms: 0.6093
+  type: 'test'
+  ...
+# Subtest: API failures retry exactly four times and preserve published installers
+ok 13 - API failures retry exactly four times and preserve published installers
+  ---
+  duration_ms: 0.7136
+  type: 'test'
+  ...
+# Subtest: rechecks moved tags and production ordering after a staged build
+ok 14 - rechecks moved tags and production ordering after a staged build
+  ---
+  duration_ms: 0.7891
+  type: 'test'
+  ...
+# Subtest: old production health cannot stand in for alias promotion
+ok 15 - old production health cannot stand in for alias promotion
+  ---
+  duration_ms: 0.3101
+  type: 'test'
+  ...
+# Subtest: validates deployment source/project and unique URL independently of old production
+ok 16 - validates deployment source/project and unique URL independently of old production
+  ---
+  duration_ms: 0.5251
+  type: 'test'
+  ...
+# Subtest: workflow handoff is direct, publication-gated, shares only the deploy job lock, and supports manual recovery
+ok 17 - workflow handoff is direct, publication-gated, shares only the deploy job lock, and supports manual recovery
+  ---
+  duration_ms: 13.8723
+  type: 'test'
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 150.2285

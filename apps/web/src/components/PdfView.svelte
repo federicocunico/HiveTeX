@@ -177,7 +177,7 @@
     {#if !pdf}
       <div class="nopdf">
         <p><strong>No PDF yet.</strong></p>
-        <p>Press Recompile. The best device online, or this one, builds the PDF and shares it with everyone.</p>
+        <p>Press Recompile to build the PDF on this device.</p>
       </div>
     {/if}
   </div>

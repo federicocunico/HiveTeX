@@ -6,6 +6,31 @@ services; the desktop's bundled Node worker hosts the authoritative runtimes wit
 
 ## What the runtime owns
 
+The supervisor/worker pipe retains an 8 MiB per-frame limit. A larger logical storage message is split into ordered
+frames using the high header bits (`MORE=0x80000000`, `CONTINUATION=0x40000000`, low 30 bits = payload length).
+Only a complete, correctly ordered message is decoded and dispatched. Logical messages are capped at 160 MiB;
+malformed sequences, truncated frames and excessive assembly sizes fail conservatively. Normal native input queues
+remain bounded at 64 MiB; one larger message may occupy an otherwise empty queue. A closed generation releases pending
+assemblies. These flags concern the local inherited pipe, not the peer wire protocol.
+
+Large persistence batches commit each operation and its preimage/update record atomically, in order, rather than
+combining arbitrarily many full preimages into one IPC request. If a suffix fails, the committed prefix survives and
+only the remaining operations retry. The save acknowledgement waits for the whole requested flush.
+
+Each operation record stores an inverse delta (removed text with its position, previous root values, replaced blob
+hashes), not the whole document. A full snapshot is kept only when a Changes group opens and when one edit removes more
+than half of a document, once per distinct content. Signed envelopes carry no preimage; each receiver computes its own.
+`packages/sync/test/provenance-growth.test.ts` holds the bound: 1,000 keystrokes in a 100 KB file with one co-author
+must add less than 3 KiB per keystroke plus 8 document copies to each store, and send less than 3 KiB per keystroke.
+The first measurement was about 1.7 MB added per store and 0.9 MB sent, in three groups. The same typing in a
+document four times larger must cost the same on the wire, within 25%.
+
+Hot paths never list the whole metadata store. `listMetaKeys(prefix)` is a key range in every adapter (memory,
+IndexedDB `IDBKeyRange`, SQLite primary-key range in pages); Recovery reads `recovery:record:` only, projected Changes
+read `operation:projected:`, and `knownDocIds` comes from document keys. `RecoverySection` refreshes on the store's
+"recovery changed" event, not on every document update. `history-scale.test.ts` applies co-author edits over 500,000
+retained records and counts full listings (none allowed).
+
 | Part | Responsibility |
 | --- | --- |
 | `ProjectModel`, `ChangeLog` | the replica and its local history, on an injected `Persistence` |
@@ -15,7 +40,7 @@ services; the desktop's bundled Node worker hosts the authoritative runtimes wit
 | `ConnectionManager` | signaling, WebRTC, the application relay and doorbell introductions |
 | `Doorbell` | the project's ring topic on the push service |
 
-It does **not** start a compiler, take part in compile leadership, push GitHub backups or bind folders. Those are
+It does **not** start a compiler, push GitHub backups or bind folders. Those are
 foreground services that attach to `runtime.model`, `runtime.mesh` and `runtime.blobs` while an editor is open
 (`runtime.test.ts` checks that the runtime's module graph reaches none of them).
 
@@ -76,7 +101,10 @@ Account changes first freeze networking and reject new attachments, then let acc
 then close every project and clear the active profile. The new account activates only after this barrier. Native RTC
 events and delayed creation results are bound to both worker generation and project store ownership; a late allocation
 is closed rather than exposed to the next project owner. A worker exit closes its native stores/RTC even if restart
-backoff ends in needs-attention. Demotion disables seed eligibility and every awaited mutation checks current edit rights.
+backoff ends in needs-attention. When a new generation reports ready, an open editor attaches again under the same
+attachment id: the new worker replays the edits the old one had journaled (once, keyed on attachment and sequence), the
+editor brings its loaded documents up to the worker's state and resends the edits not yet durable; the save warning
+clears once they are. Demotion disables seed eligibility and every awaited mutation checks current edit rights.
 
 Native route/gateway observation uses pinned `netdev 0.38.2` (MIT; [source](https://github.com/shellrow/netdev/tree/v0.38.2)).
 Its local OS snapshot is sampled every five seconds, with no probe payload or control-plane call. A delayed sample
@@ -93,7 +121,7 @@ crash replays journaled edits. Refused edits stay in the recovery journal and ca
 File commands, undo, import and snapshot restore use actor authorization. Conflict resolution includes the revision
 the editor saw; stale decisions are rejected.
 
-Compilation, compile election, GitHub backup and folder watchers belong to the editor attachment. Closing the editor
+Local compilation, GitHub backup and folder watchers belong to the editor attachment. Closing the editor
 cancels their listeners, timers and in-flight work before releasing its lease. An available background actor does not
 compile, back up or watch folders. External folder edits made while closed are reconciled by the existing three-way
 merge on the next open; they are not published by a seed. Cancelling a folder open invalidates its pending native

@@ -1,4 +1,5 @@
-import { type ChangeSet, type HistorySnapshot, type Persistence, type StoreOp } from './persistence.js';
+import { type ChangeSet, type HistorySnapshot, type Persistence, type RawStoreExport, type StoreOp } from './persistence.js';
+import { isBytes } from './bytes.js';
 
 /**
  * Persistence over the desktop's native SQLite store (apps/desktop/src-tauri/src/store.rs, D4). One store per scope
@@ -10,6 +11,8 @@ export type StoreInvoke = <T>(cmd: string, args?: Record<string, unknown>) => Pr
 
 /** Largest blob piece per call (the native store's MAX_CHUNK). */
 export const NATIVE_CHUNK = 4 * 1024 * 1024;
+/** Metadata keys per native listing reply. */
+const META_PAGE = 10_000;
 /** Optional streaming store extension used by the desktop editor bridge; chunks never assemble in worker RAM. */
 export interface StagedBlobStore {
   stageBlobChunk(upload: string, hash: string, size: number, part: number, bytes: Uint8Array): Promise<void>;
@@ -29,7 +32,7 @@ const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
  * `{ "$u8": "<base64>" }` stands for a Uint8Array.
  */
 export function encodeValue(v: unknown): string {
-  return JSON.stringify(v, (_k, x) => (x instanceof Uint8Array ? { $u8: toB64(x) } : x));
+  return JSON.stringify(v, (_k, x) => (isBytes(x) ? { $u8: toB64(x) } : x));
 }
 export function decodeValue(s: string): unknown {
   return JSON.parse(s, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) && Object.keys(x).length === 1 && typeof (x as { $u8?: unknown }).$u8 === 'string' ? fromB64((x as { $u8: string }).$u8) : x));
@@ -81,6 +84,27 @@ export class NativePersistence implements Persistence {
   }
   listDocs() {
     return this.call<string[]>('store_list_docs');
+  }
+
+  async *exportRawStore() {
+    const raw = await this.openRawExport();
+    try { yield* raw.chunks; } finally { await raw.close(); }
+  }
+
+  async openRawExport(): Promise<RawStoreExport> {
+    const descriptor = await this.call<{ token: string; size: number }>('store_export_open');
+    let closed = false;
+    const close = async () => { if (!closed) { closed = true; await this.call('store_export_close', { token: descriptor.token }); } };
+    if (!Number.isSafeInteger(descriptor.size) || descriptor.size < 0) { await close(); throw new Error('Invalid store export size'); }
+    const read = async function* (this: NativePersistence) {
+      for (let offset = 0; offset < descriptor.size;) {
+        const bytes = fromB64(await this.call<string>('store_export_read', { token: descriptor.token, offset }));
+        if (!bytes.length || bytes.length > 1024 * 1024 || offset + bytes.length > descriptor.size) throw new Error('Invalid store export chunk');
+        offset += bytes.length;
+        yield bytes;
+      }
+    };
+    return { size: descriptor.size, chunks: read.call(this), close };
   }
 
   /** Small blobs in one call; large ones staged in chunks and published by the native side after verifying the hash. */
@@ -139,8 +163,15 @@ export class NativePersistence implements Persistence {
   setMeta(key: string, value: unknown) {
     return this.transact([{ op: 'meta', key, value }]);
   }
-  listMetaKeys() {
-    return this.call<string[]>('store_list_meta');
+  /** Key range pages (D6): bounded replies however much history is retained. */
+  async listMetaKeys(prefix = '') {
+    const out: string[] = [];
+    for (let after = ''; ;) {
+      const page = await this.call<string[]>('store_list_meta', { prefix, after, limit: META_PAGE });
+      out.push(...page);
+      if (page.length < META_PAGE) return out;
+      after = page[page.length - 1]!;
+    }
   }
   async putChangeSet(c: ChangeSet) {
     await this.call('store_put_change', { cid: c.id, endedAt: c.endedAt, value: encodeValue(c) });

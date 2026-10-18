@@ -7,15 +7,39 @@ import type { BlobManager } from './blobs.js';
 import { mergeText } from './merge.js';
 import type { Mesh } from './mesh.js';
 import { type FileEntry, type ProjectModel, applyTextDiff, sha256Hex } from './model.js';
+import { listRecovery, preserveRecovery, readRecovery } from './recovery.js';
+import { hostKey, pathCollisions } from './path-collisions.js';
 
 /** Minimal file-system surface the mirror needs. Paths are POSIX-style and relative to the bound folder. */
 export interface FsAdapter {
   list(): Promise<Array<{ path: string; size: number }>>;
+  /** Private OS-level recovery copies; excluded from the shared project. */
+  retained?(): Promise<Array<{ path: string; size: number }>>;
+  /** null means confirmed NotFound only. Permission, I/O and incomplete-read failures MUST reject. */
   read(path: string): Promise<Uint8Array | null>;
-  /** Must be atomic (write temp + rename). */
-  write(path: string, bytes: Uint8Array): Promise<void>;
-  remove(path: string): Promise<void>;
-  watch(cb: (ev: { path: string }) => void): () => void;
+  /**
+   * Must be atomic (write temp + exclusive publication): the path holds the previous or the new content, also after a
+   * failure. Resolves with the transient retained copy of the replaced file, if the adapter keeps one.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: adapters without retained copies return nothing
+  write(path: string, bytes: Uint8Array): Promise<string | null | void>;
+  /** Resolves with the transient retained copy of the removed file, if the adapter keeps one. */
+  // biome-ignore lint/suspicious/noConfusingVoidType: adapters without retained copies return nothing
+  remove(path: string): Promise<string | null | void>;
+  /** Deletes a transient retained copy (`.hivetex-recovery/*.retained`) once it was compared or captured. */
+  dropRetained?(path: string): Promise<void>;
+  /** Must not report directories (reading one is not a file read failure). */
+  watch(cb: (ev: { path: string; error?: unknown }) => void): () => void;
+}
+
+export type FsReadResult = { kind: 'present'; bytes: Uint8Array } | { kind: 'missing' } | { kind: 'error'; error: unknown };
+export async function readFs(fs: FsAdapter, path: string): Promise<FsReadResult> {
+  try { const bytes = await fs.read(path); return bytes === null ? { kind: 'missing' } : { kind: 'present', bytes }; }
+  catch (error) { return { kind: 'error', error }; }
+}
+export async function scanFs(fs: FsAdapter): Promise<{ complete: true; files: Array<{ path: string; size: number }> } | { complete: false; error: unknown }> {
+  try { return { complete: true, files: await fs.list() }; }
+  catch (error) { return { complete: false, error }; }
 }
 
 /** Build artifacts and tool metadata that must never enter the shared project. */
@@ -24,6 +48,7 @@ export const DEFAULT_IGNORES = [
   '.claude/',
   '.cursor/',
   '.agents/',
+  '.hivetex-recovery/',
   '.vscode/',
   '.idea/',
   'node_modules/',
@@ -54,6 +79,9 @@ export const DEFAULT_IGNORES = [
   '_minted*/',
 ];
 
+/** The native walks also skip `target/` (mirror.rs `skip_component`, mirror-node.ts): never mirrored either way. */
+export const MIRROR_IGNORES = [...DEFAULT_IGNORES, 'target/'];
+
 export const IGNORE_FILE = '.hivetexignore';
 
 /** Marker written into a bound folder (and into GitHub backups) so the folder or a clone knows its project. */
@@ -83,6 +111,14 @@ export function parseMarker(bytes: Uint8Array | null): FolderMarker | null {
 
 /** Project meta key holding the last text both sides agreed on, per path (3-way merge base across sessions). */
 const BASE_META = 'mirrorBase';
+/** Recovery-store meta key: retained copies captured but not removable from the folder (not read again on start). */
+const CAPTURED_META = 'mirrorRetainedCaptured';
+const RETAINED_REASON = 'Retained folder inode before replacement or removal';
+const MAX_RETRY_MS = 8000;
+const errorCode = (e: unknown) => (e as { code?: string } | null)?.code;
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** The original project path of a retained copy (`dir/.hivetex-recovery/name.<nonce>.retained`). */
+const retainedOrigin = (copy: string) => copy.split('/').filter((p) => p !== '.hivetex-recovery').join('/').replace(/\.[a-f0-9-]{32,36}\.retained$/, '');
 
 /** Extensions stored as collaborative text (everything else is a binary asset). */
 export const TEXT_EXT =
@@ -100,6 +136,8 @@ export function createIgnoreMatcher(patterns: readonly string[]): (path: string)
 }
 
 export interface MirrorOptions {
+  /** Private durable authority (the desktop renderer's transient model store is not the worker store). */
+  recoveryStore?: import('./persistence.js').Persistence;
   model: ProjectModel;
   mesh: Mesh;
   blobs: BlobManager;
@@ -114,8 +152,13 @@ export interface MirrorOptions {
    */
   onConflict?: (c: { fileId: string; path: string; base: string; disk: string; project: string }) => Promise<unknown>;
   debounceMs?: number;
-  /** First delay before a failed disk write is repeated; it doubles up to 8 s (default 500 ms). */
+  /** First delay before a failed disk write, read, removal or scan is repeated; it doubles up to 8 s (default 500 ms). */
   retryMs?: number;
+  /**
+   * How long a transient retained copy stays in the folder before it is compared with what the mirror last wrote or
+   * read (late writes through an external handle land in it meanwhile). Default 1 s.
+   */
+  retainedSettleMs?: number;
   /** Project identity written into the folder's marker file. */
   marker?: { id: string; slug: string };
 }
@@ -131,7 +174,7 @@ export class MirrorSync {
   private recent = new Map<string, Array<{ hash: string; t: number }>>();
   private pendingDisk = new Map<string, ReturnType<typeof setTimeout>>();
   private pendingModel = new Map<string, ReturnType<typeof setTimeout>>();
-  private ig = ignore().add(DEFAULT_IGNORES);
+  private ig = ignore().add(MIRROR_IGNORES);
   private stopFns: Array<() => void> = [];
   private busy = new Set<string>();
   private dirty = new Set<string>();
@@ -147,20 +190,130 @@ export class MirrorSync {
   private deferred = new Set<string>();
   /** Folder files left untouched because their overlapping changes could not be recorded as a conflict. */
   private held = new Set<string>();
+  private collisionHeld = new Set<string>();
   /** Consecutive failed writes per path (the retry delay grows with it). */
   private failures = new Map<string, number>();
+  /** Consecutive failed reads / removals per path, and failed starts and table passes: each kind has its own backoff. */
+  private readFailures = new Map<string, number>();
+  private removeFailures = new Map<string, number>();
+  private startFailures = 0;
+  private tableFailures = 0;
+  /** Paths whose publication is under way: their absence is not a deletion. */
+  private publishing = new Set<string>();
+  /** Folder files that could not be read at bind time: never overwritten before they were compared. */
+  private unreadable = new Set<string>();
+  /** Files missing from the folder while its marker was missing or foreign: not deleted, rechecked with the marker. */
+  private unconfirmed = new Set<string>();
+  /** Transient retained copies of this session awaiting their comparison. */
+  private settling = new Map<string, ReturnType<typeof setTimeout>>();
   private fetching = false;
   private fetchAgain = false;
+  private tableWork: Promise<void> = Promise.resolve();
+  private tableRetry: ReturnType<typeof setTimeout> | null = null;
+  private startRetry: ReturnType<typeof setTimeout> | null = null;
+  private scanReady = false;
 
   constructor(private o: MirrorOptions) {}
+
+  private get recoveryStore() { return this.o.recoveryStore ?? this.o.model.store; }
+
+  async recoveries() { await this.captureRetained(); return listRecovery(this.recoveryStore); }
+  recoveryBytes(id: string) { return readRecovery(this.recoveryStore, id); }
+
+  private backoff(n: number) { return Math.min((this.o.retryMs ?? 500) * 2 ** Math.min(n - 1, 10), MAX_RETRY_MS); }
+
+  /**
+   * Captures retained copies left in the folder (earlier sessions, a crash, a copy that could not be compared) into the
+   * device's Recovery and removes them from the folder. Incremental: a copy already captured but not removable is
+   * remembered and not read again. Failures to read a copy are reported after the others were captured.
+   */
+  async captureRetained() {
+    const copies = (await this.o.fs.retained?.() ?? []).filter((f) => !this.settling.has(f.path));
+    if (!copies.length) return;
+    const seen = new Set(((await this.recoveryStore.getMeta(CAPTURED_META)) as string[] | null) ?? []);
+    const keep: string[] = [];
+    let failed: unknown = null;
+    for (const file of copies) {
+      const id = `${file.path}:${file.size}`;
+      if (seen.has(id)) { if (!(await this.dropCopy(file.path))) keep.push(id); continue; }
+      try {
+        const bytes = await this.o.fs.read(file.path);
+        if (!bytes) continue;
+        await preserveRecovery(this.recoveryStore, retainedOrigin(file.path), bytes, RETAINED_REASON);
+      } catch (error) { failed = error; continue; }
+      if (!(await this.dropCopy(file.path))) keep.push(id);
+    }
+    if (keep.length !== seen.size || keep.some((k) => !seen.has(k))) await this.recoveryStore.setMeta(CAPTURED_META, keep);
+    if (failed) throw failed;
+  }
+
+  private async dropCopy(copy: string) {
+    if (!this.o.fs.dropRetained) return false;
+    try { await this.o.fs.dropRetained(copy); return true; } catch { return false; }
+  }
+
+  /**
+   * A retained copy of `path` from this session: after the settle delay its bytes are compared with what the mirror
+   * last wrote or read there (`expected`). Equal: removed. Different (external work): captured into Recovery, removed.
+   */
+  private settle(copy: unknown, path: string, expected: string | undefined) {
+    if (typeof copy !== 'string' || !copy) return;
+    const prev = this.settling.get(copy);
+    if (prev) clearTimeout(prev);
+    this.settling.set(copy, setTimeout(() => void this.settleCopy(copy, path, expected), this.o.retainedSettleMs ?? 1000));
+  }
+
+  private async settleCopy(copy: string, path: string, expected: string | undefined) {
+    try {
+      const bytes = await this.o.fs.read(copy);
+      if (bytes && (expected === undefined || (await sha256Hex(bytes)) !== expected)) await preserveRecovery(this.recoveryStore, path, bytes, RETAINED_REASON);
+      await this.o.fs.dropRetained?.(copy);
+    } catch {
+      /* left in the folder: captured on the next start */
+    } finally {
+      this.settling.delete(copy);
+    }
+  }
 
   private isIgnored(path: string) {
     return this.ig.ignores(path);
   }
 
+  /** A watcher path that is a folder of the project or of the mirrored files is not a file event. */
+  private isDirPath(path: string) {
+    if (this.o.model.find(path)?.kind === 'dir') return true;
+    const pre = `${path}/`;
+    for (const p of this.onDisk) if (p.startsWith(pre)) return true;
+    return this.o.model.list().some((f) => f.path.startsWith(pre));
+  }
+
+  /** A disk name that differs from a project path only by Unicode normalization (macOS HFS+ readdir and FSEvents: NFD). */
+  private alias(path: string) {
+    const nfc = path.normalize('NFC');
+    return nfc !== path && !this.o.model.find(path) && this.o.model.find(nfc) ? nfc : path;
+  }
+
+  /** Listing aliases, unless the host lists both forms (a normalization-sensitive filesystem: two files). */
+  private aliasListed(disk: Array<{ path: string; size: number }>) {
+    const names = new Set(disk.map((f) => f.path));
+    return disk.map((f) => { const a = this.alias(f.path); return a === f.path || names.has(a) ? f : { ...f, path: a }; });
+  }
+
+  /** The project path a case-insensitive host gives the same name (a case-only rename leaves both spellings around). */
+  private caseTwin(path: string) {
+    const k = hostKey(path);
+    return this.o.model.list().find((f) => f.path !== path && f.kind !== 'dir' && hostKey(f.path) === k)?.path;
+  }
+
+  private relatedToCollision(path: string) {
+    const k = hostKey(path);
+    for (const h of this.collisionHeld) { const hk = hostKey(h); if (hk === k || hk.startsWith(`${k}/`) || k.startsWith(`${hk}/`)) return true; }
+    return false;
+  }
+
   private async loadIgnoreFile() {
     const bytes = await this.o.fs.read(IGNORE_FILE);
-    this.ig = ignore().add(DEFAULT_IGNORES);
+    this.ig = ignore().add(MIRROR_IGNORES);
     if (bytes) this.ig.add(new TextDecoder().decode(bytes));
     const f = this.o.model.find(IGNORE_FILE);
     if (f?.kind === 'text') this.ig.add((await this.o.model.openText(f.id)).toString());
@@ -168,10 +321,28 @@ export class MirrorSync {
 
   async start() {
     this.running = true;
+    this.scanReady = false;
+    for (const off of this.stopFns.splice(0)) off();
+    try { await this.initialize(); }
+    catch (error) { this.retryStart(error); }
+  }
+
+  /** Its own timer: a pending table retry never swallows a restart (and the reverse). */
+  private retryStart(error: unknown) {
+    this.scanReady = false;
+    const n = ++this.startFailures;
+    this.o.onNotice?.(`Folder access failed: ${String(error)}. No missing files were deleted; access will be retried.`);
+    if (this.running && !this.startRetry) this.startRetry = setTimeout(() => { this.startRetry = null; void this.start(); }, this.backoff(n));
+  }
+
+  private async initialize() {
     await this.loadIgnoreFile();
     if (!this.running) return;
     // Subscribe first so no update that arrives while we reconcile can be missed.
-    this.stopFns.push(this.o.fs.watch((ev) => this.onDiskEvent(ev.path)));
+    this.stopFns.push(this.o.fs.watch((ev) => {
+      if (ev.error) { this.retryStart(ev.error); return; }
+      this.onDiskEvent(ev.path);
+    }));
     this.stopFns.push(this.o.model.onFilesChanged(() => void this.syncTableToDisk()) as unknown as () => void);
     this.stopFns.push(
       this.o.model.onDocUpdate((docId) => {
@@ -190,12 +361,17 @@ export class MirrorSync {
     );
     this.stopFns.push(this.o.mesh.onPeerJoin(() => this.fetchContent()));
     this.fetchContent(); // asks for what is missing; the reconciliation below only uses text that is complete
-    const saved = (await this.o.model.store.getMeta(BASE_META).catch(() => null)) as Record<string, string> | null;
+    const saved = (await this.o.model.store.getMeta(BASE_META)) as Record<string, string> | null;
     if (!this.running) return;
-    this.savedBase = new Map(Object.entries(saved ?? {}));
+    // A restart keeps bases not flushed yet (newer than the stored ones).
+    this.savedBase = new Map([...Object.entries(saved ?? {}), ...this.savedBase]);
+    // An unreadable leftover copy never stops the mirror: it stays in the folder and is retried on the next start.
+    await this.captureRetained().catch((e) => this.o.onNotice?.(`A recovery copy in the folder could not be read (${errorText(e)}); it was left there.`));
     await this.initialReconcile();
-    if (!this.running) return;
+    if (!this.running || !this.scanReady) return;
     await this.writeMarker();
+    this.startFailures = 0;
+    if (!this.failures.size) this.o.onNotice?.('Folder access is ready. Copies of external changes the project replaced are in History → Recovery.');
   }
 
   /** Writes (or updates) the folder marker, keeping fields we do not own such as the backup's `paths`. */
@@ -206,14 +382,16 @@ export class MirrorSync {
     await this.writeMarker(true);
   }
 
-  private async writeMarker(reportFailure = false) {
+  private async writeMarker(reportFailure = true) {
     if (!this.o.marker || this.o.getRole() === 'viewer') return;
-    const current = parseMarker(await this.o.fs.read(MARKER_FILE).catch(() => null));
+    const bytes = await this.o.fs.read(MARKER_FILE);
+    const current = parseMarker(bytes);
     const cur = current ?? { version: 2 };
     if (current && cur.project?.id === this.o.marker.id && cur.project.slug === this.o.marker.slug && cur.version >= 2) return;
     const next: FolderMarker = { ...cur, version: 2, project: { id: this.o.marker.id, slug: this.o.marker.slug } };
-    await this.o.fs.write(MARKER_FILE, new TextEncoder().encode(`${JSON.stringify(next, null, 2)}
+    const copy = await this.o.fs.write(MARKER_FILE, new TextEncoder().encode(`${JSON.stringify(next, null, 2)}
 `)).catch((e) => { if (reportFailure) throw e; });
+    this.settle(copy, MARKER_FILE, bytes ? await sha256Hex(bytes) : undefined);
   }
 
   private rememberBase(path: string, text: string) {
@@ -227,6 +405,9 @@ export class MirrorSync {
 
   stop() {
     this.running = false;
+    // Settling copies finish on their own; one cut short is captured on the next start.
+    for (const t of [this.tableRetry, this.startRetry]) if (t) clearTimeout(t);
+    this.tableRetry = this.startRetry = null;
     if (this.baseTimer) {
       clearTimeout(this.baseTimer);
       this.baseTimer = null;
@@ -234,32 +415,48 @@ export class MirrorSync {
     }
     for (const s of this.stopFns.splice(0)) s();
     for (const t of [...this.pendingDisk.values(), ...this.pendingModel.values()]) clearTimeout(t);
+    this.pendingDisk.clear();
+    this.pendingModel.clear();
   }
 
   // ---- initial binding ----
 
   private async initialReconcile() {
-    const disk = (await this.o.fs.list()).filter((f) => !this.isIgnored(f.path));
+    const scan = await scanFs(this.o.fs);
+    if (!scan.complete) throw scan.error;
+    const disk = this.aliasListed(scan.files.filter((f) => !this.isIgnored(f.path)));
+    this.collisionHeld = pathCollisions([...this.o.model.list().filter((f) => !this.isIgnored(f.path)), ...disk]);
+    this.scanReady = true;
     if (!this.running) return;
-    const have = new Map(this.o.model.list().map((f) => [f.path, f]));
     for (const f of disk) {
-      const entry = have.get(f.path);
-      const bytes = await this.o.fs.read(f.path);
+      if (this.collisionHeld.has(f.path)) { this.o.onNotice?.(`"${f.path}" has conflicting project paths; its disk bytes were kept until the paths are renamed.`); continue; }
+      const read = await readFs(this.o.fs, f.path);
       if (!this.running) return;
-      if (!bytes) continue;
-      // A viewer's folder never changes the project: differences are resolved from the project's side only.
-      if (this.o.getRole() === 'viewer') {
-        await this.viewerInitial(f.path, bytes, entry);
+      if (read.kind === 'error') {
+        // One unreadable file (locked, denied) does not stop the bind: it is compared once a retry can read it.
+        this.unreadable.add(f.path);
+        this.o.onNotice?.(`Could not read "${f.path}" (${errorText(read.error)}); it was kept as it is and reading will be retried.`);
+        this.onDiskEvent(f.path);
         continue;
       }
-      this.lastWritten.set(f.path, await sha256Hex(bytes));
-      this.onDisk.add(f.path);
-      // Disk -> project: new files, and differing text files reconciled by what both sides last agreed on.
-      if (!entry) await this.importFile(f.path, bytes, entry);
-      else if (entry.kind === 'text' && isTextPath(f.path, bytes)) await this.reconcileText(entry, bytes);
+      if (read.kind === 'present') await this.reconcileDiskFile(f.path, read.bytes);
     }
     // Project -> disk: everything not on disk yet.
     await this.writeAll();
+  }
+
+  /** One folder file as at bind time: disk -> project for new files, 3-way for differing text; viewers never push. */
+  private async reconcileDiskFile(path: string, bytes: Uint8Array) {
+    const entry = this.o.model.find(path);
+    // A viewer's folder never changes the project: differences are resolved from the project's side only.
+    if (this.o.getRole() === 'viewer') {
+      await this.viewerInitial(path, bytes, entry);
+      return;
+    }
+    this.lastWritten.set(path, await sha256Hex(bytes));
+    this.onDisk.add(path);
+    if (!entry) await this.importFile(path, bytes, entry);
+    else if (entry.kind === 'text' && isTextPath(path, bytes)) await this.reconcileText(entry, bytes);
   }
 
   /**
@@ -313,6 +510,7 @@ export class MirrorSync {
 
   /** A viewer's folder file at bind time: the project's version is restored; nothing reaches the project. */
   private async viewerInitial(path: string, bytes: Uint8Array, entry: FileEntry | undefined) {
+    await preserveRecovery(this.recoveryStore, path, bytes, 'Read-only folder content before reconciliation');
     if (!entry || entry.kind === 'dir') {
       this.o.onNotice?.(`"${path}" is not part of the project; it was left as it is and is not shared (read-only for you).`);
       return;
@@ -408,23 +606,99 @@ export class MirrorSync {
     );
   }
 
-  private async syncTableToDisk() {
-    if (!this.running) return;
-    const current = new Map(this.o.model.list().map((f) => [f.path, f]));
-    // Removed or renamed away: delete from disk.
+  private syncTableToDisk(): Promise<void> {
+    const run = this.tableWork.then(() => this.applyTableToDisk());
+    this.tableWork = run.then(() => { this.tableFailures = 0; }, (e) => {
+      const n = ++this.tableFailures;
+      this.o.onNotice?.(`Could not reconcile the folder (${errorText(e)}); files were kept and the operation will be retried.`);
+      this.scheduleTableRetry(this.backoff(n));
+    });
+    return this.tableWork;
+  }
+
+  /** Its own timer: a pending restart never swallows a table retry (and the reverse). */
+  private scheduleTableRetry(ms: number) {
+    if (this.running && !this.tableRetry) this.tableRetry = setTimeout(() => { this.tableRetry = null; void this.syncTableToDisk(); }, ms);
+  }
+
+  private async applyTableToDisk() {
+    if (!this.running || !this.scanReady) return;
+    const entries = this.o.model.list().filter((f) => !this.isIgnored(f.path));
+    const current = new Map(entries.map((f) => [f.path, f]));
+    // Removed or renamed away: delete from disk, each path on its own (a locked file never stops the others).
+    let retryIn = 0;
     for (const p of [...this.onDisk]) {
-      if (!current.has(p) && !this.isIgnored(p)) {
-        this.onDisk.delete(p);
-        this.lastWritten.delete(p);
-        await this.o.fs.remove(p).catch(() => {});
+      if (current.has(p) || this.isIgnored(p) || this.held.has(p) || this.o.model.find(p)) continue;
+      try {
+        await this.removeFromDisk(p);
+        this.removeFailures.delete(p);
+      } catch (e) {
+        const n = (this.removeFailures.get(p) ?? 0) + 1;
+        this.removeFailures.set(p, n);
+        this.o.onNotice?.(`Could not remove "${p}" from the folder (${errorText(e)}); it was kept and the removal is pending (retrying).`);
+        retryIn = Math.min(retryIn || Number.POSITIVE_INFINITY, this.backoff(n));
       }
+      if (!this.running) return;
+    }
+    // Collisions are judged after the removals, so a case-only rename does not collide with its own old name.
+    const disk = this.aliasListed((await this.o.fs.list()).filter((f) => !this.isIgnored(f.path)));
+    if (!this.running) return;
+    const collisions = pathCollisions([...entries, ...disk]);
+    this.collisionHeld = collisions;
+    for (const path of collisions) {
+      this.o.onNotice?.(`"${path}" has a case, Unicode, reserved-name or file/folder collision. Its versions remain in the project; rename it before mirroring.`);
     }
     for (const f of current.values()) await this.writeEntry(f);
+    if (retryIn) this.scheduleTableRetry(retryIn);
+  }
+
+  /** Captures and rechecks the disk content before removing a file the project no longer has. */
+  private async removeFromDisk(p: string) {
+    const bytes = await this.readStable(p);
+    if (!this.running || this.o.model.find(p)) return;
+    if (bytes) {
+      const record = await preserveRecovery(this.recoveryStore, p, bytes, 'project file removed or renamed');
+      if (!this.running || this.o.model.find(p)) return;
+      if (record.hash !== this.lastWritten.get(p)) {
+        this.held.add(p);
+        this.o.onNotice?.(`"${p}" changed in the folder before it was removed from the project. Its local version was kept on disk and in Recovery.`);
+        return;
+      }
+      // Capture precedes removal; if an external tool moved meanwhile, do not remove its newer bytes.
+      const check = await this.readStable(p);
+      if (!this.running || this.o.model.find(p)) return;
+      if (check && await sha256Hex(check) !== record.hash) {
+        await preserveRecovery(this.recoveryStore, p, check, 'project file removed or renamed');
+        this.held.add(p);
+        this.o.onNotice?.(`"${p}" changed during removal. Its local version was kept on disk and in Recovery.`);
+        return;
+      }
+      this.settle(await this.o.fs.remove(p), p, record.hash);
+    }
+    this.onDisk.delete(p);
+    this.lastWritten.delete(p);
+  }
+
+  /** A failed write is retried with backoff; a parent that is a file on disk is a collision, held until renamed. */
+  private failWrite(path: string, e: unknown) {
+    if (errorCode(e) === 'ENOTDIR' || /ENOTDIR/.test(errorText(e))) {
+      this.collisionHeld.add(path);
+      this.o.onNotice?.(`"${path}" cannot be written: a parent folder of it is a file in the folder. Both were kept; rename one of them.`);
+      return;
+    }
+    const n = (this.failures.get(path) ?? 0) + 1;
+    this.failures.set(path, n);
+    this.o.onNotice?.(`Could not write "${path}" to the folder (${errorText(e)}); trying again.`);
+    if (this.running) this.scheduleWrite(path, this.backoff(n));
   }
 
   private async writeEntry(f: FileEntry) {
-    if (!this.running) return;
-    if (f.kind === 'dir' || this.isIgnored(f.path) || this.held.has(f.path)) return;
+    if (!this.running || !this.scanReady) return;
+    if (f.kind === 'dir' || this.isIgnored(f.path) || this.held.has(f.path) || this.collisionHeld.has(f.path) || this.unreadable.has(f.path)) return;
+    if (pathCollisions(this.o.model.list()).has(f.path)) {
+      this.o.onNotice?.(`"${f.path}" cannot be mapped safely to this folder. Rename the conflicting project paths.`);
+      return;
+    }
     // Text the project does not hold completely is unknown, not empty: writing it would erase the folder's copy.
     if (f.kind === 'text' && this.o.model.availability(`f:${f.id}`) !== 'complete') {
       this.fetchContent();
@@ -436,16 +710,22 @@ export class MirrorSync {
     }
     this.busy.add(f.path);
     try {
+      // What the mirror last wrote or read here: a retained copy with other bytes holds external work.
+      let expected = this.onDisk.has(f.path) ? this.lastWritten.get(f.path) : undefined;
       // If the file changed on disk since our last write (an external tool is mid-edit), merge that change
       // into the project first so writing the remote state does not clobber it.
-      if (this.o.getRole() !== 'viewer' && this.onDisk.has(f.path)) {
+      if (this.onDisk.has(f.path)) {
         const cur = await this.readStable(f.path);
         if (cur) {
           const curHash = await sha256Hex(cur);
           if (curHash !== this.lastWritten.get(f.path) && !this.isRecentWrite(f.path, curHash)) {
-            this.lastWritten.set(f.path, curHash);
-            await this.importFile(f.path, cur, this.o.model.find(f.path));
+            await preserveRecovery(this.recoveryStore, f.path, cur, 'External folder content before project write');
+            if (this.o.getRole() !== 'viewer') {
+              this.lastWritten.set(f.path, curHash);
+              await this.importFile(f.path, cur, this.o.model.find(f.path));
+            }
           }
+          expected = curHash;
         }
       }
       let bytes: Uint8Array;
@@ -481,29 +761,31 @@ export class MirrorSync {
       this.lastWritten.set(f.path, hash); // set before writing so the watcher event is recognised as ours
       this.noteWrite(f.path, hash);
       this.onDisk.add(f.path);
+      this.publishing.add(f.path); // its absence while publishing (or after a failed publication) is not a deletion
+      let copy: unknown;
       try {
-        await this.o.fs.write(f.path, bytes);
+        copy = await this.o.fs.write(f.path, bytes);
       } catch (e) {
         // Not on disk: forget that we thought so (a retry must not see an "already written" hash), keep the old
         // baseline, and try again with a growing delay.
         if (previous === undefined) this.lastWritten.delete(f.path);
         else this.lastWritten.set(f.path, previous);
         if (!wasOnDisk) this.onDisk.delete(f.path);
-        const n = (this.failures.get(f.path) ?? 0) + 1;
-        this.failures.set(f.path, n);
-        this.o.onNotice?.(`Could not write "${f.path}" to the folder (${e instanceof Error ? e.message : e}); trying again.`);
-        if (this.running) this.scheduleWrite(f.path, Math.min((this.o.retryMs ?? 500) * 2 ** (n - 1), 8000));
+        this.failWrite(f.path, e);
         return;
+      } finally {
+        this.publishing.delete(f.path);
       }
-      this.failures.delete(f.path);
+      this.settle(copy, f.path, expected);
+      const recoveredWrite = this.failures.delete(f.path);
+      if (recoveredWrite && !this.failures.size) this.o.onNotice?.('Folder writes recovered. Copies of external changes the project replaced are in History → Recovery.');
       // Renamed or deleted while the write was under way: it just put the old name back on disk.
       if (this.o.model.byId(f.id)?.path !== f.path) {
         if (this.o.model.find(f.path)) this.dirty.add(f.path); // another file took the name: write that one
         else {
-          this.onDisk.delete(f.path);
-          this.lastWritten.delete(f.path);
           this.base.delete(f.path);
-          await this.o.fs.remove(f.path).catch(() => {});
+          // The usual reconciliation captures and rechecks the disk content before removing it.
+          void this.syncTableToDisk();
         }
         return;
       }
@@ -511,6 +793,9 @@ export class MirrorSync {
         this.base.set(f.path, baseSnap);
         this.rememberBase(f.path, baseSnap.text);
       }
+    } catch (error) {
+      // A read, fetch or merge failure on this path is retried for this path only; the mirror keeps running.
+      if (this.running) this.failWrite(f.path, error);
     } finally {
       this.busy.delete(f.path);
       if (this.dirty.delete(f.path)) {
@@ -522,17 +807,36 @@ export class MirrorSync {
 
   // ---- disk -> project ----
 
-  private onDiskEvent(path: string) {
+  private onDiskEvent(raw: string) {
     if (!this.running) return;
+    const path = this.alias(raw);
     if (path === IGNORE_FILE) void this.loadIgnoreFile();
-    if (this.isIgnored(path)) return;
+    // The marker is back (or changed): files that went missing without it are judged again.
+    if (path === MARKER_FILE && this.unconfirmed.size) {
+      const again = [...this.unconfirmed];
+      this.unconfirmed.clear();
+      for (const p of again) this.onDiskEvent(p);
+    }
+    if (this.isIgnored(path) || this.isDirPath(path)) return;
     const prev = this.pendingDisk.get(path);
     if (prev) clearTimeout(prev);
     this.pendingDisk.set(
       path,
       setTimeout(() => {
         this.pendingDisk.delete(path);
-        void this.handleDiskChange(path);
+        void this.handleDiskChange(path).then(() => {
+          this.readFailures.delete(path);
+          if (this.relatedToCollision(path)) void this.syncTableToDisk(); // a blocking name may be gone
+        }, (e) => {
+          if (errorCode(e) === 'EISDIR' || !this.running) return; // a folder, not a file read failure
+          const n = (this.readFailures.get(path) ?? 0) + 1;
+          this.readFailures.set(path, n);
+          this.o.onNotice?.(`Could not read "${path}" (${errorText(e)}); the project file was kept and reading will be retried.`);
+          if (!this.pendingDisk.has(path)) this.pendingDisk.set(path, setTimeout(() => {
+            this.pendingDisk.delete(path);
+            this.onDiskEvent(path);
+          }, this.backoff(n)));
+        });
       }, this.o.debounceMs ?? 100),
     );
   }
@@ -540,25 +844,54 @@ export class MirrorSync {
   private async handleDiskChange(path: string) {
     const bytes = await this.readStable(path);
     if (!this.running) return;
+    // Unreadable when the folder was bound: compared as at bind time now, then the project's version is written.
+    if (this.unreadable.delete(path)) {
+      if (bytes) await this.reconcileDiskFile(path, bytes);
+      const again = this.o.model.find(path);
+      if (again) await this.writeEntry(again);
+      return;
+    }
     const entry = this.o.model.find(path);
+    // A case-insensitive host reads the new spelling under the old one after a case-only rename: our own bytes.
+    if (!entry && bytes) {
+      const twin = this.caseTwin(path);
+      if (twin) {
+        const h = await sha256Hex(bytes);
+        if (this.lastWritten.get(twin) === h || this.isRecentWrite(twin, h)) return;
+      }
+    }
 
     if (this.o.getRole() === 'viewer') {
+      if (bytes) await preserveRecovery(this.recoveryStore, path, bytes, 'Read-only folder edit before restoring project version');
       // Read-only members cannot change the project: restore the project's version on disk.
       if (entry && entry.kind !== 'dir') {
         this.lastWritten.delete(path);
         await this.writeEntry(entry);
-      } else if (bytes) await this.o.fs.remove(path).catch(() => {});
+      } else if (bytes) this.settle(await this.o.fs.remove(path).catch(() => null), path, await sha256Hex(bytes));
       this.o.onNotice?.(`"${path}" is read-only for you; your local change was reverted.`);
       return;
     }
 
     if (!bytes) {
+      // A publication in flight or one that failed: the path comes back with the next write, it was not deleted.
+      if (this.publishing.has(path) || this.failures.has(path)) return;
+      if (this.o.marker) {
+        const marker = parseMarker(await this.o.fs.read(MARKER_FILE));
+        if (marker?.project?.id !== this.o.marker.id) {
+          // Without our marker the absence is unconfirmed (another folder, a checkout): no deletion and no retry loop.
+          // It is judged again when the marker returns; a rebind writes the project's files back.
+          if (!this.unconfirmed.size) this.o.onNotice?.(`The folder marker ${MARKER_FILE} is missing or names another project: files missing from the folder are not deleted from the project. Restore the marker or use the folder again.`);
+          this.unconfirmed.add(path);
+          return;
+        }
+      }
       // Deleted on disk.
       this.onDisk.delete(path);
       this.lastWritten.delete(path);
       if (entry && entry.kind !== 'dir') this.o.model.delete(entry.id, MIRROR_ORIGIN);
       return;
     }
+    this.unconfirmed.delete(path);
     const hash = await sha256Hex(bytes);
     if (!this.running || this.o.getRole() === 'viewer') return;
     if (this.lastWritten.get(path) === hash || this.isRecentWrite(path, hash)) return; // echo of our own write
@@ -613,18 +946,19 @@ export class MirrorSync {
    * concurrent edit, reorder or lose text. A file that suddenly reads empty gets a longer grace period.
    */
   private async readStable(path: string): Promise<Uint8Array | null> {
+    const read = async () => { const result = await readFs(this.o.fs, path); if (result.kind === 'error') throw result.error; return result.kind === 'missing' ? null : result.bytes; };
     const pause = Math.max(20, Math.min(this.o.debounceMs ?? 100, 200));
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const same = (a: Uint8Array | null, b: Uint8Array | null) =>
       a === b || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
-    let prev = await this.o.fs.read(path);
+    let prev = await read();
     for (let i = 0; i < 25; i++) {
       await sleep(prev && prev.length === 0 && this.onDisk.has(path) ? pause * 3 : pause);
-      const cur = await this.o.fs.read(path);
+      const cur = await read();
       if (same(prev, cur)) return cur;
       prev = cur;
     }
-    return prev;
+    throw new Error(`"${path}" is still changing; reading will be retried without importing an unstable version`);
   }
 
   private noteWrite(path: string, hash: string) {

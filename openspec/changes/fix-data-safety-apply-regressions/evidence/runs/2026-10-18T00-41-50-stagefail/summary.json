@@ -1,0 +1,308 @@
+{
+  "runId": "2026-10-18T00-41-50-stagefail",
+  "server": "http://localhost:3000",
+  "scenarios": [
+    "basic"
+  ],
+  "fault": null,
+  "sabotage": false,
+  "out": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox\\2026-10-18T00-41-50-stagefail",
+  "targetDir": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-empty-e2e",
+  "steps": [
+    {
+      "name": "preflight: disk, leftover instances, host profile, host firewall",
+      "ok": true,
+      "ms": 2864,
+      "value": {
+        "freeOut": "113.1 GiB",
+        "firewall": "profile Public facing the sandbox is disabled"
+      }
+    },
+    {
+      "name": "stage the app for both machines",
+      "ok": false,
+      "ms": 0,
+      "error": "app not built: C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-empty-e2e\\debug\\hivetex-desktop.exe (run without SKIP_BUILD)"
+    }
+  ],
+  "startedAt": "2026-10-18T00:41:50.328Z",
+  "preflight": {
+    "disk": {
+      "out": {
+        "dir": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox",
+        "free": 121482006528,
+        "freeGiB": "113.1 GiB"
+      },
+      "target": {
+        "dir": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-empty-e2e",
+        "free": 121482006528,
+        "freeGiB": "113.1 GiB"
+      }
+    },
+    "leftover": [],
+    "profile": {
+      "profiles": [
+        "C:\\Users\\feder\\AppData\\Roaming\\app.hivetex.desktop.e2e",
+        "C:\\Users\\feder\\AppData\\Local\\app.hivetex.desktop.e2e"
+      ],
+      "setAside": []
+    }
+  },
+  "hostFirewall": {
+    "programs": {
+      "app": "C:\\Users\\feder\\AppData\\Local\\Temp\\p2platex-sandbox\\share\\app\\hivetex-desktop.exe",
+      "server": "C:\\Program Files\\nodejs\\node.exe"
+    },
+    "profiles": [
+      {
+        "name": "Domain",
+        "enabled": true,
+        "inbound": "Block",
+        "allowInboundRules": "True"
+      },
+      {
+        "name": "Private",
+        "enabled": false,
+        "inbound": "Block",
+        "allowInboundRules": "True"
+      },
+      {
+        "name": "Public",
+        "enabled": false,
+        "inbound": "Block",
+        "allowInboundRules": "True"
+      }
+    ],
+    "interfaces": [
+      {
+        "alias": "vEthernet (WSL (Hyper-V firewall))",
+        "ip": "172.17.224.1",
+        "prefix": 20,
+        "category": null
+      },
+      {
+        "alias": "vEthernet (Default Switch)",
+        "ip": "172.17.240.1",
+        "prefix": 20,
+        "category": null
+      }
+    ],
+    "rules": [
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Outbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Photoshop 2025\\node.exe",
+        "enabled": true,
+        "direction": "Outbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Adobe\\Adobe Photoshop 2025\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Common Files\\Adobe\\Creative Cloud Libraries\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Outbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "node adobe-block",
+        "program": "C:\\Program Files\\Common Files\\Adobe\\Creative Cloud Libraries\\libs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Block",
+        "profile": "Any"
+      },
+      {
+        "name": "Evented I/O for V8 JavaScript",
+        "program": "C:\\Program Files\\Autodesk\\Desktop Connect\\forever\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Any"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v23.7.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v23.7.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\program files\\nodejs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "Node.js JavaScript Runtime",
+        "program": "C:\\program files\\nodejs\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "node.exe",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v22.22.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "node.exe",
+        "program": "C:\\users\\feder\\appdata\\roaming\\nvm\\v22.22.0\\node.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\release\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\.codex\\worktrees\\3473\\p2platex\\apps\\desktop\\src-tauri\\target\\release\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\debug\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\appdata\\local\\hivetex\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "hivetex-desktop.exe",
+        "program": "C:\\users\\feder\\appdata\\local\\hivetex\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-synctest\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-synctest\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-syncinv\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      },
+      {
+        "name": "HiveTeX",
+        "program": "F:\\github\\p2platex-syncinv\\apps\\desktop\\src-tauri\\target\\sandbox-sync\\share\\app\\hivetex-desktop.exe",
+        "enabled": true,
+        "direction": "Inbound",
+        "action": "Allow",
+        "profile": "Public"
+      }
+    ],
+    "facing": {
+      "alias": "vEthernet (Default Switch)",
+      "ip": "172.17.240.1",
+      "prefix": 20,
+      "category": null
+    },
+    "facingProfile": "Public",
+    "facingProfileEnabled": false,
+    "assumed": false,
+    "missingAllow": [],
+    "blocking": [],
+    "verdict": "profile Public facing the sandbox is disabled"
+  },
+  "ended": {},
+  "finishedAt": "2026-10-18T00:41:53.195Z",
+  "result": "FAIL"
+}

@@ -8,6 +8,9 @@
 export const WORKER_PROTOCOL = 1;
 /** Largest frame accepted in either direction (payload bytes after the length prefix). */
 export const MAX_FRAME = 8 * 1024 * 1024;
+/** Bounded logical storage message; each pipe frame still respects MAX_FRAME. */
+export const MAX_MESSAGE = 160 * 1024 * 1024;
+const MORE = 0x80000000, CONTINUATION = 0x40000000, LENGTH = 0x3fffffff;
 
 export type WireMessage =
   | { v: 1; gen: number; kind: 'req'; id: number; method: string; params?: unknown }
@@ -30,10 +33,14 @@ const dec = new TextDecoder('utf-8', { fatal: true });
 
 export function encodeFrame(m: WireMessage): Uint8Array {
   const body = enc.encode(JSON.stringify(m));
-  if (body.length > MAX_FRAME) throw new ProtocolError('frame_too_large', `frame of ${body.length} bytes`);
-  const out = new Uint8Array(4 + body.length);
-  new DataView(out.buffer).setUint32(0, body.length);
-  out.set(body, 4);
+  if (body.length > MAX_MESSAGE) throw new ProtocolError('frame_too_large', `message of ${body.length} bytes`);
+  const count = Math.max(1, Math.ceil(body.length / MAX_FRAME));
+  const out = new Uint8Array(body.length + 4 * count), view = new DataView(out.buffer);
+  for (let part = 0, offset = 0; part < count; part++) {
+    const start = part * MAX_FRAME, chunk = body.subarray(start, start + MAX_FRAME);
+    view.setUint32(offset, (chunk.length | (part ? CONTINUATION : 0) | (part < count - 1 ? MORE : 0)) >>> 0);
+    out.set(chunk, offset + 4); offset += chunk.length + 4;
+  }
   return out;
 }
 
@@ -71,19 +78,34 @@ export function validateMessage(x: unknown): WireMessage {
  */
 export class FrameReader {
   private buf = new Uint8Array(0);
+  private fragments: Uint8Array[] = [];
+  private fragmentBytes = 0;
+  constructor(private maxMessageBytes = MAX_MESSAGE) {}
   push(chunk: Uint8Array): WireMessage[] {
     const merged = new Uint8Array(this.buf.length + chunk.length);
     merged.set(this.buf);
     merged.set(chunk, this.buf.length);
     this.buf = merged;
     const out: WireMessage[] = [];
+    let offset = 0;
     for (;;) {
-      if (this.buf.length < 4) break;
-      const len = new DataView(this.buf.buffer, this.buf.byteOffset).getUint32(0);
+      if (this.buf.length - offset < 4) break;
+      const header = new DataView(this.buf.buffer, this.buf.byteOffset + offset).getUint32(0);
+      const len = header & LENGTH, more = (header & MORE) !== 0, continuation = (header & CONTINUATION) !== 0;
       if (len > MAX_FRAME) throw new ProtocolError('frame_too_large', `announced frame of ${len} bytes`);
-      if (this.buf.length < 4 + len) break;
-      const body = this.buf.subarray(4, 4 + len);
-      this.buf = this.buf.slice(4 + len);
+      if (this.buf.length - offset < 4 + len) break;
+      let body = this.buf.subarray(offset + 4, offset + 4 + len);
+      offset += 4 + len;
+      if (continuation !== (this.fragments.length > 0) || ((more || continuation) && len === 0)) throw new ProtocolError('malformed', 'invalid fragment sequence');
+      if (more || continuation) {
+        this.fragmentBytes += body.length;
+        if (this.fragmentBytes > Math.min(MAX_MESSAGE, this.maxMessageBytes)) throw new ProtocolError('frame_too_large', 'assembled message too large');
+        this.fragments.push(body.slice());
+        if (more) continue;
+        const joined = new Uint8Array(this.fragmentBytes); let at = 0;
+        for (const part of this.fragments) { joined.set(part, at); at += part.length; }
+        body = joined; this.fragments = []; this.fragmentBytes = 0;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(dec.decode(body));
@@ -92,10 +114,11 @@ export class FrameReader {
       }
       out.push(validateMessage(parsed));
     }
+    this.buf = this.buf.slice(offset);
     return out;
   }
   get buffered() {
-    return this.buf.length;
+    return this.buf.length + this.fragmentBytes;
   }
 }
 
@@ -222,6 +245,7 @@ export class RpcEndpoint {
   close(reason: Error = new ProtocolError('closed', 'endpoint closed')) {
     if (this.closed) return;
     this.closed = true;
+    this.reader = new FrameReader();
     for (const p of this.pending.values()) p.reject(reason);
     this.pending.clear();
     for (const c of this.running.values()) c.abort();

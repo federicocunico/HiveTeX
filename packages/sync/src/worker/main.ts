@@ -10,7 +10,7 @@ import { nativeProjects } from './native.js';
 import { SeedCatalog, type SeedData } from './catalog.js';
 import { SharedPushChannels } from '../shared-push.js';
 import { decodeValue, encodeValue, storeScope } from '../native-persistence.js';
-import { MAX_FRAME, ProtocolError, RpcEndpoint, redactDiagnostics, WORKER_PROTOCOL } from '../worker-ipc.js';
+import { MAX_FRAME, MAX_MESSAGE, ProtocolError, RpcEndpoint, redactDiagnostics, WORKER_PROTOCOL } from '../worker-ipc.js';
 
 /** Diagnostics on stderr, always redacted (no tokens, keys or topics). */
 const log = (line: string) => process.stderr.write(`hivetex-worker: ${redactDiagnostics(line)}\n`);
@@ -36,7 +36,7 @@ async function shutdown(code: number, pipeGone = false) {
 const rpc = new RpcEndpoint({
   gen,
   write: (frame) => {
-    if (process.stdout.writableLength + frame.length > MAX_FRAME) throw new ProtocolError('frame_too_large', 'worker output queue full');
+    if (process.stdout.writableLength + frame.length > MAX_MESSAGE + MAX_FRAME) throw new ProtocolError('frame_too_large', 'worker output queue full');
     process.stdout.write(frame);
   },
   // A framing error means the stream can no longer be trusted: exit and let the supervisor restart a fresh generation.
@@ -104,7 +104,7 @@ rpc.handle('app.quit', async (wire) => {
   setTimeout(() => void shutdown(0), 0);
   return encodeValue({ ok: true, failing });
 });
-rpc.handle('hello', () => ({ protocol: WORKER_PROTOCOL, gen, node: process.version, maxFrame: MAX_FRAME, pid: process.pid }));
+rpc.handle('hello', () => ({ protocol: WORKER_PROTOCOL, gen, node: process.version, maxFrame: MAX_FRAME, maxMessage: MAX_MESSAGE, pid: process.pid }));
 rpc.handle('ping', (p) => ({ pong: p ?? null, at: Date.now() }));
 rpc.handle('shutdown', () => {
   setTimeout(() => shutdown(0), 0);
@@ -127,6 +127,9 @@ process.stdin.on('end', () => shutdown(0, true));
 process.stdin.on('error', () => shutdown(0, true));
 process.on('uncaughtException', (e) => {
   log(e instanceof Error ? e.message : String(e));
+  // Where it failed: the first distinct frames (a recursion shows its loop once), each a diagnostic line of its own.
+  const frames = e instanceof Error ? (e.stack ?? '').split('\n').slice(1).map((l) => l.trim()) : [];
+  for (const frame of frames.filter((l, i) => l && l !== frames[i - 1]).slice(0, 15)) log(frame);
   shutdown(70);
 });
 rpc.emit('ready', { protocol: WORKER_PROTOCOL, gen });

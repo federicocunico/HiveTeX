@@ -19,20 +19,25 @@ export async function tauriFs(id: string, dir: string): Promise<FsAdapter & { di
     async list() {
       return invoke<Array<{ path: string; size: number }>>('mirror_list', { id });
     },
+    async retained() { return invoke<Array<{ path: string; size: number }>>('mirror_retained', { id }); },
     async read(path) {
       const b = await invoke<string | null>('mirror_read', { id, path });
       return b === null ? null : fromB64(b);
     },
+    // Both resolve with the transient retained copy of the replaced file; the mirror compares it, then drops it.
     async write(path, bytes) {
-      await invoke('mirror_write', { id, path, b64: toB64(bytes) });
+      return invoke<string | null>('mirror_write', { id, path, b64: toB64(bytes) });
     },
     async remove(path) {
-      await invoke('mirror_remove', { id, path });
+      return invoke<string | null>('mirror_remove', { id, path });
+    },
+    async dropRetained(path) {
+      await invoke('mirror_drop_retained', { id, path });
     },
     watch(cb) {
       let un: (() => void) | null = null;
       let stopped = false;
-      void listen<string>(`mirror://${id}`, (e) => cb({ path: e.payload })).then((u) => {
+      void listen<string>(`mirror://${id}`, (e) => cb(e.payload.startsWith('\0error:') ? { path: '', error: e.payload.slice(7) } : { path: e.payload })).then((u) => {
         if (stopped) u();
         else un = u;
       });

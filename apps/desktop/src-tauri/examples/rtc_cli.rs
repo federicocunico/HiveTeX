@@ -3,7 +3,8 @@
 //!   in : {"rid": 1, "cmd": "rtc_create", "args": {...}}
 //!   out: {"rid": 1, "result": ...} | {"rid": 1, "error": "..."} | {"event": "rtc://x", "payload": {...}}
 //! `rtc_create` takes `ice`, `muxed`, `policy` ("relay": relay candidates only) and `interfaces` ("all", "default",
-//! "physical": see rtc.rs `interface_policy`); `rtc_log` returns the stack's own lines.
+//! "physical", "loopback": see rtc.rs `interface_policy`; "loopback" also binds the shared listener on 127.0.0.1, so a
+//! local test opens nothing on a real interface); `rtc_log` returns the stack's own lines.
 
 use hivetex_desktop_lib::portmap::{real_discover, Mapper};
 use hivetex_desktop_lib::rtc::{Emit, IceServer, RtcState};
@@ -47,6 +48,9 @@ async fn main() {
             let res: Result<Value, String> = match req["cmd"].as_str().unwrap_or_default() {
                 "rtc_create" => {
                     let ice: Vec<IceServer> = serde_json::from_value(a["ice"].clone()).unwrap_or_default();
+                    if a["interfaces"] == "loopback" {
+                        state.transport.set_bind_ip(std::net::Ipv4Addr::LOCALHOST.into());
+                    }
                     state.create_full(&s("id"), ice, emit, a["muxed"].as_bool().unwrap_or(false), a["policy"].as_str(), a["interfaces"].as_str()).await.map(|_| Value::Null)
                 }
                 "rtc_create_data_channel" => state.create_data_channel(&s("id"), &s("label"), emit).await.map(|_| Value::Null),

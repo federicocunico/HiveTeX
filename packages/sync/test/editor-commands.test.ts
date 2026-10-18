@@ -4,12 +4,14 @@ import { ChangeLog } from '../src/changelog.js';
 import { EditIngress, MemoryIngressJournal } from '../src/ingress.js';
 import { ProjectModel } from '../src/model.js';
 import { FaultyPersistence } from './faulty-store.js';
+import { ROOT_DOC_ID } from '@hivetex/protocol';
 
 /** 7.2: editor commands and edits through actor authorization and durable acknowledgements. */
 async function world() {
   const store = new FaultyPersistence();
   const model = new ProjectModel(store, { flushMs: 2 });
   await model.init();
+  model.markComplete(ROOT_DOC_ID);
   const changelog = new ChangeLog({ model, store, idleMs: 20 });
   changelog.start();
   const journal = new MemoryIngressJournal();
@@ -28,6 +30,21 @@ const until = async (cond: () => boolean | Promise<boolean>, ms = 4000) => {
 };
 
 describe('editor commands and durability (7.2)', () => {
+  it('runs recovery on the authoritative model, refuses stale decisions and rechecks current permission', async () => {
+    const w = await world();
+    const id = await w.model.createTextNow('retained.tex', 'original'); w.model.delete(id);
+    const preview = await w.model.recoveryState();
+    const token = preview.files[0]!.deletionId!;
+    (await w.model.openText(id)).insert(0, 'later ');
+    expect((await w.commands.run({ kind: 'confirm-deletion', id, deletionId: token, expectedRevision: preview.revision })).ok).toBe(false);
+    expect((await w.commands.run({ kind: 'restore-deleted', id, deletionId: token })).ok).toBe(true);
+    expect((await w.model.openText(id)).toString()).toBe('later original');
+    w.model.delete(id); const current = (await w.model.recoveryState()).files[0]!;
+    w.deny();
+    expect(await w.commands.run({ kind: 'restore-deleted', id, deletionId: current.deletionId! })).toEqual({ ok: false, reason: 'denied' });
+    expect(w.model.byId(id)).toBeUndefined();
+    w.changelog.stop(); await w.model.destroy();
+  });
   it('runs typed file commands durably and refuses them after a demotion', async () => {
     const w = await world();
     const created = await w.commands.run({ kind: 'create', path: 'a.tex', text: 'hello' });

@@ -1,10 +1,8 @@
 import { DEFAULT_IGNORES, type FsAdapter, createIgnoreMatcher } from '@hivetex/sync';
 
 /**
- * Folder access for the web app on Chromium browsers (File System Access API): the same FsAdapter contract the
- * desktop mirror uses, over a directory handle the user picked with showDirectoryPicker. Browsers do not watch
- * folders, so changes made by other programs (Claude Code, Codex, an editor) are detected by polling, or with
- * FileSystemObserver where the browser offers it.
+ * Read-only folder import on Chromium. This adapter refuses all writes/removals, even if an old caller accidentally
+ * attempts to use it as a mirror: browser APIs cannot protect commits against arbitrary external editors atomically.
  */
 
 /** Minimal shapes of the File System Access API used here (DOM typings vary between TypeScript versions). */
@@ -12,39 +10,37 @@ interface FileHandleLike {
   kind: 'file';
   name: string;
   getFile(): Promise<{ size: number; lastModified: number; arrayBuffer(): Promise<ArrayBuffer> }>;
-  createWritable(): Promise<{ write(data: Uint8Array): Promise<void>; close(): Promise<void> }>;
 }
 interface DirHandleLike {
   kind: 'directory';
   name: string;
   entries(): AsyncIterable<[string, FileHandleLike | DirHandleLike]>;
-  getDirectoryHandle(name: string, opts?: { create?: boolean }): Promise<DirHandleLike>;
-  getFileHandle(name: string, opts?: { create?: boolean }): Promise<FileHandleLike>;
-  removeEntry(name: string, opts?: { recursive?: boolean }): Promise<void>;
-  queryPermission?(d: { mode: 'readwrite' }): Promise<PermissionState>;
-  requestPermission?(d: { mode: 'readwrite' }): Promise<PermissionState>;
+  getDirectoryHandle(name: string): Promise<DirHandleLike>;
+  getFileHandle(name: string): Promise<FileHandleLike>;
+  queryPermission?(d: { mode: 'read' }): Promise<PermissionState>;
+  requestPermission?(d: { mode: 'read' }): Promise<PermissionState>;
 }
 
 export const folderAccessSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
 /** Opens the browser's folder picker (must run inside a user gesture). Returns null when cancelled. */
 export async function pickDirectory(): Promise<FileSystemDirectoryHandle | null> {
-  const w = window as unknown as { showDirectoryPicker(o: { mode: 'readwrite' }): Promise<FileSystemDirectoryHandle> };
+  const w = window as unknown as { showDirectoryPicker(o: { mode: 'read' }): Promise<FileSystemDirectoryHandle> };
   try {
-    return await w.showDirectoryPicker({ mode: 'readwrite' });
+    return await w.showDirectoryPicker({ mode: 'read' });
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') return null;
     throw e;
   }
 }
 
-/** 'granted' | 'prompt' | 'denied' for read/write access to a remembered folder. */
+/** 'granted' | 'prompt' | 'denied' for read access. */
 export async function folderPermission(h: FileSystemDirectoryHandle, request = false): Promise<PermissionState> {
   const d = h as unknown as DirHandleLike;
   if (!d.queryPermission) return 'granted';
-  const now = await d.queryPermission({ mode: 'readwrite' });
+  const now = await d.queryPermission({ mode: 'read' });
   if (now === 'granted' || !request || !d.requestPermission) return now;
-  return d.requestPermission({ mode: 'readwrite' });
+  return d.requestPermission({ mode: 'read' });
 }
 
 const isIgnored = createIgnoreMatcher(DEFAULT_IGNORES);
@@ -61,10 +57,10 @@ export function webFs(root: FileSystemDirectoryHandle, opts: WebFsOptions = {}):
     if (parts.some((p) => !p || p === '.' || p === '..')) throw new Error(`invalid path: ${path}`);
     return parts;
   };
-  const parentOf = async (path: string, create: boolean) => {
+  const parentOf = async (path: string) => {
     const parts = segments(path);
     let d = dir;
-    for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create });
+    for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p);
     return { d, name: parts[parts.length - 1] as string };
   };
 
@@ -92,29 +88,38 @@ export function webFs(root: FileSystemDirectoryHandle, opts: WebFsOptions = {}):
     async list() {
       return [...(await snapshot())].map(([path, s]) => ({ path, size: s.size }));
     },
+    async retained() {
+      // Include copies from earlier sessions without traversing other ignored tool directories.
+      const copies = new Map<string, { path: string; size: number }>();
+      async function visit(d: DirHandleLike, prefix: string, privateDir = false) {
+        for await (const [name, h] of d.entries()) {
+          const path = prefix + name;
+          if (h.kind === 'directory') {
+            if (name === '.hivetex-recovery' || !isIgnored(`${path}/`)) await visit(h, `${path}/`, privateDir || name === '.hivetex-recovery');
+          } else if (privateDir) copies.set(path, { path, size: (await h.getFile()).size });
+        }
+      }
+      await visit(dir, ''); return [...copies.values()];
+    },
     async read(path) {
       try {
-        const { d, name } = await parentOf(path, false);
+        const { d, name } = await parentOf(path);
         const f = await (await d.getFileHandle(name)).getFile();
         return new Uint8Array(await f.arrayBuffer());
-      } catch {
-        return null;
+      } catch (e) {
+        if ((e as { name?: string })?.name === 'NotFoundError') {
+          // A removed/unavailable root handle must not masquerade as deletion of every contained file.
+          for await (const _ of dir.entries()) break;
+          return null;
+        }
+        throw e;
       }
     },
-    async write(path, bytes) {
-      const { d, name } = await parentOf(path, true);
-      // createWritable writes to a swap file and commits on close: readers never see a half-written file.
-      const w = await (await d.getFileHandle(name, { create: true })).createWritable();
-      await w.write(bytes);
-      await w.close();
+    async write() {
+      throw new Error('Browser folders are import-only; use the desktop app for live folder sync');
     },
-    async remove(path) {
-      try {
-        const { d, name } = await parentOf(path, false);
-        await d.removeEntry(name);
-      } catch {
-        /* already gone */
-      }
+    async remove() {
+      throw new Error('Browser folders are import-only; use the desktop app for live folder sync');
     },
     watch(cb) {
       let prev: Map<string, { size: number; mtime: number }> | null = null;
@@ -131,8 +136,8 @@ export function webFs(root: FileSystemDirectoryHandle, opts: WebFsOptions = {}):
             for (const p of prev.keys()) if (!cur.has(p)) cb({ path: p });
           }
           prev = cur;
-        } catch {
-          /* permission revoked or folder moved: keep trying quietly */
+        } catch (error) {
+          cb({ path: '', error });
         }
         if (!stopped) timer = setTimeout(tick, opts.pollMs ?? 1500);
       };

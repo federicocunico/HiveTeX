@@ -20,6 +20,10 @@ on:
       - "packages/**"
       - "server/**"
       - "e2e/**"
+      - "scripts/native-test-bin.*"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
       - ".github/workflows/desktop.yml"
 
 concurrency:
@@ -77,6 +81,18 @@ jobs:
         run: pnpm --filter @hivetex/desktop e2e
         env:
           HIVETEX_LIFECYCLE_ONLY: '1'
+      - name: Required native RTC and local compilation bridges
+        run: |
+          pnpm --filter @hivetex/sync exec vitest run test/tauri-rtc.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @hivetex/compile exec vitest run test/native.test.ts
+        env:
+          HIVETEX_NATIVE_TESTS: '1'
+      - run: pnpm exec playwright install chromium
+      - name: Required real local WASM compilation and warm offline cache
+        run: pnpm exec playwright test e2e/local-real-compile.spec.ts --retries=0
+        env:
+          CI: 'true'
 
   # WebDriver availability and GUI timing vary on hosted runners; run these manually with visible warnings.
   desktop-diagnostics:

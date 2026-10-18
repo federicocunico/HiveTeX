@@ -8,5 +8,7 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     ...(process.env.CI ? { maxWorkers: 2, minWorkers: 1 } : {}),
+    // Native suites skipped on this machine are repeated by name at the end of the run (docs/testing.md).
+    globalSetup: ['../../scripts/native-test-summary.mjs'],
   },
 });

@@ -1,0 +1,9 @@
+turbo	0	28s
+test-sync	0	108s
+test-web	0	43s
+svelte-check	0	6s
+size	0	1s
+browser	0	95s
+validate-audit-sync-data-safety	0	1s
+validate-reliable-sync-transport	0	1s
+validate-fix-data-safety-apply-regressions	0	1s

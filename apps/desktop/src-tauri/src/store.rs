@@ -17,7 +17,7 @@ pub const MAX_CHUNK: usize = 4 * 1024 * 1024;
 /// Change sets kept regardless of age, and how long all of them are kept (mirrors persistence.ts).
 const CHANGES_KEEP_MIN: i64 = 500;
 const CHANGES_KEEP_MS: i64 = 7 * 24 * 3600 * 1000;
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
@@ -41,6 +41,22 @@ fn valid_hash(h: &str) -> bool {
 fn err(e: rusqlite::Error) -> String {
     e.to_string()
 }
+/// Size and modification time of a legacy database and its WAL: changes when 0.8.0 wrote to it after a rollback.
+fn legacy_fingerprint(legacy: &Path) -> String {
+    let part = |p: PathBuf| std::fs::metadata(&p).ok().map(|m| {
+        let at = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+        format!("{}@{at}", m.len())
+    }).unwrap_or_else(|| "-".into());
+    format!("{};{}", part(legacy.to_path_buf()), part(PathBuf::from(format!("{}-wal", legacy.display()))))
+}
+/// Smallest string above every key starting with `prefix` (None: no upper bound).
+fn prefix_end(prefix: &str) -> Option<String> {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    while let Some(last) = chars.pop() {
+        if let Some(next) = char::from_u32(last as u32 + 1) { chars.push(next); return Some(chars.into_iter().collect()); }
+    }
+    None
+}
 
 impl Store {
     pub fn open(path: &Path) -> Result<Store, String> {
@@ -57,6 +73,13 @@ impl Store {
     }
 
     fn init(conn: Connection) -> Result<Store, String> {
+        let has_info: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='store_info')", [], |r| r.get(0)).map_err(err)?;
+        if has_info {
+            let version: Option<String> = conn.query_row("SELECT value FROM store_info WHERE key='schema'", [], |r| r.get(0)).optional().map_err(err)?;
+            if version.as_deref().and_then(|v| v.parse::<i64>().ok()).is_some_and(|v| v > SCHEMA_VERSION) {
+                return Err("Unsupported store version; preserve this database and use compatible software to export it".into());
+            }
+        }
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
@@ -83,10 +106,71 @@ impl Store {
             names.collect::<Result<Vec<_>,_>>().map_err(err)?.iter().any(|name|name=="denied")
         };
         if !has_denied {conn.execute("ALTER TABLE ingress ADD COLUMN denied INTEGER NOT NULL DEFAULT 0",[]).map_err(err)?;}
-        conn.execute("INSERT OR IGNORE INTO store_info(key, value) VALUES('schema', ?1)", params![SCHEMA_VERSION.to_string()]).map_err(err)?;
+        conn.execute("INSERT INTO store_info(key, value) VALUES('schema', ?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![SCHEMA_VERSION.to_string()]).map_err(err)?;
         // Chunks of an upload interrupted by a crash are never published; start clean.
         conn.execute("DELETE FROM staging", []).map_err(err)?;
         Ok(Store { conn })
+    }
+
+    fn info(&self, key: &str) -> Result<Option<String>, String> {
+        self.conn.query_row("SELECT value FROM store_info WHERE key = ?1", params![key], |r| r.get(0)).optional().map_err(err)
+    }
+
+    /// After upgrade → rollback to 0.8.0 → edits → upgrade, the legacy database changed: its later Yjs updates, assets,
+    /// snapshots and change sets are merged as an import of unknown provenance (a CRDT union; the legacy file stays
+    /// read-only). Device metadata and 0.8.0's own pending input journal are not merged. Returns the updates merged.
+    pub fn merge_changed_legacy(&mut self, legacy: &Path) -> Result<usize, String> {
+        let fingerprint = legacy_fingerprint(legacy);
+        if self.info("legacy_fingerprint")?.as_deref() == Some(fingerprint.as_str()) { return Ok(0); }
+        // A store migrated before fingerprints existed holds no high-water mark: merging everything again is idempotent.
+        let after: i64 = self.info("legacy_max_update")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+        let source = Connection::open_with_flags(legacy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+        let has = |table: &str| -> Result<bool, String> {
+            source.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)", params![table], |r| r.get(0)).map_err(err)
+        };
+        let tx = self.conn.transaction().map_err(err)?;
+        let (mut merged, mut max) = (0usize, after);
+        if has("updates")? {
+            let mut st = source.prepare("SELECT id, doc, data FROM updates WHERE id > ?1 ORDER BY id").map_err(err)?;
+            let mut rows = st.query(params![after]).map_err(err)?;
+            while let Some(row) = rows.next().map_err(err)? {
+                let (id, doc, data): (i64, String, Vec<u8>) = (row.get(0).map_err(err)?, row.get(1).map_err(err)?, row.get(2).map_err(err)?);
+                tx.execute("INSERT INTO updates(doc, data) VALUES(?1, ?2)", params![doc, data]).map_err(err)?;
+                merged += 1; max = max.max(id);
+            }
+        }
+        if has("blobs")? {
+            let mut st = source.prepare("SELECT hash FROM blobs").map_err(err)?;
+            let hashes = st.query_map([], |r| r.get::<_, String>(0)).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
+            for hash in hashes {
+                let present: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM blobs WHERE hash = ?1)", params![hash], |r| r.get(0)).map_err(err)?;
+                if present || !valid_hash(&hash) { continue; }
+                let data: Vec<u8> = source.query_row("SELECT data FROM blobs WHERE hash = ?1", params![hash], |r| r.get(0)).map_err(err)?;
+                // Only content that still matches its address is published.
+                if data.len() <= MAX_BLOB && hex(&Sha256::digest(&data)) == hash { tx.execute("INSERT OR IGNORE INTO blobs(hash, data) VALUES(?1, ?2)", params![hash, data]).map_err(err)?; }
+            }
+        }
+        for (table, sql, insert) in [
+            ("snapshots", "SELECT id, at, value FROM snapshots", "INSERT OR IGNORE INTO snapshots(id, at, value) VALUES(?1, ?2, ?3)"),
+            ("changes", "SELECT id, ended_at, value FROM changes", "INSERT OR IGNORE INTO changes(id, ended_at, value) VALUES(?1, ?2, ?3)"),
+        ] {
+            if !has(table)? { continue; }
+            let mut st = source.prepare(sql).map_err(err)?;
+            let mut rows = st.query([]).map_err(err)?;
+            while let Some(row) = rows.next().map_err(err)? {
+                tx.execute(insert, params![row.get::<_, String>(0).map_err(err)?, row.get::<_, i64>(1).map_err(err)?, row.get::<_, String>(2).map_err(err)?]).map_err(err)?;
+            }
+        }
+        drop(source);
+        for (key, value) in [("legacy_fingerprint", legacy_fingerprint(legacy)), ("legacy_max_update", max.to_string())] {
+            tx.execute("INSERT INTO store_info(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![key, value]).map_err(err)?;
+        }
+        if merged > 0 {
+            tx.execute("INSERT INTO meta(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                params![format!("legacy:merged:{max}"), format!("{{\"v\":1,\"updates\":{merged},\"at\":{}}}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis()))]).map_err(err)?;
+        }
+        tx.commit().map_err(err)?;
+        Ok(merged)
     }
 
     /// All ops commit together or none does (the transaction rolls back on the first error).
@@ -235,6 +319,15 @@ impl Store {
         rows.collect::<Result<Vec<_>, _>>().map_err(err)
     }
 
+    /// Keys starting with `prefix`, after `after`, in key order: a primary-key range, never a scan of unrelated
+    /// history (D6). At most `limit` keys per call, so no listing exceeds a transport limit.
+    pub fn list_meta_page(&self, prefix: &str, after: &str, limit: u32) -> Result<Vec<String>, String> {
+        let end = prefix_end(prefix);
+        let mut st = self.conn.prepare_cached("SELECT key FROM meta WHERE key >= ?1 AND (?2 IS NULL OR key < ?2) AND key > ?3 ORDER BY key LIMIT ?4").map_err(err)?;
+        let rows = st.query_map(params![prefix, end, after, limit.clamp(1, 50_000)], |r| r.get::<_, String>(0)).map_err(err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(err)
+    }
+
     pub fn put_change(&self, id: &str, ended_at: i64, value: &str) -> Result<(), String> {
         self.conn
             .execute("INSERT INTO changes(id, ended_at, value) VALUES(?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET ended_at = excluded.ended_at, value = excluded.value", params![id, ended_at, value])
@@ -325,7 +418,27 @@ pub struct StoreState {
 struct StoreTable {
     next: u32,
     open: HashMap<u32, (String, Store)>,
+    exports: HashMap<String, StoreExport>,
+    /// Exports copying outside the lock (they count toward the export limit).
+    exporting: usize,
 }
+
+struct StoreExport {
+    owner: u32,
+    path: PathBuf,
+    file: Option<std::fs::File>,
+    size: u64,
+    used: std::time::Instant,
+}
+impl Drop for StoreExport {
+    fn drop(&mut self) {
+        self.file.take(); // Windows requires the handle closed before deleting the temporary copy.
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct ExportDescriptor { pub token: String, pub size: u64 }
 
 /// Scopes are derived by the client from (server, account, project): 64 lowercase hex characters, or `local-` plus a
 /// local project id. Nothing else can name a file.
@@ -335,7 +448,7 @@ pub fn scope_path(root: &Path, scope: &str) -> Result<PathBuf, String> {
     if !ok {
         return Err("invalid store scope".into());
     }
-    Ok(root.join("stores").join(format!("{scope}.sqlite3")))
+    Ok(root.join("stores").join(format!("{scope}.safety-v1.sqlite3")))
 }
 
 impl StoreState {
@@ -345,7 +458,36 @@ impl StoreState {
         if t.open.values().any(|(s, _)| s == scope) {
             return Err("store already open".into());
         }
-        let store = Store::open(&path)?;
+        // Keep the old binary's database untouched. A downgrade cannot write the new format by accident.
+        let legacy = root.join("stores").join(format!("{scope}.sqlite3"));
+        if !path.exists() && legacy.exists() {
+            let fingerprint = legacy_fingerprint(&legacy);
+            let source = Connection::open_with_flags(&legacy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+            let mut nonce = [0u8; 16]; getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
+            let temporary = path.with_extension(format!("{}.migration", hex(&nonce)));
+            let copy = (|| -> Result<(), String> {
+                source.execute("VACUUM INTO ?1", params![temporary.to_string_lossy()]).map_err(err)?;
+                let check = Connection::open_with_flags(&temporary, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+                let integrity: String = check.query_row("PRAGMA integrity_check", [], |r| r.get(0)).map_err(err)?;
+                if integrity != "ok" { return Err("Migrated store failed integrity check".into()); }
+                drop(check);
+                // The copy remembers which legacy state it holds: a later 0.8.0 write (after a rollback) is merged (D7).
+                let mark = Connection::open(&temporary).map_err(err)?;
+                mark.execute_batch("CREATE TABLE IF NOT EXISTS store_info(key TEXT PRIMARY KEY, value TEXT NOT NULL)").map_err(err)?;
+                let max: i64 = mark.query_row("SELECT coalesce(max(id), 0) FROM updates", [], |r| r.get(0)).map_err(err)?;
+                for (key, value) in [("legacy_fingerprint", fingerprint.clone()), ("legacy_max_update", max.to_string())] {
+                    mark.execute("INSERT INTO store_info(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![key, value]).map_err(err)?;
+                }
+                drop(mark);
+                std::fs::OpenOptions::new().read(true).write(true).open(&temporary).map_err(|e| e.to_string())?.sync_all().map_err(|e| e.to_string())?;
+                std::fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
+                Ok(())
+            })();
+            if copy.is_err() { let _ = std::fs::remove_file(&temporary); }
+            copy?;
+        }
+        let mut store = Store::open(&path)?;
+        if legacy.exists() { store.merge_changed_legacy(&legacy)?; }
         t.next += 1;
         let id = t.next;
         t.open.insert(id, (scope.to_string(), store));
@@ -358,23 +500,86 @@ impl StoreState {
         if t.open.values().any(|(s, _)| s == scope) {
             return Err("store is open".into());
         }
-        for suffix in ["", "-wal", "-shm"] {
-            let f = PathBuf::from(format!("{}{suffix}", path.display()));
+        for database in [path, root.join("stores").join(format!("{scope}.sqlite3"))] {
+          for suffix in ["", "-wal", "-shm"] {
+            let f = PathBuf::from(format!("{}{suffix}", database.display()));
             match std::fs::remove_file(&f) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e.to_string()),
             }
+          }
         }
         Ok(())
     }
     pub fn exists(&self, root: &Path, scope: &str) -> Result<bool, String> {
-        Ok(scope_path(root, scope)?.exists())
+        Ok(scope_path(root, scope)?.exists() || root.join("stores").join(format!("{scope}.sqlite3")).exists())
     }
     pub fn close(&self, id: u32) {
         if let Ok(mut t) = self.inner.lock() {
+            t.exports.retain(|_, export| export.owner != id);
             t.open.remove(&id);
         }
+    }
+    /// A coherent SQLite snapshot, independent of aggregate JSON/pipe limits. Never expose a filesystem path.
+    /// The copy runs on a dedicated read connection outside the global lock: every store keeps working meanwhile (D7).
+    pub fn export_open(&self, id: u32) -> Result<ExportDescriptor, String> {
+        let database = {
+            let mut t = self.inner.lock().map_err(|_| "store lock poisoned")?;
+            t.exports.retain(|_, export| export.used.elapsed().as_secs() < 120);
+            if t.exports.len() + t.exporting >= 2 { return Err("too many active store exports".into()); }
+            let (_, store) = t.open.get(&id).ok_or("unknown store handle")?;
+            let database = store.conn.path().ok_or("store has no database file")?.to_string();
+            if database.is_empty() { return Err("store has no database file".into()); }
+            t.exporting += 1;
+            database
+        };
+        let mut nonce = [0u8; 16];
+        let copied = getrandom::fill(&mut nonce).map_err(|e| e.to_string()).and_then(|()| Self::copy_export(&database, &hex(&nonce)));
+        let mut t = self.inner.lock().map_err(|_| "store lock poisoned")?;
+        t.exporting -= 1;
+        let (path, file, size) = copied?;
+        let token = hex(&nonce);
+        let export = StoreExport { owner: id, path, file: Some(file), size, used: std::time::Instant::now() };
+        // Closed meanwhile: dropping the export removes the copy.
+        if !t.open.contains_key(&id) { drop(export); return Err("store closed during export".into()); }
+        t.exports.insert(token.clone(), export);
+        Ok(ExportDescriptor { token, size })
+    }
+    fn copy_export(database: &str, token: &str) -> Result<(PathBuf, std::fs::File, u64), String> {
+        let path = PathBuf::from(format!("{database}.export-{token}.sqlite3"));
+        let copy = (|| -> Result<(std::fs::File, u64), String> {
+            let source = Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+            source.execute("VACUUM INTO ?1", params![path.to_string_lossy()]).map_err(err)?;
+            drop(source);
+            let check = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+            let integrity: String = check.query_row("PRAGMA integrity_check", [], |r| r.get(0)).map_err(err)?;
+            if integrity != "ok" { return Err("export failed integrity check".into()); }
+            drop(check);
+            let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+            let size = file.metadata().map_err(|e| e.to_string())?.len();
+            Ok((file, size))
+        })();
+        match copy { Ok((file, size)) => Ok((path, file, size)), Err(error) => { let _ = std::fs::remove_file(&path); Err(error) } }
+    }
+    pub fn export_read(&self, id: u32, token: &str, offset: u64) -> Result<Vec<u8>, String> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut t = self.inner.lock().map_err(|_| "store lock poisoned")?;
+        let export = t.exports.get_mut(token).filter(|e| e.owner == id).ok_or("unknown store export")?;
+        if export.used.elapsed().as_secs() >= 120 || offset > export.size { return Err("expired or invalid store export".into()); }
+        export.used = std::time::Instant::now();
+        let len = (export.size - offset).min(1024 * 1024) as usize;
+        let mut bytes = vec![0; len];
+        let file = export.file.as_mut().ok_or("closed store export")?;
+        file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+        file.read_exact(&mut bytes).map_err(|e| e.to_string())?;
+        Ok(bytes)
+    }
+    pub fn export_close(&self, id: u32, token: &str) -> Result<(), String> {
+        let mut t = self.inner.lock().map_err(|_| "store lock poisoned")?;
+        if t.exports.get(token).is_some_and(|e| e.owner != id) { return Err("wrong store export owner".into()); }
+        t.exports.remove(token);
+        Ok(())
     }
     pub fn with<T>(&self, id: u32, f: impl FnOnce(&mut Store) -> Result<T, String>) -> Result<T, String> {
         let mut t = self.inner.lock().map_err(|_| "store lock poisoned")?;
@@ -450,6 +655,187 @@ mod tests {
     use super::*;
 
     #[test]
+    fn safety_upgrade_copies_legacy_without_modifying_it_and_reopens_new_edits() {
+        let root = std::env::temp_dir().join(format!("hivetex-store-upgrade-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let scope = "local-upgrade";
+        std::fs::create_dir_all(root.join("stores")).unwrap();
+        let legacy = root.join("stores").join(format!("{scope}.sqlite3"));
+        let mut original = Store::open(&legacy).unwrap();
+        original.conn.execute("UPDATE store_info SET value = '1' WHERE key = 'schema'", []).unwrap();
+        original.transact(&[StoreOp::Append { doc: "root".into(), updates: vec![vec![1,2,3]] }]).unwrap();
+        drop(original);
+        let before = std::fs::read(&legacy).unwrap();
+        let state = StoreState::default();
+        let id = state.open(&root, scope).unwrap();
+        state.with(id, |s| { assert_eq!(s.load("root")?, vec![vec![1,2,3]]); s.transact(&[StoreOp::Append { doc: "root".into(), updates: vec![vec![4]] }]) }).unwrap();
+        state.close(id);
+        assert_eq!(std::fs::read(&legacy).unwrap(), before);
+        let id = state.open(&root, scope).unwrap();
+        assert_eq!(state.with(id, |s| s.load("root")).unwrap(), vec![vec![1,2,3],vec![4]]);
+        state.close(id);
+        state.delete(&root, scope).unwrap();
+        assert!(!state.exists(&root, scope).unwrap());
+        std::fs::remove_dir(root.join("stores")).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn re_upgrade_after_rollback_merges_later_legacy_edits_without_touching_the_legacy_file() {
+        let mut nonce = [0u8; 8]; getrandom::fill(&mut nonce).unwrap();
+        let root = std::env::temp_dir().join(format!("hivetex-store-rollback-{}", hex(&nonce)));
+        let scope = "local-rollback";
+        std::fs::create_dir_all(root.join("stores")).unwrap();
+        let legacy = root.join("stores").join(format!("{scope}.sqlite3"));
+        let legacy_write = |updates: Vec<Vec<u8>>, blob: Option<&[u8]>| {
+            let mut s = Store::open(&legacy).unwrap(); // 0.8.0 writes its own database after the rollback
+            s.conn.execute("UPDATE store_info SET value = '1' WHERE key = 'schema'", []).unwrap();
+            s.transact(&[StoreOp::Append { doc: "f:a".into(), updates }]).unwrap();
+            if let Some(b) = blob { s.put_blob(&sha(b), b).unwrap(); }
+            s.put_snapshot("legacy-snap", 1, "{}").unwrap();
+        };
+        legacy_write(vec![vec![1]], None);
+        let state = StoreState::default();
+        // Upgrade: migrated copy, then new work only in the new store.
+        let id = state.open(&root, scope).unwrap();
+        state.with(id, |s| s.transact(&[StoreOp::Append { doc: "f:a".into(), updates: vec![vec![2]] }])).unwrap();
+        state.close(id);
+        // Unchanged legacy: reopening merges nothing.
+        let id = state.open(&root, scope).unwrap();
+        assert_eq!(state.with(id, |s| s.load("f:a")).unwrap(), vec![vec![1], vec![2]]);
+        state.close(id);
+        // Rollback to 0.8.0, offline edits (a compaction and an asset), then upgrade again.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        legacy_write(vec![vec![3], vec![4]], Some(b"asset written by 0.8.0"));
+        let before = std::fs::read(&legacy).unwrap();
+        let id = state.open(&root, scope).unwrap();
+        let docs = state.with(id, |s| s.load("f:a")).unwrap();
+        assert_eq!(docs, vec![vec![1], vec![2], vec![3], vec![4]]);
+        assert!(state.with(id, |s| s.get_blob(&sha(b"asset written by 0.8.0"))).unwrap().is_some());
+        assert!(state.with(id, |s| Ok(s.list_meta()?.iter().any(|k| k.starts_with("legacy:merged:")))).unwrap());
+        state.close(id);
+        assert_eq!(std::fs::read(&legacy).unwrap(), before, "the legacy database is never modified");
+        // Merged once: a further reopen does not duplicate the rows.
+        let id = state.open(&root, scope).unwrap();
+        assert_eq!(state.with(id, |s| s.load("f:a")).unwrap().len(), 4);
+        state.close(id);
+        state.delete(&root, scope).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 1 GiB store export (task 5.5): peak process memory stays far below the store size, the copy runs outside the
+    /// global lock (another store answers meanwhile) and the streamed copy verifies. Opt-in: `HIVETEX_LARGE_STORE_DIR`.
+    #[test]
+    #[ignore]
+    fn exports_a_one_gib_store_in_bounded_memory_outside_the_global_lock() {
+        use std::io::Write;
+        let Some(dir) = std::env::var_os("HIVETEX_LARGE_STORE_DIR") else { return };
+        let root = PathBuf::from(dir).join(format!("hivetex-large-export-{}", std::process::id()));
+        let state = std::sync::Arc::new(StoreState::default());
+        let id = state.open(&root, "local-large").unwrap();
+        let other = state.open(&root, "local-other").unwrap();
+        let chunk: Vec<u8> = (0..4 * 1024 * 1024u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+        for n in 0..256u32 {
+            let mut data = chunk.clone(); data[..4].copy_from_slice(&n.to_be_bytes());
+            state.with(id, |s| s.transact(&[StoreOp::Append { doc: format!("f:{}", n % 8), updates: vec![data] }])).unwrap();
+        }
+        let pid = sysinfo::get_current_pid().unwrap();
+        let rss = move || { let mut sys = sysinfo::System::new(); sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true); sys.process(pid).map_or(0, |p| p.memory()) };
+        let base = rss();
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let peak = { let done = done.clone(); std::thread::spawn(move || { let mut peak = 0; while !done.load(std::sync::atomic::Ordering::SeqCst) { peak = peak.max(rss()); std::thread::sleep(std::time::Duration::from_millis(20)); } peak }) };
+        let probe = { let state = state.clone(); let done = done.clone(); std::thread::spawn(move || {
+            let mut worst = std::time::Duration::ZERO;
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                let at = std::time::Instant::now();
+                state.with(other, |s| s.transact(&[StoreOp::Meta { key: "tick".into(), value: Some("1".into()) }])).unwrap();
+                worst = worst.max(at.elapsed()); std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            worst
+        }) };
+        let started = std::time::Instant::now();
+        let descriptor = state.export_open(id).unwrap();
+        let copy_ms = started.elapsed().as_millis();
+        assert!(descriptor.size >= 1 << 30);
+        let target = root.join("export.sqlite3");
+        let mut file = std::fs::File::create(&target).unwrap();
+        let mut hasher = Sha256::new();
+        let mut offset = 0;
+        while offset < descriptor.size {
+            let bytes = state.export_read(id, &descriptor.token, offset).unwrap();
+            hasher.update(&bytes); file.write_all(&bytes).unwrap(); offset += bytes.len() as u64;
+        }
+        drop(file);
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let (peak, worst) = (peak.join().unwrap(), probe.join().unwrap());
+        state.export_close(id, &descriptor.token).unwrap();
+        assert_eq!(hex(&hasher.finalize()), hex(&Sha256::digest(std::fs::read(&target).unwrap())));
+        let check = Connection::open_with_flags(&target, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        assert_eq!(check.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+        assert_eq!(check.query_row("SELECT count(*) FROM updates", [], |r| r.get::<_, i64>(0)).unwrap(), 256);
+        drop(check);
+        eprintln!("store {} MiB, VACUUM INTO {copy_ms} ms, rss base {} MiB, peak {} MiB (+{} MiB), worst concurrent store call {:?}",
+            descriptor.size >> 20, base >> 20, peak >> 20, peak.saturating_sub(base) >> 20, worst);
+        assert!(peak.saturating_sub(base) < 256 << 20, "export memory must stay bounded");
+        assert!(worst < std::time::Duration::from_secs(1), "another store must not wait for the copy");
+        state.close(id); state.close(other);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refuses_a_future_database_before_schema_or_staging_changes() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE store_info(key TEXT PRIMARY KEY,value TEXT); INSERT INTO store_info VALUES('schema','99');").unwrap();
+        assert!(Store::init(conn).err().unwrap().contains("Unsupported store version"));
+    }
+
+    #[test]
+    fn exports_more_than_the_pipe_budget_as_a_coherent_database_in_bounded_chunks() {
+        use std::io::Write;
+        let mut nonce = [0u8; 16]; getrandom::fill(&mut nonce).unwrap();
+        let root = std::env::temp_dir().join(format!("hivetex-store-export-{}", hex(&nonce)));
+        let state = StoreState::default();
+        let id = state.open(&root, "local-export").unwrap();
+        let other = state.open(&root, "local-other").unwrap();
+        let value = format!("{{\"body\":\"{}\"}}", "x".repeat(16 * 1024 * 1024));
+        state.with(id, |s| {
+            for n in 0..11 { s.put_snapshot(&format!("snapshot-{n}"), n, &value)?; }
+            s.transact(&[StoreOp::Meta { key: "version".into(), value: Some("before".into()) }])?;
+            s.ingress_put_source("writer", 1, "root", &[1,2,3], "folder")?;
+            s.ingress_deny("writer", 1)?;
+            Ok(())
+        }).unwrap();
+        let descriptor = state.export_open(id).unwrap();
+        assert!(descriptor.size > 160 * 1024 * 1024);
+        assert!(state.export_read(other, &descriptor.token, 0).is_err());
+        assert!(state.export_close(other, &descriptor.token).is_err());
+        state.with(id, |s| s.transact(&[StoreOp::Meta { key: "version".into(), value: Some("after".into()) }])).unwrap();
+        let copy = root.join("download.sqlite3");
+        let mut file = std::fs::File::create(&copy).unwrap();
+        let mut offset = 0;
+        while offset < descriptor.size {
+            let bytes = state.export_read(id, &descriptor.token, offset).unwrap();
+            assert!(!bytes.is_empty() && bytes.len() <= 1024 * 1024);
+            file.write_all(&bytes).unwrap(); offset += bytes.len() as u64;
+        }
+        drop(file);
+        let check = Connection::open_with_flags(&copy, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        assert_eq!(check.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+        assert_eq!(check.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get::<_, i64>(0)).unwrap(), 11);
+        assert_eq!(check.query_row("SELECT MIN(length(value)) FROM snapshots", [], |r| r.get::<_, usize>(0)).unwrap(), value.len());
+        assert_eq!(check.query_row("SELECT value FROM meta WHERE key='version'", [], |r| r.get::<_, String>(0)).unwrap(), "before");
+        assert_eq!(check.query_row("SELECT denied FROM ingress", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        drop(check);
+        state.export_close(id, &descriptor.token).unwrap();
+        assert!(state.export_read(id, &descriptor.token, 0).is_err());
+        // Closing an owner also disposes unfinished exports; the original store remains readable.
+        let unfinished = state.export_open(other).unwrap(); state.close(other);
+        assert!(state.export_read(other, &unfinished.token, 0).is_err());
+        assert_eq!(state.with(id, |s| s.get_meta("version")).unwrap(), Some("after".into()));
+        state.close(id); state.delete(&root, "local-export").unwrap(); state.delete(&root, "local-other").unwrap();
+        std::fs::remove_file(copy).unwrap(); std::fs::remove_dir(root.join("stores")).unwrap(); std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
     fn denied_ingress_and_original_source_survive_later_acknowledgements() {
         let s=Store::in_memory().unwrap();
         s.ingress_put_source("a",1,"f:a",&[1],"folder").unwrap();s.ingress_deny("a",1).unwrap();
@@ -512,6 +898,25 @@ mod tests {
         assert!(reopened.ingress_pending().unwrap().is_empty());
         drop(reopened);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn meta_keys_list_by_prefix_range_in_bounded_pages() {
+        let mut s = Store::in_memory().unwrap();
+        let mut ops = vec![StoreOp::Meta { key: "recovery;x".into(), value: Some("1".into()) }, StoreOp::Meta { key: "recoverx".into(), value: Some("1".into()) }];
+        for n in 0..25 { ops.push(StoreOp::Meta { key: format!("recovery:record:{n:03}"), value: Some("{}".into()) }); }
+        for n in 0..100 { ops.push(StoreOp::Meta { key: format!("operation:record:{n:03}"), value: Some("{}".into()) }); }
+        s.transact(&ops).unwrap();
+        let (mut keys, mut after) = (Vec::new(), String::new());
+        loop {
+            let page = s.list_meta_page("recovery:record:", &after, 10).unwrap();
+            assert!(page.len() <= 10);
+            let Some(last) = page.last() else { break };
+            after = last.clone(); keys.extend(page);
+        }
+        assert_eq!(keys, (0..25).map(|n| format!("recovery:record:{n:03}")).collect::<Vec<_>>());
+        assert_eq!(s.list_meta_page("", "", 50_000).unwrap().len(), 127);
+        assert_eq!(prefix_end("ab:"), Some("ab;".into()));
     }
 
     #[test]

@@ -1,9 +1,12 @@
 # Working with Claude Code, Codex, Cursor and other local tools
 
-HiveTeX never sends your sources to an AI service. Instead, a project can **live in a normal folder** on your device
-(desktop app, or Chrome/Edge on the web), so any tool that edits files can work on it — and its edits flow to your
+HiveTeX never sends your sources to an AI service. In the desktop app, a project can **live in a normal folder** on your device,
+so any tool that edits files can work on it — and its edits flow to your
 collaborators like any other edit. See [Projects in folders](folders.md) for opening a cloned folder as a project,
 the `.hivetex.json` marker and per-device locations.
+
+Browser folders are one-shot imports: files are read into a preview and the original folder is never changed.
+Use the desktop app for live folder sync with external tools.
 
 ## Use a folder
 
@@ -19,7 +22,7 @@ codex           # OpenAI Codex CLI
 cursor .        # Cursor
 ```
 
-Edits made by the tool are picked up within a fraction of a second (web without `FileSystemObserver`: within 1.5 s), merged into the shared document as *minimal* edits
+Edits made by the tool are picked up by the native watcher, merged into the shared document as *minimal* edits
 (your co-authors keep their cursors, concurrent edits survive), and appear on every device. Edits made by collaborators are
 written to the folder atomically.
 
@@ -27,7 +30,9 @@ written to the folder atomically.
 
 There are no locks and no "accept" step. Instead, **Changes** in the workspace rail lists change sets by source (the
 folder, you, co-authors), with a diff per file and an **Undo** that reverts one change set for everyone. Use it to
-review what an agent did and to roll back what you don't want. History stays on the device for 7 days.
+review what an agent did and to roll back what you don't want. Undo checks later contributions and saves a recovery
+point. Changes keeps seven days and at least 500 groups; original signed operation history syncs between project peers,
+and retained recovery data survives display pruning. Private external copies stay on the device.
 
 ## What is (not) mirrored
 
@@ -39,7 +44,7 @@ You can `git init` inside the folder for local version control — `.git/` is ne
 
 ## Rules of the road
 
-* **Read-only members**: if a viewer's tool changes a file, the change is reverted on disk and a notice is shown; nothing is shared.
+* **Read-only members**: a viewer's external edit is preserved in private Recovery before the shared version is restored; nothing is shared.
 * **Deleting or renaming** a file in the folder deletes/renames it in the project for everyone.
 * If a tool and a collaborator edit the same file at the same moment, both edits are kept (three-way merge against the last version we wrote).
 * On first using a non-empty folder, files in the folder win over differing project files of the same name, and files only

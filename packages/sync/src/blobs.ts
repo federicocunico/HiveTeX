@@ -1,8 +1,29 @@
 import { BLOB_CHUNK_SIZE, MAX_BLOB_BYTES, MsgType } from '@hivetex/protocol';
 import { jsonBytes, parseJson, utf8 } from './frames.js';
 import type { Mesh, PeerInfo } from './mesh.js';
-import { sha256Hex } from './model.js';
+import * as Y from 'yjs';
+import { type ProjectModel, sha256Hex } from './model.js';
 import type { Persistence } from './persistence.js';
+
+const BLOB_HASH = /^[0-9a-f]{64}$/;
+
+/**
+ * Blobs the project refers to: live files and the earlier versions, deletions and resolutions the file table keeps, plus
+ * History snapshots. Anything else in the store (PDF, log and SyncTeX files a 0.8.0 build leader stored as shared assets)
+ * is never offered to peers.
+ */
+export async function referencedBlobs(model: ProjectModel, store: Persistence): Promise<Set<string>> {
+  const out = new Set<string>();
+  const visit = (v: unknown): void => {
+    if (typeof v === 'string') { if (BLOB_HASH.test(v)) out.add(v); }
+    else if (Array.isArray(v)) for (const x of v) visit(x);
+    else if (typeof v === 'object' && v !== null) for (const x of Object.values(v)) visit(x);
+  };
+  // Every shared root structure, so a file table kept in another map (deleted entries) still counts.
+  for (const type of model.root.share.values()) if (type instanceof Y.Map || type instanceof Y.Array) visit(type.toJSON());
+  for (const s of await store.listSnapshots()) for (const f of s.files) if (f.hash) out.add(f.hash);
+  return out;
+}
 
 export class BlobError extends Error {}
 
@@ -87,9 +108,14 @@ export class BlobManager {
   /** Largest blob accepted from peers (injectable so tests can use small budgets). */
   maxBlobBytes = MAX_BLOB_BYTES;
 
+  /** Hashes this device announced: peers ask only for those, so serving them needs no reference check. */
+  private announced = new Set<string>();
+
+  /** `referenced` (see referencedBlobs) limits what is announced and served; without it every stored blob is offered. */
   constructor(
     private mesh: Mesh,
     private store: Persistence,
+    private o: { referenced?: () => Promise<Set<string>> } = {},
   ) {
     mesh.onRaw(MsgType.BLOB_HAVE, (from, p) => {
       const msg = safeJson(p);
@@ -132,6 +158,7 @@ export class BlobManager {
   /** Fires when a connected peer announces blobs it did not announce before (a fetch that failed may now succeed). */
   onAnnounced(cb: (deviceId: string, hashes: string[]) => void) {
     this.announceCbs.add(cb);
+    return () => this.announceCbs.delete(cb);
   }
   /** Connected peers that announced the blob (and did not say they lack it). */
   sourcesOf(hash: string): string[] {
@@ -144,6 +171,7 @@ export class BlobManager {
   /** Fires when a blob has been fetched and stored. */
   onStored(cb: () => void) {
     this.storedCbs.add(cb);
+    return () => this.storedCbs.delete(cb);
   }
 
   /** Hashes held on this device. */
@@ -174,8 +202,19 @@ export class BlobManager {
   }
 
   private async announceTo(peer: PeerInfo) {
-    const hashes = await this.store.listBlobs();
+    let hashes = await this.store.listBlobs();
+    if (this.o.referenced && hashes.length) {
+      const referenced = await this.o.referenced();
+      hashes = hashes.filter((h) => referenced.has(h));
+    }
+    for (const h of hashes) this.announced.add(h);
     if (hashes.length) await this.mesh.sendTo(peer.deviceId, MsgType.BLOB_HAVE, jsonBytes({ hashes }), true);
+  }
+
+  /** Whether a stored blob may go to peers: one this device announced, or one the project refers to. */
+  private async offered(hash: string): Promise<boolean> {
+    if (!this.o.referenced || this.announced.has(hash)) return true;
+    return (await this.o.referenced()).has(hash);
   }
 
   async has(hash: string) {
@@ -198,11 +237,13 @@ export class BlobManager {
   /** Announce a hash only after the authoritative store has verified and committed its bytes. */
   async announceStored(hash: string, canPublish: () => boolean = () => true) {
     if (!canPublish() || !(await this.store.listBlobs()).includes(hash) || !canPublish()) throw new BlobError('denied');
+    this.announced.add(hash);
     this.mesh.broadcast(MsgType.BLOB_HAVE, jsonBytes({ hashes: [hash] }), true);
   }
 
   private async serve(from: PeerInfo, req: { hash: string; from: number; to: number }) {
-    const data = await this.store.getBlob(req.hash);
+    const held = await this.store.getBlob(req.hash);
+    const data = held && (await this.offered(req.hash)) ? held : undefined;
     if (!data) return void this.mesh.sendTo(from.deviceId, MsgType.BLOB_NONE, jsonBytes({ hash: req.hash }), true);
     const total = Math.max(1, Math.ceil(data.length / BLOB_CHUNK_SIZE));
     for (let i = req.from; i < Math.min(req.to, total); i++) {
@@ -370,6 +411,7 @@ export class BlobManager {
         }
         if ((await sha256Hex(data)) === hash) {
           await this.store.putBlob(hash, data);
+          this.announced.add(hash);
           this.mesh.broadcast(MsgType.BLOB_HAVE, jsonBytes({ hashes: [hash] }), true);
           for (const cb of this.storedCbs) cb();
           return data;

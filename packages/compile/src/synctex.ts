@@ -1,6 +1,6 @@
 /**
  * SyncTeX navigation between source lines and PDF positions, computed from the .synctex.gz that the
- * compile leader publishes alongside the PDF. Coordinates are PDF points (bp), origin top-left.
+ * local compiler produces alongside the PDF. Coordinates are PDF points (bp), origin top-left.
  *
  * A SyncTeX file lists, per page, nested boxes and the glyph-run / glue / kern / math nodes inside them,
  * each tagged with its input file and source line. Text lives in horizontal boxes `( ... )`; the box carries

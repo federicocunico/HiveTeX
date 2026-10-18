@@ -1,4 +1,4 @@
-import { type BlobManager, type Mesh, type PeerInfo, type ProjectModel, PeerConnection, acquireProject } from '@hivetex/sync';
+import { type BlobManager, type Mesh, type PeerInfo, type ProjectModel, PeerConnection, AuthoredOrigin, acquireProject } from '@hivetex/sync';
 import { type PushResult, pushBackup } from './backup.js';
 import { GitHubClient, GitHubError, type RepoRef } from './client.js';
 import { type BackupMeta, type BackupPolicy, DEFAULT_POLICY, commitMessage, decide, emptyMeta } from './policy.js';
@@ -212,7 +212,7 @@ export class BackupAgent {
     if (this.stopped) return;
     if (!this.binding) return;
     const t = this.now();
-    const who = (origin instanceof PeerConnection ? origin.claims?.uname : this.o.self.uname) ?? null;
+    const who = (origin instanceof AuthoredOrigin ? origin.claims.uname : origin instanceof PeerConnection ? null : this.o.self.uname) ?? null;
     this.dirty.push({ seq: this.o.model.changeSeq, who, at: t });
     // A long stretch without a backup: merge the oldest entries (they stay pending until a capture passes their newest edit).
     if (this.dirty.length > 20_000) {

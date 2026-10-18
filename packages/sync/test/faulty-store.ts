@@ -67,9 +67,16 @@ export class FaultyPersistence extends MemoryPersistence {
   override async transact(ops: StoreOp[]) {
     this.transactCalls++;
     await this.gate('transact');
-    if (this.failTransact > 0) {
+    if (this.failTransact > 0 && !ops.some((o) => o.op === 'meta' && o.key.startsWith('operation:record:'))) {
       this.failTransact--;
       throw new Error('transact failed');
+    }
+    // Journaled appends are one transaction in production. Keep the append fault controls meaningful for the
+    // durability suite, injecting before any part of that transaction is visible.
+    if (ops.some((o) => o.op === 'meta' && o.key.startsWith('operation:record:'))) {
+      this.appendCalls++;
+      await this.gate('append');
+      if (this.failAppend > 0) { this.failAppend--; throw new Error('append failed'); }
     }
     // Applied directly (not through append/compact above) so that one transition is one fault point, like a real transaction.
     for (const o of ops) {

@@ -27,6 +27,7 @@ const toB64 = (b: Uint8Array) => {
   return btoa(s);
 };
 const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const CANCELLED: CompileOutput = { ok: false, log: '! Compilation cancelled' };
 
 /**
  * Bridges to the Tauri `tex_compile` command (system TeX Live / MiKTeX / MacTeX). Only files whose
@@ -38,7 +39,7 @@ export class NativeEngine implements CompileEngine {
   supports: TexEngine[] = [];
   /** e.g. "texlive", "miktex", "tinytex (managed)", "tectonic (managed)". */
   flavor = '';
-  /** False for the quick compiler (Tectonic): its builds are never shared with co-authors. */
+  /** Whether this distribution supports the verified external-file read guards. */
   verifiedReads = true;
   private sent = new Map<string, string>();
 
@@ -57,7 +58,17 @@ export class NativeEngine implements CompileEngine {
     return !!info;
   }
 
-  async compile(input: CompileInput, opts: { timeoutMs: number }): Promise<CompileOutput> {
+  /** Aborting `signal` asks the desktop app to kill the build's process tree (`tex_cancel`); the build then settles. */
+  async compile(input: CompileInput, opts: { timeoutMs: number; signal?: AbortSignal }): Promise<CompileOutput> {
+    if (opts.signal?.aborted) return CANCELLED;
+    const id = `${this.project}:${crypto.randomUUID()}`;
+    const cancel = () => void this.invoke('tex_cancel', { build: id }).catch(() => {});
+    opts.signal?.addEventListener('abort', cancel, { once: true });
+    try { return await this.run(input, opts, id); }
+    finally { opts.signal?.removeEventListener('abort', cancel); }
+  }
+
+  private async run(input: CompileInput, opts: { timeoutMs: number; signal?: AbortSignal }, id: string): Promise<CompileOutput> {
     const enc = new TextEncoder();
     const prepared = await Promise.all(
       input.files.map(async (f) => {
@@ -77,8 +88,11 @@ export class NativeEngine implements CompileEngine {
       timeout_ms: opts.timeoutMs,
       memory_mb: this.limits.memoryMb,
     });
-    let resp = await this.invoke<CompileResp>('tex_compile', { req: build(false) });
-    if (resp.need.length) resp = await this.invoke<CompileResp>('tex_compile', { req: build(true) });
+    if (opts.signal?.aborted) return CANCELLED;
+    let resp = await this.invoke<CompileResp>('tex_compile', { req: build(false), build: id });
+    if (resp.need.length && !opts.signal?.aborted) resp = await this.invoke<CompileResp>('tex_compile', { req: build(true), build: id });
+    // A cancelled build may not have written its inputs: the next one compares against what was confirmed before.
+    if (opts.signal?.aborted) return CANCELLED;
     if (!resp.need.length) for (const p of prepared) this.sent.set(p.path, p.hash);
     return {
       ok: resp.ok,

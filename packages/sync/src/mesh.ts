@@ -11,6 +11,13 @@ import { PeerConnection } from './connection.js';
 import { jsonBytes, packDoc, parseJson, unpackDoc } from './frames.js';
 import { LOCAL_ORIGIN, type ProjectModel } from './model.js';
 import { DocPersister } from './persistence.js';
+import { AuthoredOrigin, signOperation, verifyOperation, readAuthoredOperation, storeAuthoredOperation, type AuthoredOperation } from './authorship.js';
+import { fromB64u, toB64u } from '@hivetex/crypto';
+import { authoredSource, projectAuthoredOperation, projectViews } from './history-projection.js';
+import { type OperationView, viewOf } from './operation-view.js';
+import type { ChangeSet } from './persistence.js';
+import { preserveRecovery } from './recovery.js';
+import { MIRROR_ORIGIN, IMPORT_ORIGIN, RESTORE_ORIGIN } from './origins.js';
 import type { PeerTransport } from './transport.js';
 
 export interface MeshOptions {
@@ -44,6 +51,21 @@ export interface MeshOptions {
   receipts?: boolean;
   /** How long an unanswered legacy exchange keeps blocking later requests for the same document (default 15 s). */
   legacySlotMs?: number;
+  /** A requested history record not received within this long is skipped and reported (default 30 s). */
+  historyWantTimeoutMs?: number;
+  /** Signed operations of one author on one document closer together than this form one Changes group (default 3 s). */
+  authoredGroupIdleMs?: number;
+}
+
+/** Live signed operations of one author on one document, coalesced so history grows with the change, not per keystroke. */
+interface AuthoredGroup {
+  key: string;
+  docId: string;
+  set: ChangeSet;
+  before: OperationView | null;
+  after: OperationView | null;
+  idle: ReturnType<typeof setTimeout> | null;
+  write: ReturnType<typeof setTimeout> | null;
 }
 
 /** How one reconciliation of a document ended. */
@@ -112,6 +134,39 @@ type RawHandler = (from: PeerInfo, payload: Uint8Array) => void;
  * extension points for blobs and application messages.
  */
 export class Mesh {
+  /** Signing is ordered (each operation names the previous one); it never waits for storage. */
+  private signing: Promise<unknown> = Promise.resolve();
+  private authoredSeen = new Set<string>();
+  private authoredTip = new Map<string, string>();
+  /** Signed operations still to be stored locally, retried in the background (see storeProvenance). */
+  private provenance: AuthoredOperation[] = [];
+  private provenanceRound: Array<() => void> = [];
+  private provenanceWorker: Promise<void> | null = null;
+  private authoredGroups = new Map<string, AuthoredGroup>();
+  /** Live frames per connection; retained history waits for them to drain before each part. */
+  private liveSends = new Map<PeerConnection, { tail: Promise<void>; depth: number }>();
+  private historySends = new Map<PeerConnection, Promise<void>>();
+  private historyWant = new Map<PeerConnection, ReturnType<typeof setTimeout>>();
+  private historyIncomplete = new Set<PeerConnection>();
+  readonly historySkipped: Array<{ id: string; device: string; reason: string }> = [];
+  private closed = false;
+  private safetyPeers = new Set<PeerConnection>();
+  private historyPending = new Map<PeerConnection, { ids: string[]; next: string | null }>();
+  private historyParts = new Map<PeerConnection, { id: string; parts: Uint8Array[]; total: number; size: number; live: boolean; at: number }>();
+  private historyCbs = new Set<() => void>();
+  private historyReceived = 0;
+  private admissions = new Map<PeerConnection, Promise<void>>();
+  private quarantined = new Map<PeerConnection, Set<string>>();
+  private historyComplete = new Set<PeerConnection>();
+  /** `complete`: every connected peer's retained history arrived. `incomplete`: paging finished but records were skipped. */
+  get historyStatus() {
+    const conns = [...this.conns.keys()];
+    const settled = conns.length > 0 && conns.every((c) => this.historyComplete.has(c));
+    const skippedHere = conns.some((c) => this.historyIncomplete.has(c));
+    return { complete: settled && !skippedHere, incomplete: settled && skippedHere, skipped: this.historySkipped.length, received: this.historyReceived, pending: this.historyPending.size, legacyPeers: conns.filter((c) => !this.safetyPeers.has(c)).length, quarantined: [...this.quarantined.values()].reduce((n, docs) => n + docs.size, 0) };
+  }
+  onHistory(cb: () => void) { this.historyCbs.add(cb); return () => { this.historyCbs.delete(cb); }; }
+  private historyChanged() { for (const cb of this.historyCbs) cb(); }
   readonly awareness: Awareness;
   private conns = new Map<PeerConnection, PeerInfo>();
   private interest = new Map<PeerConnection, Set<string>>();
@@ -156,6 +211,10 @@ export class Mesh {
   readonly rejected: string[] = [];
 
   constructor(private o: MeshOptions) {
+    try {
+      const local = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(o.getTicket().split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/') ?? ''), (c) => c.charCodeAt(0)))) as TicketClaims;
+      o.model.localAuthor = { uid: local.uid, device: local.dev, name: local.uname };
+    } catch { /* Local-only and not-yet-authenticated projects retain explicit device attribution. */ }
     this.awareness = new Awareness(o.model.root);
     this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
       if (origin instanceof PeerConnection) {
@@ -323,6 +382,7 @@ export class Mesh {
     for (const cb of this.joinCbs) cb(info);
     this.announceNeighbours();
     await this.safeSend(conn, MsgType.EPOCH, this.epochFrame());
+    await this.safeSend(conn, MsgType.APP, jsonBytes({ topic: 'safety-caps', body: { v: 2, authored: true, tombstones: 'map' } }));
     if (this.o.receipts !== false) await this.safeSend(conn, MsgType.APP, jsonBytes({ topic: 'sync-caps', body: { v: 1, receipts: true } }));
     await this.startSync(conn);
     return info;
@@ -340,6 +400,10 @@ export class Mesh {
   private dropConn(conn: PeerConnection) {
     const info = this.conns.get(conn);
     this.conns.delete(conn);
+    this.safetyPeers.delete(conn); this.historyPending.delete(conn); this.historyParts.delete(conn); this.historyComplete.delete(conn);
+    this.quarantined.delete(conn); this.admissions.delete(conn); this.liveSends.delete(conn); this.historySends.delete(conn);
+    this.historyIncomplete.delete(conn); clearTimeout(this.historyWant.get(conn)); this.historyWant.delete(conn);
+    this.historyChanged();
     this.interest.delete(conn);
     this.requested.delete(conn);
     this.staleSince.delete(conn);
@@ -592,7 +656,8 @@ export class Mesh {
     if (this.conns.get(conn) !== from || !this.exchanges.get(conn)?.get(docId)?.includes(ex)) return;
     // A viewer's state is never applied, so its receipt cannot vouch for anything.
     const viewer = from.claims.role === 'viewer' || conn.role === 'viewer';
-    this.finish(conn, ex, status === 'complete' && !viewer ? 'confirmed' : 'unavailable', !viewer);
+    const held = this.quarantined.get(conn)?.has(docId);
+    this.finish(conn, ex, status === 'complete' && !viewer && !held ? 'confirmed' : 'unavailable', !viewer && !held);
   }
 
   /** A peer answered a current request for this document on a connection that is still open (see onDocReconciled). */
@@ -715,7 +780,7 @@ export class Mesh {
     return this.reconcileProject({ ...opts, scope: 'all' });
   }
 
-  /** Fetches every text file's document from peers (compile leader, export, mirror). */
+  /** Fetches every text file's document from peers (local compilation, export, mirror). */
   async prefetchAll() {
     for (const f of this.o.model.list()) if (f.kind === 'text') await this.openDoc(`f:${f.id}`);
   }
@@ -723,8 +788,13 @@ export class Mesh {
   // ---- inbound ----
 
   private onFrame(conn: PeerConnection, type: number, payload: Uint8Array): Promise<void> {
+    let authoredPart = false;
+    if (type === MsgType.APP) {
+      try { const message = parseJson<{ topic?: string; body?: { live?: boolean } }>(payload); authoredPart = message.topic === 'history-part' && message.body?.live === true; }
+      catch { /* handleFrame rejects malformed input */ }
+    }
     const work = this.handleFrame(conn, type, payload);
-    if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE) {
+    if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE || type === MsgType.AUTHORED || authoredPart) {
       // Registered before anything is awaited, so a receipt that follows can wait for exactly the frames before it.
       const set = this.applying.get(conn);
       if (set) {
@@ -739,11 +809,18 @@ export class Mesh {
     const info = this.conns.get(conn);
     if (!info) return;
     try {
-      if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE) {
+      if (type === MsgType.STEP1 || type === MsgType.STEP2 || type === MsgType.UPDATE || type === MsgType.AUTHORED) {
         await this.syncGate;
         if (this.gateFailed.has(conn)) return;
       }
       switch (type) {
+        case MsgType.AUTHORED: {
+          const queued = (this.admissions.get(conn) ?? Promise.resolve()).catch(() => {}).then(() => this.applyAuthored(info, payload));
+          this.admissions.set(conn, queued);
+          try { await queued; }
+          finally { if (this.admissions.get(conn) === queued) this.admissions.delete(conn); }
+          return;
+        }
         case MsgType.STEP1: {
           const { docId, data } = unpackDoc(payload);
           this.interest.get(conn)?.add(docId);
@@ -770,7 +847,9 @@ export class Mesh {
           // Waiting for the gate and the load can outlive the connection, its replacement, or the sender's role.
           if (this.conns.get(conn) !== info || conn.role === 'viewer' || info.claims.role === 'viewer') return;
           if (!this.interest.get(conn)?.has(docId) && !this.requested.get(conn)?.has(docId)) return;
+          if (!await this.admitRootUpdate(conn, docId, doc, data, `${info.claims.uname} (device ${info.deviceId})`)) return;
           Y.applyUpdate(doc, data, conn);
+          await this.o.model.flush();
           for (const cb of this.docSyncedCbs) cb(docId, info);
           if (type === MsgType.STEP2) this.onStep2Applied(conn, docId);
           return;
@@ -790,6 +869,7 @@ export class Mesh {
         case MsgType.APP: {
           const { topic, body } = parseJson<{ topic: string; body: unknown }>(payload);
           if (typeof topic !== 'string') return;
+          if (topic === 'safety-caps' || topic.startsWith('history-')) { await this.onHistoryMessage(info, topic, body); return; }
           for (const h of this.appHandlers.get(topic) ?? []) h(info, body);
           return;
         }
@@ -810,14 +890,329 @@ export class Mesh {
 
   private onLocalDocUpdate(docId: string, update: Uint8Array, origin: unknown) {
     if (origin instanceof DocPersister) return;
+    // Any other source touching the document ends the coalesced groups of other authors on it (no mixed attribution).
+    this.endAuthoredGroups(docId, origin instanceof AuthoredOrigin ? this.groupKey(origin.operation, origin.claims) : null);
+    if (origin instanceof AuthoredOrigin) return;
     const fromConn = origin instanceof PeerConnection ? origin : undefined;
-    // Peers that are not editors never send us document updates, so nothing here needs a role check.
+    if (!fromConn) {
+      const captured = update.slice();
+      const ticket = this.o.getTicket();
+      // Offline/local projects still journal every operation. They must not wait for an unavailable membership
+      // certificate merely to acknowledge their own durable data; synchronization authenticates on reconnect.
+      try { const claims = JSON.parse(new TextDecoder().decode(fromB64u(ticket.split('.')[1] ?? ''))) as TicketClaims; if (claims.pid !== this.o.projectId || claims.role === 'viewer') return; }
+      catch { return; }
+      // Previous releases (0.8.0) cannot read signed operations: they get the plain update at once.
+      for (const [c, set] of this.interest) if (set.has(docId) && !this.safetyPeers.has(c)) void this.sendLive(c, MsgType.UPDATE, packDoc(docId, captured));
+      const at = this.now();
+      const source = origin === MIRROR_ORIGIN || (origin as { kind?: string } | null)?.kind === 'folder' ? 'folder' : origin === 'changelog-undo' ? 'undo' : origin === IMPORT_ORIGIN ? 'import' : origin === RESTORE_ORIGIN ? 'restore' : 'editor';
+      const legacy = new Set([...this.interest.keys()].filter((c) => !this.safetyPeers.has(c)));
+      // Signing is ordered and fast; sending follows it directly. Storing the evidence is retried apart (storeProvenance).
+      const signed = this.signing.then(async () => {
+        const tip = this.authoredTip.get(docId);
+        const op = await signOperation({ pid: this.o.projectId, docId, update: captured, ticket, source, dependencies: tip ? [tip] : [], at }, this.o.keys);
+        this.authoredTip.set(docId, op.id);
+        this.authoredSeen.add(op.id);
+        return op;
+      });
+      this.signing = signed.catch(() => {});
+      // flush() covers signing and the first storage attempt, never the retries after it.
+      this.o.model.trackDurability(signed.then((op) => {
+        if (this.closed) return;
+        for (const [c, set] of this.interest) if (set.has(docId) && this.safetyPeers.has(c) && !legacy.has(c)) void this.sendOperationLive(c, op);
+        return this.storeProvenance(op);
+      }).catch(() => {}));
+      return;
+    }
+    // Legacy bootstrap updates have unknown original provenance; never relabel them as the forwarding author.
     const frame = packDoc(docId, update);
-    for (const [c, set] of this.interest) if (set.has(docId) && this.shouldRelay(fromConn, c)) void this.safeSend(c, MsgType.UPDATE, frame);
+    for (const [c, set] of this.interest) if (set.has(docId) && this.shouldRelay(fromConn, c)) void this.sendLive(c, MsgType.UPDATE, frame);
   }
 
   broadcast(type: number, payload: Uint8Array, noCompress = false) {
     for (const c of this.conns.keys()) void this.safeSend(c, type, payload, noCompress);
+  }
+
+  /** Live frames keep their order per connection; retained history waits for them (see sendHistory). */
+  private sendLive(conn: PeerConnection, type: number, payload: Uint8Array): Promise<void> {
+    const q = this.liveSends.get(conn) ?? { tail: Promise.resolve(), depth: 0 };
+    this.liveSends.set(conn, q);
+    q.depth++;
+    const next = q.tail.then(() => this.safeSend(conn, type, payload)).finally(() => { q.depth--; });
+    q.tail = next.catch(() => {});
+    return next;
+  }
+
+  private sendOperationLive(conn: PeerConnection, operation: AuthoredOperation) {
+    const bytes = jsonBytes(operation);
+    if (bytes.length < 256 * 1024) return this.sendLive(conn, MsgType.AUTHORED, bytes);
+    const chunk = 128 * 1024, total = Math.ceil(bytes.length / chunk);
+    let last = Promise.resolve();
+    for (let part = 0; part < total; part++) last = this.sendLive(conn, MsgType.APP, jsonBytes({ topic: 'history-part', body: { id: operation.id, part, total, live: true, data: toB64u(bytes.subarray(part * chunk, (part + 1) * chunk)) } }));
+    return last;
+  }
+
+  /** Lower priority: every part waits until the connection's queued live frames are out, so edits never queue behind history. */
+  private sendHistory(conn: PeerConnection, operation: AuthoredOperation) {
+    const run = async () => {
+      const bytes = jsonBytes(operation);
+      const chunk = 128 * 1024, total = Math.ceil(bytes.length / chunk);
+      for (let part = 0; part < total && this.conns.has(conn); part++) {
+        for (let q = this.liveSends.get(conn); q && q.depth > 0; q = this.liveSends.get(conn)) await q.tail;
+        await this.safeSend(conn, MsgType.APP, jsonBytes({ topic: 'history-part', body: { id: operation.id, part, total, live: false, data: toB64u(bytes.subarray(part * chunk, (part + 1) * chunk)) } }));
+      }
+    };
+    const next = (this.historySends.get(conn) ?? Promise.resolve()).then(run, run);
+    this.historySends.set(conn, next.catch(() => {}));
+    return next;
+  }
+
+  /**
+   * Stores signed evidence in the background, in order, retrying with backoff. A failure stays visible (saveState) but
+   * neither delays live edits nor makes model.flush() reject; flush waits at most for the next storage attempt.
+   */
+  private storeProvenance(op: AuthoredOperation): Promise<void> {
+    this.provenance.push(op);
+    const attempted = new Promise<void>((resolve) => this.provenanceRound.push(resolve));
+    this.o.model.trackDurability(attempted);
+    this.provenanceWorker ??= (async () => {
+      for (let n = 0; this.provenance.length && !this.closed; ) {
+        const round = this.provenanceRound.splice(0);
+        try {
+          while (this.provenance.length) { await storeAuthoredOperation(this.o.model.store, this.provenance[0]!); this.provenance.shift(); }
+          this.o.model.durabilityError('authorship', null);
+          n = 0;
+        } catch (error) {
+          // Different evidence under the same id can never be stored: report it and keep the rest moving.
+          if (error instanceof Error && error.message.includes('immutable evidence')) this.provenance.shift();
+          this.o.model.durabilityError('authorship', error, { blocking: false });
+        } finally { for (const resolve of round) resolve(); }
+        if (this.provenance.length && !this.closed) await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** Math.min(n++, 6))));
+      }
+      for (const resolve of this.provenanceRound.splice(0)) resolve();
+      this.provenanceWorker = null;
+    })();
+    return attempted;
+  }
+
+  private async applyAuthored(info: PeerInfo, payload: Uint8Array) {
+    const conn = info.conn;
+    const { operation, claims, update } = await verifyOperation(parseJson(payload), this.o.projectId, this.o.trusted, { now: this.o.now?.() });
+    if (this.conns.get(conn) !== info || conn.role === 'viewer' || claims.ep < this.maxEpoch || this.authoredSeen.has(operation.id)) return;
+    if (!this.interest.get(conn)?.has(operation.docId) && !this.requested.get(conn)?.has(operation.docId)) return;
+    const doc = await this.o.model.getDoc(operation.docId);
+    if (this.conns.get(conn) !== info || info.claims.role === 'viewer' || claims.ep < this.maxEpoch || claims.exp * 1000 + 30_000 < this.now()) return;
+    if (!await this.admitRootUpdate(conn, operation.docId, doc, update, `${claims.uname} (device ${claims.dev})`)) return;
+    // Different evidence under a known id is refused before anything is applied.
+    const existing = await readAuthoredOperation(this.o.model.store, operation.id).catch(() => undefined);
+    if (existing && existing.signature !== operation.signature) throw new Error('Operation ID already belongs to different immutable evidence');
+    if (this.authoredSeen.has(operation.id) || this.conns.get(conn) !== info) return;
+    this.authoredSeen.add(operation.id);
+    // This replica's own projection around the change is its preimage: nothing of the kind travels in the envelope.
+    const before = viewOf(operation.docId, doc);
+    Y.applyUpdate(doc, update, new AuthoredOrigin(operation, claims, conn));
+    const after = viewOf(operation.docId, doc);
+    // Forward before storing anything; previous releases (0.8.0) drop signed frames, so they get the plain update.
+    // Forward even when Yjs is waiting for a dependency and emitted no update event.
+    for (const [c, set] of this.interest) if (set.has(operation.docId) && this.shouldRelay(conn, c)) {
+      if (this.safetyPeers.has(c)) void this.sendOperationLive(c, operation);
+      else void this.sendLive(c, MsgType.UPDATE, packDoc(operation.docId, update));
+    }
+    if (!existing) this.storeProvenance(operation);
+    this.recordAuthored(operation, claims, before, after);
+    this.historyChanged();
+    await this.o.model.flush();
+    for (const cb of this.docSyncedCbs) cb(operation.docId, info);
+  }
+
+  private groupKey(op: Pick<AuthoredOperation, 'docId' | 'source'>, claims: Pick<TicketClaims, 'uid' | 'dev'>) {
+    return `${claims.uid}|${claims.dev}|${op.docId}|${op.source}`;
+  }
+
+  /** One Changes group per run of an author's live operations on a document: preimage once, written debounced. */
+  private recordAuthored(op: AuthoredOperation, claims: TicketClaims, before: OperationView | null, after: OperationView | null) {
+    if (!before || !after) { this.persistHistoryGroup(this.withPaths(projectAuthoredOperation(op, claims))); return; }
+    const key = this.groupKey(op, claims);
+    let g = this.authoredGroups.get(key);
+    if (!g) {
+      g = { key, docId: op.docId, before, after, idle: null, write: null,
+        set: { id: `authored:${op.id}`, source: authoredSource(op, claims), startedAt: op.at, endedAt: op.at, files: [], operationIds: [] } };
+      this.authoredGroups.set(key, g);
+    }
+    g.after = after;
+    g.set.operationIds!.push(op.id);
+    g.set.endedAt = Math.max(g.set.endedAt, op.at);
+    const group = g;
+    if (g.idle) clearTimeout(g.idle);
+    g.idle = setTimeout(() => this.closeAuthoredGroup(group), this.o.authoredGroupIdleMs ?? 3000);
+    g.write ??= setTimeout(() => { group.write = null; this.writeAuthoredGroup(group); }, 100);
+  }
+
+  private endAuthoredGroups(docId: string, except: string | null) {
+    for (const g of [...this.authoredGroups.values()]) if (g.docId === docId && g.key !== except) this.closeAuthoredGroup(g);
+  }
+
+  private closeAuthoredGroup(g: AuthoredGroup) {
+    if (this.authoredGroups.get(g.key) !== g) return;
+    this.authoredGroups.delete(g.key);
+    if (g.idle) clearTimeout(g.idle);
+    if (g.write) clearTimeout(g.write);
+    this.writeAuthoredGroup(g);
+  }
+
+  private writeAuthoredGroup(g: AuthoredGroup) {
+    if (!g.before || !g.after) return;
+    this.persistHistoryGroup(this.withPaths({ ...g.set, operationIds: [...g.set.operationIds!], files: projectViews(g.docId, g.before, g.after) }));
+  }
+
+  private withPaths(group: ChangeSet) {
+    for (const file of group.files) file.path = this.o.model.byId(file.fileId)?.path ?? this.o.model.deletedFiles().find((f) => f.id === file.fileId)?.path ?? file.path;
+    return group;
+  }
+
+  /**
+   * A root update may physically remove entries (a previous release, or a deletion made before the upgrade). Each one
+   * is retained in private Recovery first, then the update applies: root synchronization never stalls on it. Only an
+   * unknown (future) tombstone format is held, with a notice to update.
+   */
+  private async admitRootUpdate(conn: PeerConnection, docId: string, doc: Y.Doc, data: Uint8Array, by: string) {
+    if (docId !== ROOT_DOC_ID) return true;
+    const preview = new Y.Doc();
+    let future = false;
+    const removed: Array<[string, Record<string, unknown>]> = [];
+    try {
+      Y.applyUpdate(preview, Y.encodeStateAsUpdate(doc)); Y.applyUpdate(preview, data);
+      const files = preview.getMap<Y.Map<unknown>>('files'), tombstones = preview.getMap<{ v?: unknown }>('tombstones');
+      future = [...tombstones.values()].some((t) => t?.v !== 1) || [...files.values()].some((entry) => {
+        const deletion = entry instanceof Y.Map ? entry.get('deleted') as { v?: unknown } | undefined : undefined;
+        return !!deletion && deletion.v !== 1;
+      });
+      for (const [id, entry] of doc.getMap<Y.Map<unknown>>('files')) if (!files.has(id) && !tombstones.has(id)) removed.push([id, entry.toJSON() as Record<string, unknown>]);
+    } finally { preview.destroy(); }
+    if (future) {
+      await preserveRecovery(this.o.model.store, 'Quarantined sync root update', data, `Unsupported deletion format from ${by}; update this app`);
+      const held = this.quarantined.get(conn) ?? new Set<string>(); held.add(docId); this.quarantined.set(conn, held);
+      this.historyChanged(); return false;
+    }
+    for (const [id, entry] of removed) {
+      if (entry.kind === 'dir') continue;
+      const bytes = entry.kind === 'text' ? new TextEncoder().encode((await this.o.model.openText(id)).toString())
+        : (typeof entry.hash === 'string' ? await this.o.model.store.getBlob(entry.hash) : undefined) ?? new Uint8Array();
+      await preserveRecovery(this.o.model.store, String(entry.path), bytes, `Removed by ${by} without a recoverable deletion`, { kind: 'removed', fileId: id });
+    }
+    if (this.quarantined.get(conn)?.delete(docId)) this.historyChanged();
+    return true;
+  }
+
+  /** Display history is stored in the background with retry: it never holds the frames behind it. */
+  private persistHistoryGroup(group: ChangeSet) {
+    void (async () => {
+      for (let n = 0; ; n++) {
+        try { await this.o.model.store.putChangeSet(group); this.o.model.durabilityError('received-history', null); this.historyChanged(); return; }
+        catch (error) {
+          this.o.model.durabilityError('received-history', error, { blocking: false });
+          if (this.closed) return;
+          await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, 500 * 2 ** Math.min(n, 6))));
+        }
+      }
+    })();
+  }
+
+  private async requestHistoryNext(info: PeerInfo) {
+    const pending = this.historyPending.get(info.conn);
+    clearTimeout(this.historyWant.get(info.conn));
+    this.historyWant.delete(info.conn);
+    if (!pending) return;
+    if (pending.ids.length) {
+      const id = pending.ids[0]!;
+      this.armHistoryWant(info, id);
+      await this.sendApp(info.deviceId, 'history-want', { id });
+    } else if (pending.next !== null) await this.sendApp(info.deviceId, 'history-list', { cursor: pending.next });
+    else { this.historyPending.delete(info.conn); this.historyComplete.add(info.conn); this.historyChanged(); }
+  }
+
+  /** An unanswered (or stalled) record is skipped after a bounded time; any received part rearms it. */
+  private armHistoryWant(info: PeerInfo, id: string) {
+    clearTimeout(this.historyWant.get(info.conn));
+    const t = setTimeout(() => {
+      if (this.historyPending.get(info.conn)?.ids[0] === id) void this.skipHistory(info, id, 'no answer');
+    }, this.o.historyWantTimeoutMs ?? 30_000);
+    (t as unknown as { unref?: () => void }).unref?.();
+    this.historyWant.set(info.conn, t);
+  }
+
+  /** A record that cannot be verified, stored or received is reported and skipped; paging continues. */
+  private async skipHistory(info: PeerInfo, id: string, reason: string) {
+    if (this.conns.get(info.conn) !== info) return;
+    this.historySkipped.push({ id, device: info.deviceId, reason });
+    if (this.historySkipped.length > 1000) this.historySkipped.shift();
+    this.historyIncomplete.add(info.conn);
+    if (this.historyParts.get(info.conn)?.id === id) this.historyParts.delete(info.conn);
+    const pending = this.historyPending.get(info.conn);
+    if (pending?.ids[0] === id) pending.ids.shift();
+    this.historyChanged();
+    await this.requestHistoryNext(info);
+  }
+
+  private async onHistoryMessage(info: PeerInfo, topic: string, value: unknown) {
+    const body = (value ?? {}) as Record<string, unknown>;
+    if (topic === 'safety-caps') {
+      // v1 (unreleased: signed full preimages, tombstones inside `files`) is not interoperable and is treated as legacy.
+      if (body.v !== 2 || body.authored !== true || body.tombstones !== 'map') return;
+      this.safetyPeers.add(info.conn);
+      this.historyComplete.delete(info.conn);
+      await this.sendApp(info.deviceId, 'history-list', { cursor: '' });
+      this.historyChanged(); return;
+    }
+    if (!this.safetyPeers.has(info.conn)) return;
+    if (topic === 'history-list') {
+      if (typeof body.cursor !== 'string' || body.cursor.length > 100) return;
+      const ids = (await this.o.model.store.listMetaKeys?.('authored:') ?? []).filter((k) => k.startsWith('authored:')).map((k) => k.slice(9)).sort().filter((id) => id > (body.cursor as string));
+      const page = ids.slice(0, 32);
+      await this.sendApp(info.deviceId, 'history-page', { ids: page, next: ids.length > page.length ? page.at(-1) : null });
+    } else if (topic === 'history-page') {
+      if (!Array.isArray(body.ids) || body.ids.length > 32 || !body.ids.every((id) => typeof id === 'string' && /^[a-z0-9-]{1,100}$/.test(id)) || (body.next !== null && typeof body.next !== 'string')) return;
+      const missing: string[] = [];
+      for (const id of body.ids as string[]) if (!this.authoredSeen.has(id) && !await this.o.model.store.getMeta(`authored:${id}`)) missing.push(id);
+      this.historyPending.set(info.conn, { ids: missing, next: body.next as string | null });
+      this.historyChanged(); await this.requestHistoryNext(info);
+    } else if (topic === 'history-want') {
+      if (typeof body.id !== 'string' || !/^[a-z0-9-]{1,100}$/.test(body.id)) return;
+      const operation = await readAuthoredOperation(this.o.model.store, body.id).catch(() => undefined);
+      if (operation) await this.sendHistory(info.conn, operation);
+    } else if (topic === 'history-part') {
+      if (typeof body.id !== 'string' || typeof body.data !== 'string' || body.data.length > 180_000 || !Number.isSafeInteger(body.part) || !Number.isSafeInteger(body.total) || (body.total as number) < 1 || (body.total as number) > 768) return;
+      const live = body.live === true;
+      if (!live && this.historyPending.get(info.conn)?.ids[0] !== body.id) return;
+      if (live && info.claims.role === 'viewer') return;
+      if (!live) this.armHistoryWant(info, body.id);
+      let incoming = this.historyParts.get(info.conn);
+      if (body.part === 0) {
+        incoming = { id: body.id, parts: [], total: body.total as number, size: 0, live, at: Date.now() };
+        this.historyParts.set(info.conn, incoming);
+      }
+      if (!incoming || incoming.id !== body.id || body.part !== incoming.parts.length || body.total !== incoming.total || incoming.live !== live || Date.now() - incoming.at > 120_000) return;
+      const part = fromB64u(body.data); incoming.parts.push(part); incoming.size += part.length;
+      if (incoming.size > 96 * 1024 * 1024) { this.historyParts.delete(info.conn); if (!live) await this.skipHistory(info, incoming.id, 'record too large'); return; }
+      if (incoming.parts.length !== incoming.total) return;
+      this.historyParts.delete(info.conn);
+      const bytes = new Uint8Array(incoming.size); let offset = 0;
+      for (const part of incoming.parts) { bytes.set(part, offset); offset += part.length; }
+      if (live) { await this.handleFrame(info.conn, MsgType.AUTHORED, bytes); return; }
+      let checked: Awaited<ReturnType<typeof verifyOperation>>;
+      try { checked = await verifyOperation(parseJson(bytes), this.o.projectId, this.o.trusted, { historical: true }); }
+      catch (error) { await this.skipHistory(info, incoming.id, `verification failed: ${error instanceof Error ? error.message : String(error)}`); return; }
+      if (this.conns.get(info.conn) !== info) return;
+      if (checked.operation.id !== incoming.id) { await this.skipHistory(info, incoming.id, 'record identifier mismatch'); return; }
+      if (!this.authoredSeen.has(incoming.id) && !await this.o.model.store.getMeta(`authored:${incoming.id}`)) {
+        try {
+          await storeAuthoredOperation(this.o.model.store, checked.operation);
+          await this.o.model.store.putChangeSet(this.withPaths(projectAuthoredOperation(checked.operation, checked.claims)));
+        } catch (error) { await this.skipHistory(info, incoming.id, `storage failed: ${error instanceof Error ? error.message : String(error)}`); return; }
+        this.historyReceived++;
+      }
+      this.historyPending.get(info.conn)?.ids.shift();
+      this.historyChanged(); await this.requestHistoryNext(info);
+    }
   }
 
   async sendTo(deviceId: string, type: number, payload: Uint8Array, noCompress = false) {
@@ -883,7 +1278,9 @@ export class Mesh {
    */
   async refreshOwnTicket(ticket: string): Promise<boolean> {
     const claims = await this.verifyEvidence(ticket);
-    if (!claims) return false;
+    if (!claims || claims.devE !== this.o.keys.edPub || claims.devX !== this.o.keys.xPub) return false;
+    this.o.model.localAuthor = { uid: claims.uid, device: claims.dev, name: claims.uname };
+    await this.o.model.store.setMeta('localAuthor', this.o.model.localAuthor);
     this.broadcast(MsgType.TICKET, jsonBytes({ ticket }));
     this.noteEpoch(claims, ticket);
     return true;
@@ -928,6 +1325,8 @@ export class Mesh {
   }
 
   destroy() {
+    this.closed = true;
+    for (const g of [...this.authoredGroups.values()]) this.closeAuthoredGroup(g);
     clearInterval(this.policyTimer);
     for (const t of this.slotTimers) clearTimeout(t);
     if (this.nbrsTimer) clearTimeout(this.nbrsTimer);

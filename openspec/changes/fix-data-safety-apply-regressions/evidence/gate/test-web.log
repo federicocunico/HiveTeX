@@ -1,0 +1,16 @@
+
+ RUN  v5.0.3 C:/Users/feder/AppData/Local/Temp/p2platex-acceptance-55a586ed4f344eb3b76dfc31fe14fc05/apps/web
+
+11:28:40 AM [vite-plugin-svelte] src/ui/Splitter.svelte:67:0 noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex
+11:28:40 AM [vite-plugin-svelte] src/ui/Splitter.svelte:67:0 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions
+
+ Test Files  45 passed (45)
+      Tests  335 passed (335)
+   Start at  11:28:17
+   Duration  48.69s (environment 46%, setup 23%, tests 17%, import 8%, transform 5%)
+
+    Isolate  45 workers spawned · ~1.08s startup each (spawn + environment, per file)
+             at least ~23.27s faster with isolate: false — reuses workers across files instead of one per file
+

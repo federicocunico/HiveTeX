@@ -45,6 +45,15 @@ pub fn store_close(state: State<'_, StoreState>, id: u32) {
 }
 
 #[tauri::command]
+pub fn store_export_open(state: State<'_, StoreState>, id: u32) -> Result<crate::store::ExportDescriptor, String> { state.export_open(id) }
+#[tauri::command]
+pub fn store_export_read(state: State<'_, StoreState>, id: u32, token: String, offset: u64) -> Result<String, String> {
+    state.export_read(id, &token, offset).map(|bytes| B64.encode(bytes))
+}
+#[tauri::command]
+pub fn store_export_close(state: State<'_, StoreState>, id: u32, token: String) -> Result<(), String> { state.export_close(id, &token) }
+
+#[tauri::command]
 pub fn store_transact(state: State<'_, StoreState>, id: u32, ops: Vec<WireOp>) -> Result<(), String> {
     let mut size = 0usize;
     let mut decoded = Vec::with_capacity(ops.len());
@@ -140,8 +149,9 @@ pub fn store_get_meta(state: State<'_, StoreState>, id: u32, key: String) -> Res
 }
 
 #[tauri::command]
-pub fn store_list_meta(state: State<'_, StoreState>, id: u32) -> Result<Vec<String>, String> {
-    state.with(id, |s| s.list_meta())
+pub fn store_list_meta(state: State<'_, StoreState>, id: u32, prefix: Option<String>, after: Option<String>, limit: Option<u32>) -> Result<Vec<String>, String> {
+    if prefix.is_none() && after.is_none() && limit.is_none() { return state.with(id, |s| s.list_meta()); }
+    state.with(id, |s| s.list_meta_page(prefix.as_deref().unwrap_or(""), after.as_deref().unwrap_or(""), limit.unwrap_or(10_000)))
 }
 
 #[tauri::command]
@@ -217,4 +227,101 @@ pub fn migration_manifest_read(app: tauri::AppHandle, project: String) -> Result
 pub fn migration_manifest_write(app: tauri::AppHandle, project: String, json: String) -> Result<(), String> {
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
     crate::store::write_manifest(&root, &project, &json)
+}
+
+/// Recovery archive written to a file the user picks in the native save dialog, in bounded appends (D7): the archive is
+/// never assembled in webview memory. The page never names a path; it holds only a token. A `.part` file becomes the
+/// chosen file on `recovery_save_finish`; an aborted or abandoned export leaves nothing at the destination.
+struct SaveTarget { path: std::path::PathBuf, part: std::path::PathBuf, file: Option<std::fs::File>, written: u64 }
+impl Drop for SaveTarget {
+    fn drop(&mut self) { if self.file.take().is_some() { let _ = std::fs::remove_file(&self.part); } }
+}
+fn saves() -> &'static std::sync::Mutex<std::collections::HashMap<String, SaveTarget>> {
+    static SAVES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, SaveTarget>>> = std::sync::OnceLock::new();
+    SAVES.get_or_init(Default::default)
+}
+/// Largest archive accepted (the ZIP format without ZIP64).
+const SAVE_LIMIT: u64 = (1 << 32) - 1;
+
+fn save_open(path: std::path::PathBuf) -> Result<String, String> {
+    let mut nonce = [0u8; 16];
+    getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
+    let token: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+    let part = std::path::PathBuf::from(format!("{}.{}.part", path.display(), &token[..8]));
+    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(&part).map_err(|e| e.to_string())?;
+    let mut table = saves().lock().map_err(|_| "save lock poisoned")?;
+    if table.len() >= 2 { return Err("too many active recovery exports".into()); }
+    table.insert(token.clone(), SaveTarget { path, part, file: Some(file), written: 0 });
+    Ok(token)
+}
+
+/// Asks where to save `name` (a file name only); `None` when the member cancels.
+#[tauri::command]
+pub async fn recovery_save_begin(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let name: String = std::path::Path::new(&name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = if name.is_empty() || name.len() > 200 { "hivetex-recovery.zip".to_string() } else { name };
+    #[cfg(feature = "test-picker")]
+    if let Some(dir) = std::env::var_os("HIVETEX_TEST_SAVE_DIR") { return save_open(std::path::PathBuf::from(dir).join(&name)).map(Some); }
+    let handle = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || handle.dialog().file().set_file_name(&name).add_filter("ZIP archive", &["zip"]).blocking_save_file())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(fp) = picked else { return Ok(None) };
+    save_open(fp.into_path().map_err(|e| e.to_string())?).map(Some)
+}
+
+pub fn save_append(token: &str, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut table = saves().lock().map_err(|_| "save lock poisoned")?;
+    let target = table.get_mut(token).ok_or("unknown recovery export")?;
+    if target.written + bytes.len() as u64 > SAVE_LIMIT { table.remove(token); return Err("recovery archive exceeds the ZIP size limit".into()); }
+    let result = target.file.as_mut().ok_or("closed recovery export")?.write_all(bytes);
+    if let Err(e) = result { table.remove(token); return Err(e.to_string()); }
+    target.written += bytes.len() as u64;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn recovery_save_append(token: String, b64: String) -> Result<(), String> {
+    if b64.len() > MAX_CHUNK * 4 / 3 + 4 { return Err("recovery export chunk too large".into()); }
+    save_append(&token, &decode(&b64)?)
+}
+
+/// Durable, then visible under the chosen name (replacing a file the member chose to overwrite).
+#[tauri::command]
+pub fn recovery_save_finish(token: String) -> Result<(), String> {
+    let mut target = saves().lock().map_err(|_| "save lock poisoned")?.remove(&token).ok_or("unknown recovery export")?;
+    let file = target.file.take().ok_or("closed recovery export")?;
+    let done = file.sync_all().map_err(|e| e.to_string()).and_then(|()| { drop(file); std::fs::rename(&target.part, &target.path).map_err(|e| e.to_string()) });
+    if done.is_err() { let _ = std::fs::remove_file(&target.part); }
+    done
+}
+
+#[tauri::command]
+pub fn recovery_save_abort(token: String) {
+    if let Ok(mut table) = saves().lock() { table.remove(&token); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_saves_appear_only_when_finished_and_aborts_leave_nothing() {
+        let dir = std::env::temp_dir().join(format!("hivetex-recovery-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p-recovery.zip");
+        let token = save_open(path.clone()).unwrap();
+        save_append(&token, b"PK first").unwrap(); save_append(&token, b" second").unwrap();
+        assert!(!path.exists(), "nothing at the destination before finish");
+        recovery_save_finish(token.clone()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"PK first second");
+        assert!(save_append(&token, b"late").is_err());
+        let aborted = save_open(dir.join("aborted.zip")).unwrap();
+        save_append(&aborted, b"partial").unwrap();
+        recovery_save_abort(aborted);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "an aborted export leaves no file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

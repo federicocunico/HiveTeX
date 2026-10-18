@@ -9,7 +9,7 @@ for each control.
 
 | Party | Trusted to… | Not trusted to… |
 |---|---|---|
-| Project **owners / editors** | edit content, relay data, compile for others | – (a malicious editor can damage content; history + GitHub backups allow recovery) |
+| Project **owners / editors** | edit content, relay data, compile on their own device | – (a malicious editor can damage current content; retained history and recovery copies allow inspection and recovery) |
 | Project **viewers** | read | change anything (enforced by every honest peer) |
 | **Control plane** (Vercel + Neon + Upstash) | authenticate users, issue short-lived membership tickets, relay *encrypted* connection setup | read or store document content (it never receives any) |
 | Network / signaling relay | – | read or tamper with peer traffic (E2E-encrypted signaling; DTLS fingerprints bound into the peer handshake) |
@@ -56,23 +56,27 @@ for each control.
 3. **Path injection through the CRDT** – a malicious editor could write `../../x` into the shared file table, which would escape
    directories when peers export, mirror, compile or push. *Fix*: unsafe paths are neutralised in the model view and cannot be created locally.
 4. **Read-only UI lag** – the editor stayed writable after a demotion. (Peers already dropped the edits.) *Fix*: reactive read-only state.
-5. **Dead-peer lingering** – killed tabs stayed "connected" for ~30 s, delaying revocation and leader failover. *Fix*: liveness pings (20 s), and a reconnecting device replaces its old connection.
-6. **Viewer relaying compile results / leadership** – viewers are now excluded from the election and their results are ignored.
+5. **Dead-peer lingering** – killed tabs stayed "connected" for ~30 s, delaying revocation. *Fix*: liveness pings (20 s), and a reconnecting device replaces its old connection.
+6. **Remote compilation** – removed. Every user, including a viewer, compiles locally; peer build requests and results have no active handler.
 7. **Server-side rate-limit lockout in tests** – not a product issue; the e2e server disables limits explicitly.
 
 ## Residual risks and limitations (documented, not fixed)
 
-* **Compiling untrusted LaTeX on a collaborator's machine.** Shell escape is off, files outside the project cannot be read on any
+* **Compiling untrusted LaTeX locally.** Shell escape is off, files outside the project cannot be read on any
   supported distribution (MiKTeX included, since it is now started with its unsafe-path switches off), and project build-tool
-  configuration is ignored. TeX engines are still large programs processing untrusted input without an OS sandbox: only let
-  people you trust compile on your machine.
+  configuration is ignored. TeX engines are still large programs processing untrusted input without an OS sandbox.
+  Treat sources from other members as untrusted inputs to your local compiler. No member can request a build on your device.
 * **Removed members keep their local copy**; they stop receiving updates within about a minute.
 * **Seeds are as available as the device and the push service.** A dormant seed is reachable only while the app runs and the push service (ntfy by default, configurable) delivers rings; when it cannot, the seed reports *ring channel unreachable* and deliberately does not keep a server socket open. Rings reveal to the push service only an opaque topic and timing, never project, user or device identifiers.
 * **Seeding does not change who may read.** A seed replicates only what its own membership already allows; removed members keep their local copy as above.
 * **A viewer cannot bootstrap a newcomer.** Viewers' state messages are dropped by design, so a new member needs an editor/owner online (or the GitHub backup).
 * **Metadata** is visible to the control plane: accounts, which projects exist and who is a member, device public keys, when devices are online. Content is not.
-* **Editors are trusted.** Updates are not individually signed, so a malicious editor can write anything an editor may write (and attribute it to the connection it came from).
-* **Trusted Types** and per-update signatures were considered and not implemented.
+* **Editors can modify project content.** New live operations carry original device signatures, hashes and membership
+  evidence; relaying cannot change their author. Historic evidence never restores current permissions. Legacy state
+  copies have explicitly unknown original authors, and destructive/unsupported root payloads are retained in quarantine.
+  Signatures provide attribution, not a guarantee that an authorized author's edit is correct. Local edits without a
+  membership certificate have local declared attribution, never a fabricated verified signature.
+* **Trusted Types** is not implemented.
 * **A fixed TURN account is shared with every member.** With `TURN_USERNAME`/`TURN_CREDENTIAL` (e.g. ExpressTURN) the same relay credential is handed to every authenticated project member's device, so a member can read it and relay their own traffic at the account's cost. Relayed project traffic stays end-to-end encrypted. Use an account that can only relay, watch its quota, and rotate it when a member is removed or it leaks. Cloudflare's minted credentials expire after an hour.
 * **Free-tier availability**: no SLA; if the control plane is down, existing meshes keep working until their tickets expire (15 min), but new joins, ticket refreshes and rings stop: dormant seeds stay asleep until the control plane returns.
 * The in-browser TeX engine depends on a third-party TeX file server (configurable).

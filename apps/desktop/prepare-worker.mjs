@@ -30,6 +30,7 @@ const assets = {
 };
 const root = join(here, "src-tauri/resources/node");
 await mkdir(root, { recursive: true });
+const previousManifest = await readFile(join(root, "manifest.json"), "utf8").then(JSON.parse).catch(() => null);
 const universal = process.platform === "darwin"; // Every macOS installer carries both architectures.
 const targets = universal
   ? ["darwin-x64", "darwin-arm64"]
@@ -84,11 +85,12 @@ for (const target of targets) {
 }
 await writeFile(join(root, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
 if (process.platform === "win32") {
-  const license = await fetch(
-    `https://raw.githubusercontent.com/nodejs/node/v${config.node}/LICENSE`,
-  );
-  if (!license.ok) throw new Error("Node license unavailable");
-  await writeFile(join(root, "LICENSE.txt"), await license.text());
+  const cached = previousManifest?.version === config.node && await readFile(join(root, "LICENSE.txt")).catch(() => null);
+  if (!cached) {
+    const license = await fetch(`https://raw.githubusercontent.com/nodejs/node/v${config.node}/LICENSE`);
+    if (!license.ok) throw new Error("Node license unavailable");
+    await writeFile(join(root, "LICENSE.txt"), await license.text());
+  }
 }
 await buildWorker();
 console.log(`Packaged Node ${config.node} and sync worker (${targets.join(", ")})`);

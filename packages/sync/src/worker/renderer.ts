@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import { ROOT_DOC_ID, fileDocId, MAX_BLOB_BYTES, type Role } from "@hivetex/protocol";
-import { Awareness, applyAwarenessUpdate } from "y-protocols/awareness";
+import { Awareness, applyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
 import {
   BRIDGE_ORIGIN,
   ActorConflicts,
@@ -22,6 +22,7 @@ import type { ChangeLog } from "../changelog.js";
 import type { OfflineFork } from "../fork.js";
 import type { ProjectOpen, WorkerProjects } from "./projects.js";
 import { MIRROR_ORIGIN } from "../origins.js";
+import { notifyRecoveryChange } from "../recovery.js";
 import type { IngressEntry } from '../ingress.js';
 
 export interface WorkerLink {
@@ -66,6 +67,9 @@ export class WorkerRenderer {
   private error: unknown = null;
   private chain: Promise<unknown> = Promise.resolve();
   private historyCbs = new Set<() => void>();
+  private project: ProjectOpen | null = null;
+  private reattaching: Promise<void> | null = null;
+  private blobStoredCbs = new Set<() => void>();
   constructor(private link: WorkerLink) {
     const memory = new MemoryPersistence();
     this.model = new ProjectModel(memory);
@@ -106,6 +110,8 @@ export class WorkerRenderer {
     });
     const port = this;
     this.mesh = {
+      get historyStatus() { return port.status?.historyStatus ?? { complete: false, received: 0, pending: 0, legacyPeers: 0, quarantined: 0 }; },
+      onHistory: (cb: () => void) => this.subscribe(this.historyCbs, cb),
       awareness,
       get peers() {
         return port.peers;
@@ -156,6 +162,11 @@ export class WorkerRenderer {
         await Promise.all([...this.complete].map((id) => this.model.getDoc(id)));
         return r;
       },
+      reconcile: async (docId, options) => {
+        const result = await this.call('mesh.reconcileDoc', { docId, timeoutMs: options?.timeoutMs });
+        await this.refreshDocs(); await this.model.getDoc(docId);
+        return result;
+      },
       reconciling: () => false,
       reconciled: (docId) =>
         docId === ROOT_DOC_ID
@@ -163,6 +174,9 @@ export class WorkerRenderer {
           : !!this.status.syncStatus?.files.find((f) => fileDocId(f.id) === docId)?.reconciled,
     } satisfies Pick<
       Mesh,
+      | "historyStatus"
+      | "reconcile"
+      | "onHistory"
       | "awareness"
       | "peers"
       | "sourceKey"
@@ -178,6 +192,7 @@ export class WorkerRenderer {
       | "reconciled"
     > as unknown as Mesh;
     this.blobs = {
+      onStored: (cb: () => void) => this.subscribe(this.blobStoredCbs, cb),
       add: (bytes: Uint8Array) => this.addBlob(bytes),
       has: (hash: string) => this.call<boolean>("blob.has", { hash }),
       held: async () => new Set(await this.call<string[]>("blob.held", {})),
@@ -185,7 +200,19 @@ export class WorkerRenderer {
       get: (hash: string) => this.readBlob(hash).catch(() => undefined),
     } as BlobManager;
     this.store = Object.assign(Object.create(memory) as Persistence, {
+      listDocs: () => this.call<string[]>('project.storeDocs', {}),
+      exportRawStore: () => this.exportRawStore(),
+      openRawExport: () => this.openRawExport(),
+      listBlobs: () => this.call<string[]>('blob.held', {}),
+      load: async (docId: string) => {
+        const descriptor = await this.call<{ id: string; size: number }>('project.exportDocOpen', { docId });
+        if (!Number.isSafeInteger(descriptor.size) || descriptor.size < 0 || descriptor.size > 64 * 1024 * 1024) throw new Error('Invalid document export size');
+        const bytes = new Uint8Array(descriptor.size);
+        for (let offset = 0; offset < bytes.length; offset += 1024 * 1024) bytes.set(await this.call<Uint8Array>('project.exportDocRead', { id: descriptor.id, offset }), offset);
+        return [bytes];
+      },
       getMeta: (key: string) => this.call("project.meta", { key }),
+      listMetaKeys: (prefix?: string) => this.call<string[]>("project.metaKeys", prefix === undefined ? {} : { prefix }),
       setMeta: (key: string, value: unknown) => this.call("project.metaSet", { key, value }),
       putBlob: async (_hash: string, bytes: Uint8Array) => {
         await this.blobs.add(bytes);
@@ -198,12 +225,23 @@ export class WorkerRenderer {
     // Folder merge bases are device metadata owned by the actor, never a second desktop store.
     memory.getMeta = (key) => this.store.getMeta(key);
     memory.setMeta = async (key, value) => {
-      if (key === "mirrorBase") await this.store.setMeta(key, value);
+      // Restore checkpoints live with the actor's store, so History can complete or cancel them after a restart.
+      if (key === "mirrorBase" || key.startsWith("restore:pending:")) await this.store.setMeta(key, value);
+    };
+    const transact = memory.transact.bind(memory);
+    memory.transact = async (ops) => {
+      await transact(ops);
+      for (const o of ops) if (o.op === "meta" && o.key.startsWith("restore:pending:") && o.value !== undefined) await this.store.setMeta(o.key, o.value);
     };
     this.changelog = {
       list: () => this.call("project.history", {}),
       flush: () => this.call("project.flush", {}),
       onChange: (cb: () => void) => this.subscribe(this.historyCbs, cb),
+      interruptedUndos: () => this.call("project.undoInterrupted", {}),
+      abandonUndo: async (changeSetId: string) => {
+        const value = await this.call<string | null>("project.undoAbandon", { changeSetId });
+        return value ? (await this.call<ChangeSet[]>("project.history", {})).find((c) => c.id === value) ?? null : null;
+      },
       undo: async (set: ChangeSet) => {
         const value = await this.command({ kind: "undo", changeSetId: set.id });
         return (
@@ -291,8 +329,14 @@ export class WorkerRenderer {
       await this.model.flush();
       return this.call("project.snapshot", {});
     };
-    this.model.restore = async (snapshotId) =>
-      (await this.command({ kind: "restore", snapshotId })) as { undoId: string };
+    this.model.previewRestore = (snapshotId) => this.call('project.previewRestore', { snapshotId });
+    this.model.recoveryFiles = () => this.call('project.recoveryFiles', {});
+    this.model.recoveryState = () => this.call('project.recoveryState', {});
+    this.model.restoreDeleted = (id, deletionId, path) => this.command({ kind: 'restore-deleted', id, deletionId, ...(path ? { path } : {}) }) as unknown as void;
+    this.model.confirmDeletion = (id, deletionId, expectedRevision) => this.command({ kind: 'confirm-deletion', id, deletionId, expectedRevision }) as unknown as void;
+    this.model.resolveBinary = (id, hash, _canApply, expectedRevision) => this.command({ kind: 'resolve-binary', id, hash, ...(expectedRevision !== undefined ? { expectedRevision } : {}) }) as unknown as void;
+    this.model.restore = async (snapshotId, _canApply, expectedRevision, requestId) =>
+      (await this.command({ kind: "restore", snapshotId, ...(expectedRevision !== undefined ? { expectedRevision } : {}), ...(requestId ? { requestId } : {}) })) as { undoId: string };
     this.model.createTextNow = async (path, text = "", origin) => {
       const id = (await this.command({ kind: "create", path, text, ...(origin===MIRROR_ORIGIN?{source:'folder' as const}:{}) })) as string;
       await this.refreshDocs();
@@ -303,11 +347,11 @@ export class WorkerRenderer {
         Object.entries((await this.command({ kind: "batch", ops })) as Record<string, string>),
       ),
     });
-    this.model.rename = (id, path) => {
-      void this.command({ kind: "rename", id, path }).catch((e) => this.fail(e));
+    this.model.rename = (id, path, origin) => {
+      void this.command({ kind: "rename", id, path, ...(origin === MIRROR_ORIGIN ? { source: 'folder' as const } : {}) }).catch((e) => this.fail(e));
     };
-    this.model.delete = (id) => {
-      void this.command({ kind: "delete", id }).catch((e) => this.fail(e));
+    this.model.delete = (id, origin) => {
+      void this.command({ kind: "delete", id, ...(origin === MIRROR_ORIGIN ? { source: 'folder' as const } : {}) }).catch((e) => this.fail(e));
     };
   }
   private subscribe<T>(set: Set<T>, cb: T) {
@@ -374,6 +418,7 @@ export class WorkerRenderer {
       "reconciled",
       "ticket",
       "merge",
+      "recovery",
     ])
       this.subscriptions.push(
         this.link.on("project." + event, (p) => {
@@ -381,6 +426,10 @@ export class WorkerRenderer {
           if (event === "status") {
             const prev = this.status;
             this.status = { ...this.status, ...p.data };
+            const heldBefore = new Set(prev?.syncStatus?.files.filter((f) => f.kind === 'binary' && f.have).map((f) => f.id));
+            if (this.status.syncStatus?.files.some((f) => f.kind === 'binary' && f.have && !heldBefore.has(f.id))) {
+              for (const cb of this.blobStoredCbs) cb();
+            }
             for (const o of this.observers) {
               if (prev?.role !== this.status.role) o.role?.(this.status.role);
               if (prev?.deviceId !== this.status.deviceId) o.deviceId?.(this.status.deviceId);
@@ -420,11 +469,12 @@ export class WorkerRenderer {
             for (const o of this.observers) o.ticket?.(p.data);
           } else if (event === "merge") {
             for (const o of this.observers) o.mergeReport?.(p.data);
-          }
+          } else if (event === "recovery") notifyRecoveryChange(this.store);
         }),
       );
     try {
       this.status = await this.call<Status>("project.open", { project });
+      this.project = project;
       this.peers = (this.status.peerInfo ?? []).map(
         (p) => ({ ...p, conn: { role: p.claims.role } }) as PeerInfo,
       );
@@ -438,6 +488,46 @@ export class WorkerRenderer {
       await this.close().catch(() => {});
       throw e;
     }
+  }
+  /**
+   * The sync worker restarted: the new generation knows no attachment. Opens the project again under the same
+   * attachment (edits the old worker had journaled are replayed once by the new one, keyed on attachment and
+   * sequence), brings every loaded document up to the worker's state and resends the edits not yet durable.
+   */
+  reattach(): Promise<void> {
+    if (this.closed || !this.project) return Promise.resolve();
+    this.reattaching ??= (async () => {
+      const project = this.project!;
+      const loaded = [...this.docs.keys()];
+      this.docs.clear();
+      const status = await this.call<Status>("project.open", { project });
+      this.status = { ...this.status, ...status };
+      this.peers = (status.peerInfo ?? []).map((p) => ({ ...p, conn: { role: p.claims.role } }) as PeerInfo);
+      for (const docId of loaded) {
+        const doc = docId === ROOT_DOC_ID ? this.model.root : this.model.getLoadedDoc(docId);
+        if (doc) await this.attachDoc(docId, doc);
+      }
+      await this.refreshDocs();
+      const awareness = this.mesh.awareness;
+      if (status.awarenessId && status.awarenessId !== awareness.clientID) {
+        // Presence now carries the new actor's id: move our state to it, so our own cursor is not shown as a peer's.
+        const local = awareness.getLocalState(), previous = awareness.clientID;
+        awareness.clientID = status.awarenessId;
+        awareness.setLocalState(local);
+        removeAwarenessStates(awareness, [previous], BRIDGE_ORIGIN);
+      }
+      if (status.awareness) applyAwarenessUpdate(awareness, status.awareness, BRIDGE_ORIGIN);
+      this.chain = this.chain.catch(() => {}).then(async () => {
+        for (const seq of [...this.pending.keys()]) await this.send(seq);
+      });
+      await this.chain;
+      if (!this.pending.size) this.error = null;
+      this.emit();
+      for (const cb of this.historyCbs) cb();
+    })().finally(() => {
+      this.reattaching = null;
+    });
+    return this.reattaching;
   }
   private async refreshDocs() {
     for (const d of await this.call<Array<{ docId: string; complete: boolean }>>(
@@ -517,6 +607,26 @@ export class WorkerRenderer {
       const last = page[page.length - 1]!;
       after = { attachment: last.attachment, seq: last.seq };
     }
+  }
+  private async *exportRawStore() {
+    const raw = await this.openRawExport();
+    try { yield* raw.chunks; } finally { await raw.close(); }
+  }
+  /** Size first (`-1` when the worker cannot tell), then 1 MiB chunks pulled one at a time (D7). */
+  private async openRawExport() {
+    const { id, size } = await this.call<{ id: string; size?: number }>('project.storeExportOpen', {});
+    let closed = false;
+    const close = async () => { if (!closed) { closed = true; await this.call('project.storeExportClose', { id }); } };
+    const call = this.call.bind(this);
+    const chunks = (async function* () {
+      for (;;) {
+        const part = await call<{ done: boolean; bytes?: Uint8Array }>('project.storeExportRead', { id });
+        if (part.done) { closed = true; return; }
+        if (!part.bytes || !part.bytes.length || part.bytes.length > 1024 * 1024) throw new Error('Invalid store export chunk');
+        yield part.bytes;
+      }
+    })();
+    return { size: Number.isSafeInteger(size) ? size! : -1, chunks, close };
   }
   private async readBlob(hash: string, timeoutMs?: number) {
     let offset = 0,

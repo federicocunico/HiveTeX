@@ -1,15 +1,13 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { nativeSkip, nativeTestBinary } from '../../../scripts/native-test-bin.mjs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { NativeEngine } from '../src/index.js';
 
-const exe = fileURLToPath(new URL('../../../apps/desktop/src-tauri/target/debug/examples/tex_cli.exe', import.meta.url));
-const exeUnix = exe.replace(/\.exe$/, '');
-const bin = existsSync(exe) ? exe : existsSync(exeUnix) ? exeUnix : null;
+const SUITE = 'native TeX engine over the Rust bridge (packages/compile/test/native.test.ts)';
+const bin = nativeTestBinary('tex_cli', SUITE);
 
 let child: ChildProcessWithoutNullStreams | null = null;
 const pending: Array<(v: unknown) => void> = [];
@@ -38,10 +36,13 @@ const invoke = <T>(cmd: string, args?: Record<string, unknown>) =>
 afterAll(() => child?.kill());
 
 describe.skipIf(!bin)('native engine over the Rust bridge (8.6)', () => {
-  it('detects, compiles incrementally, and surfaces errors with the same contract as Tauri IPC', async () => {
+  it('detects, compiles incrementally, and surfaces errors with the same contract as Tauri IPC', async (ctx) => {
     start();
     const eng = new NativeEngine(invoke, 'proj-native-1');
-    if (!(await eng.init())) return; // no TeX on this machine
+    if (!(await eng.init())) {
+      if (process.env.HIVETEX_NATIVE_TESTS === '1') throw new Error('Required native TeX compiler is unavailable');
+      return nativeSkip(SUITE, 'no TeX compiler on this machine', 'install TeX Live, MiKTeX or TinyTeX', ctx);
+    }
     expect(eng.supports).toContain('pdflatex');
 
     const doc = (body: string) => ({
@@ -70,9 +71,12 @@ describe.skipIf(!bin)('native engine over the Rust bridge (8.6)', () => {
     expect(bad.log).toContain('Undefined control sequence');
   }, 240_000);
 
-  it('recovers when the Rust side lost its working directory (asks for content again)', async () => {
+  it('recovers when the Rust side lost its working directory (asks for content again)', async (ctx) => {
     const eng = new NativeEngine(invoke, 'proj-native-2');
-    if (!(await eng.init())) return;
+    if (!(await eng.init())) {
+      if (process.env.HIVETEX_NATIVE_TESTS === '1') throw new Error('Required native TeX compiler is unavailable');
+      return nativeSkip(SUITE, 'no TeX compiler on this machine', 'install TeX Live, MiKTeX or TinyTeX', ctx);
+    }
     const input = { files: [{ path: 'main.tex', kind: 'text' as const, text: '\\documentclass{article}\\begin{document}x\\end{document}' }], main: 'main.tex', engine: 'pdflatex' as const, stateHash: 'h' };
     expect((await eng.compile(input, { timeoutMs: 120_000 })).ok).toBe(true);
     // Simulate a fresh app data dir: use a new engine instance that believes files were already sent.

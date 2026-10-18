@@ -6,7 +6,6 @@ pub mod igd;
 pub mod lifecycle;
 pub mod portmap;
 pub mod mirror;
-pub mod probe;
 pub mod proc;
 pub mod rtc;
 pub mod rtc_log;
@@ -33,15 +32,15 @@ fn tex_detect() -> Option<tex::EngineInfo> {
 }
 
 /// Compiles on a blocking thread so the UI stays responsive. Packages the compiler downloads on the way are reported as
-/// `compile://package` events.
+/// `compile://package` events. `build` names the build for `tex_cancel`, which kills its process tree.
 #[tauri::command]
-async fn tex_compile(app: tauri::AppHandle, req: tex::CompileReq) -> Result<tex::CompileResp, String> {
+async fn tex_compile(app: tauri::AppHandle, req: tex::CompileReq, build: Option<String>) -> Result<tex::CompileResp, String> {
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let emitter = app.clone();
     let on_download: tex::OnDownload = std::sync::Arc::new(move |file: &str| {
         let _ = emitter.emit("compile://package", file.to_string());
     });
-    tauri::async_runtime::spawn_blocking(move || tex::compile_with(&root, req, Some(on_download)))
+    tauri::async_runtime::spawn_blocking(move || tex::compile_build(&root, req, Some(on_download), build.as_deref()))
         .await
         .map_err(|e| e.to_string())
 }
@@ -268,6 +267,10 @@ fn mirror_unbind(state: State<'_, MirrorState>, id: String) {
 fn mirror_list(state: State<'_, MirrorState>, id: String) -> Result<Vec<Listed>, String> {
     state.list(&id)
 }
+#[tauri::command]
+fn mirror_retained(state: State<'_, MirrorState>, id: String) -> Result<Vec<Listed>, String> {
+    state.retained(&id)
+}
 
 #[tauri::command]
 fn mirror_read(state: State<'_, MirrorState>, id: String, path: String) -> Result<Option<String>, String> {
@@ -275,13 +278,18 @@ fn mirror_read(state: State<'_, MirrorState>, id: String, path: String) -> Resul
 }
 
 #[tauri::command]
-fn mirror_write(state: State<'_, MirrorState>, id: String, path: String, b64: String) -> Result<(), String> {
+fn mirror_write(state: State<'_, MirrorState>, id: String, path: String, b64: String) -> Result<Option<String>, String> {
     state.write(&id, &path, &b64)
 }
 
 #[tauri::command]
-fn mirror_remove(state: State<'_, MirrorState>, id: String, path: String) -> Result<(), String> {
+fn mirror_remove(state: State<'_, MirrorState>, id: String, path: String) -> Result<Option<String>, String> {
     state.remove(&id, &path)
+}
+
+#[tauri::command]
+fn mirror_drop_retained(state: State<'_, MirrorState>, id: String, path: String) -> Result<(), String> {
+    state.drop_retained(&id, &path)
 }
 
 fn rtc_emit(app: tauri::AppHandle) -> rtc::Emit {
@@ -342,11 +350,6 @@ async fn rtc_close(state: State<'_, rtc::RtcState>, id: String) -> Result<(), St
 }
 
 #[tauri::command]
-fn probe_system(state: State<'_, probe::ProbeState>) -> probe::Probe {
-    state.probe()
-}
-
-#[tauri::command]
 fn secret_get(key: String) -> Result<Option<String>, String> {
     secrets::get(&key)
 }
@@ -370,6 +373,12 @@ fn texcache_set_upstream(cache: State<'_, texcache::TexCache>, url: String) -> R
 #[tauri::command]
 fn texcache_stats(cache: State<'_, texcache::TexCache>) -> texcache::Stats {
     cache.stats()
+}
+
+#[tauri::command]
+fn texcache_contains(cache: State<'_, texcache::TexCache>, rel: String) -> Result<bool, String> {
+    let path = texcache::safe_rel(&rel).ok_or("Invalid TeX cache path")?;
+    Ok(cache.stats_contains(&path))
 }
 
 #[tauri::command]
@@ -706,7 +715,6 @@ pub fn run() {
             Ok(())
         })
         .manage(MirrorState::default())
-        .manage(probe::ProbeState::default())
         .manage(rtc::RtcState::default())
         .manage(portmap::UpnpState::default())
         .manage(lifecycle::Lifecycle::default())
@@ -729,11 +737,13 @@ pub fn run() {
             compiler_health_check,
             compiler_use_system_tex,
             tex_compile,
+            tex::tex_cancel,
             texcache_set_upstream,
             managed_install,
             managed_status,
             managed_remove,
             texcache_stats,
+            texcache_contains,
             texcache_clear,
             compiler_cache_clear,
             mirror_pick,
@@ -744,10 +754,11 @@ pub fn run() {
             mirror_open_terminal,
             mirror_default_folder,
             mirror_list,
+            mirror_retained,
             mirror_read,
             mirror_write,
             mirror_remove,
-            probe_system,
+            mirror_drop_retained,
             rtc_create,
             rtc_create_data_channel,
             rtc_create_offer,
@@ -772,6 +783,9 @@ pub fn run() {
             store_cmd::store_transact,
             store_cmd::store_load,
             store_cmd::store_list_docs,
+            store_cmd::store_export_open,
+            store_cmd::store_export_read,
+            store_cmd::store_export_close,
             store_cmd::store_put_blob,
             store_cmd::store_stage_chunk,
             store_cmd::store_stage_commit,
@@ -793,7 +807,11 @@ pub fn run() {
             store_cmd::store_ingress_deny,
             store_cmd::store_ingress_get,
             store_cmd::migration_manifest_read,
-            store_cmd::migration_manifest_write
+            store_cmd::migration_manifest_write,
+            store_cmd::recovery_save_begin,
+            store_cmd::recovery_save_append,
+            store_cmd::recovery_save_finish,
+            store_cmd::recovery_save_abort
         ])
         .build(tauri::generate_context!())
         .expect("error while running HiveTeX")

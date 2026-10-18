@@ -1,6 +1,6 @@
 import type { StoredDeviceKeys } from '@hivetex/crypto';
 import { type DoorbellInfo, ROOT_DOC_ID, type Role, type TicketClaims, type TrustedKey } from '@hivetex/protocol';
-import { BlobManager } from './blobs.js';
+import { BlobManager, referencedBlobs } from './blobs.js';
 import { ChangeLog } from './changelog.js';
 import { type Candidate, ConnectionManager, type IceConfig, type ManagerOptions, type PeerProbeResult, type PeerRoute, type TraceEvent, type WebSocketLike } from './connect.js';
 
@@ -75,6 +75,7 @@ export interface ProjectRuntimeOptions {
   keys: StoredDeviceKeys;
   /** The control plane's id for these keys, or null when not registered yet (an `offline-*` id is used meanwhile). */
   deviceId: string | null;
+  localAuthor?: { uid: string; name: string };
   /** Keys cached from an earlier start; verification works with them until fresh ones are loaded. */
   trusted?: TrustedKey[];
   canWrite: () => boolean;
@@ -199,6 +200,7 @@ export class ProjectRuntime {
   async open() {
     const { store } = this.o;
     this.model = new ProjectModel(store);
+    if (this.o.localAuthor) this.model.localAuthor = { ...this.o.localAuthor, device: this.o.deviceId ?? `key:${this.o.keys.edPub}` };
     await this.model.init();
     if (this.o.isLocal || this.o.createdHere) this.model.markComplete(ROOT_DOC_ID);
     this.model.onSaveState((st) => {
@@ -247,7 +249,9 @@ export class ProjectRuntime {
       },
       ...this.o.mesh,
     });
-    this.blobs = new BlobManager(this.mesh, store);
+    // Only blobs the project refers to are offered (never outputs a 0.8.0 build leader stored as shared assets).
+    this.blobs = new BlobManager(this.mesh, store, { referenced: () => referencedBlobs(this.model, store) });
+    this.mesh.onHistory(() => { void this.changelog.list().then(() => this.emit()).catch(() => {}); });
     listenForkStatus(this.mesh, this.fork);
     this.mesh.onPeerJoin(() => {
       this.refreshPeers();

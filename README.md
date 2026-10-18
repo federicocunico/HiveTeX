@@ -1,7 +1,7 @@
 # HiveTeX
 
 Free, peer-to-peer collaborative LaTeX editor. Your sources stay on the co-authors' devices, synced live between them,
-and the best connected device compiles the PDF for everyone. A small server only handles accounts, finding projects,
+and each device builds its own PDF locally. A small server only handles accounts, finding projects,
 permissions and setting up connections: your documents never go there.
 
 Use it in the browser or as a desktop app (Windows, macOS, Linux). No LaTeX installation is needed.
@@ -14,12 +14,13 @@ Use it in the browser or as a desktop app (Windows, macOS, Linux). No LaTeX inst
   writes LaTeX for you. Compile errors come in plain words with one-click fixes. There is also a command palette
   (Ctrl/Cmd+K), Vim or Emacs keys, SyncTeX both ways, and light and dark themes
   ([dark](docs/images/workspace-dark.png), [landing page](docs/images/landing.png)).
-- **Your files, your tools:** a project can live in a folder on your computer, such as a git clone, so editors and AI
-  tools (Claude Code, Codex, Cursor) work on the same files. Projects can be backed up to GitHub.
-- **Compiling is shared:** whoever is best placed builds the PDF and sends it to the others. Each device can choose
-  instead to compile only for itself, or never.
+- **Your files, your tools:** in the desktop app, a project can live in a folder, such as a git clone, so editors and AI
+  tools (Claude Code, Codex, Cursor) work on the same files. Browser folders are imported without writing to them.
+  Projects can be backed up to GitHub.
+- **Compilation is local:** each device builds its own PDF with its installed compiler or the browser engine.
+  Generated PDFs, logs and SyncTeX files stay on that device.
 
-![Two co-authors in the same project: the co-author's cursor and edit, and the PDF compiled by the best device](docs/images/collaboration.png)
+![Two co-authors in the same project: the co-author's cursor and edit, and a locally compiled PDF](docs/images/collaboration.png)
 
 ---
 
@@ -86,8 +87,8 @@ details.
 
 3. Co-authors use **Join a project** with the ID and password. Everyone online edits live. While you're offline you
    keep editing, and the changes merge when you reconnect.
-4. **Compiling:** by default the best connected device builds the PDF for everyone. In *Account → Compiler*, or in
-   the status bar, each device can choose *Automatic*, *Use peers* (never compile here) or *This device only*.
+4. **Compiling:** every device builds its own PDF using its local compiler, after your edits settle or when you click
+   **Recompile**; it never uses a co-author's compiler. Configure this machine in *Account → Compiler*.
 
    ![Account → Compiler in the browser](docs/images/compiler-settings.png)
 

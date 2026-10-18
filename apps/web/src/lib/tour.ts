@@ -24,7 +24,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     target: '[data-testid="compile-btn"]',
     title: 'Compile to see the PDF',
-    text: 'Recompile (or Ctrl+Enter) builds the PDF on the best device online and shares it with everyone. Problems show under the editor in plain words.',
+    text: 'Recompile (or Ctrl+Enter) builds the PDF on this device. Problems show under the editor in plain words.',
   },
   {
     target: '[data-testid="share-btn"]',

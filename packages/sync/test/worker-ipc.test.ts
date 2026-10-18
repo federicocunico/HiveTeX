@@ -7,6 +7,20 @@ import { encodeFrame, FrameReader, MAX_FRAME, ProtocolError, RpcEndpoint, valida
 
 /** 6.1: the supervisor/worker pipe protocol, in unit tests and against the real bundled worker under Node. */
 describe('worker frame codec and RPC', () => {
+  it('carries storage messages over 8 MiB in bounded pipe frames without applying a partial message', async () => {
+    const value = 'large exact storage bytes '.repeat(400_000);
+    const message = { v: 1 as const, gen: 1, kind: 'req' as const, id: 4, method: 'store.transact', params: { value } };
+    const encoded = encodeFrame(message), reader = new FrameReader();
+    expect(new DataView(encoded.buffer).getUint32(0)).toBe(0x80800000);
+    expect(reader.push(encoded.subarray(0, MAX_FRAME + 4))).toEqual([]);
+    expect(reader.buffered).toBe(MAX_FRAME);
+    expect(reader.push(encoded.subarray(MAX_FRAME + 4))).toEqual([message]);
+    expect(reader.buffered).toBe(0);
+    const continuation = new Uint8Array([0x40, 0, 0, 1, 0x7b]);
+    expect(() => new FrameReader().push(continuation)).toThrow('fragment sequence');
+    const budget = new FrameReader(1);
+    expect(() => budget.push(encoded.subarray(0, MAX_FRAME + 4))).toThrow('assembled message too large');
+  });
   it('reassembles frames split across chunks and rejects oversized, malformed and wrong-version frames', () => {
     const f = encodeFrame({ v: 1, gen: 1, kind: 'evt', event: 'ready' });
     const r = new FrameReader();
@@ -80,6 +94,13 @@ describe('the bundled worker under Node (6.1)', () => {
     await expect(w.rpc.request('fs.read', '/etc/passwd')).rejects.toThrow('unknown method');
     w.child.stdin.end(); // the supervisor went away
     expect(await w.exited).toBe(0);
+  });
+
+  it('round-trips a large exact value through real worker pipes in both directions', async () => {
+    const w = start(8), value = 'large exact bytes λ'.repeat(600_000);
+    const answer = await w.rpc.request<{ pong: string }>('ping', value);
+    expect(answer.pong === value).toBe(true);
+    w.child.stdin.end(); expect(await w.exited).toBe(0);
   });
 
   it('drops frames of an obsolete generation and exits on malformed or oversized frames', async () => {

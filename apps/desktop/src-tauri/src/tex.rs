@@ -2,7 +2,7 @@
 //! in a hardened, incremental working directory.
 //!
 //! Hardening: shell escape disabled, path-restricted file access, wall-clock timeout, memory limit
-//! (Windows job object / Unix rlimit), whole process tree killed on timeout, files confined to the
+//! (Windows job object / Unix rlimit), whole process tree killed on timeout or cancellation, files confined to the
 //! project working directory.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -21,7 +21,7 @@ pub struct EngineInfo {
     pub flavor: String,
     pub supports: Vec<String>,
     pub has_latexmk: bool,
-    /// Whether what a document read can be verified (recorder): only such builds may be shared with co-authors.
+    /// Whether what a document read can be verified (recorder); the quick compiler's reads cannot be.
     pub verified_reads: bool,
     /// Executables of an installation HiveTeX manages (TinyTeX, Tectonic); `None` = found on PATH.
     #[serde(skip)]
@@ -99,7 +99,7 @@ pub struct CompileResp {
     pub synctex_b64: Option<String>,
     pub log: String,
     pub timed_out: bool,
-    /// Built by a compiler whose file reads cannot be verified (Tectonic): never to be shared with co-authors.
+    /// Built by a compiler whose file reads cannot be verified (Tectonic). Every result stays on this device anyway.
     pub local_only: bool,
 }
 
@@ -331,6 +331,59 @@ fn tail(s: &str, max: usize) -> String {
     s[start..].to_string()
 }
 
+type CancelFlag = std::sync::Arc<std::sync::atomic::AtomicBool>;
+
+/// Builds that can be cancelled, by the id their caller chose (`tex_cancel`).
+static CANCELS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, CancelFlag>>> = std::sync::OnceLock::new();
+
+fn cancels() -> std::sync::MutexGuard<'static, HashMap<String, CancelFlag>> {
+    CANCELS.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner())
+}
+
+thread_local! {
+    /// The cancel flag of the build running on this thread (a build runs on one blocking thread).
+    static CURRENT_CANCEL: std::cell::RefCell<Option<CancelFlag>> = const { std::cell::RefCell::new(None) };
+}
+
+fn cancelled() -> bool {
+    CURRENT_CANCEL.with(|c| c.borrow().as_ref().is_some_and(|f| f.load(std::sync::atomic::Ordering::SeqCst)))
+}
+
+/// Cancels build `id`: its process tree is killed, and a cancel that arrives before the build starts stops it at once.
+pub fn cancel_build(id: &str) {
+    let mut m = cancels();
+    if m.len() >= 256 {
+        // cancels for builds that already ended
+        m.retain(|_, f| std::sync::Arc::strong_count(f) > 1);
+    }
+    m.entry(id.to_string()).or_default().store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn tex_cancel(build: String) {
+    cancel_build(&build);
+}
+
+/// `compile_with`, cancellable through `cancel_build(build)`.
+pub fn compile_build(root: &Path, req: CompileReq, on_download: Option<OnDownload>, build: Option<&str>) -> CompileResp {
+    let Some(id) = build else { return compile_with(root, req, on_download) };
+    struct Current<'a>(&'a str);
+    impl Drop for Current<'_> {
+        fn drop(&mut self) {
+            CURRENT_CANCEL.with(|c| *c.borrow_mut() = None);
+            cancels().remove(self.0);
+        }
+    }
+    let flag = cancels().entry(id.to_string()).or_default().clone();
+    CURRENT_CANCEL.with(|c| *c.borrow_mut() = Some(flag));
+    let _current = Current(id);
+    compile_with(root, req, on_download)
+}
+
+fn cancelled_resp() -> CompileResp {
+    CompileResp { log: "! Compilation cancelled\n".into(), ..Default::default() }
+}
+
 /// Runs a command with limits; returns (exit_success, timed_out).
 fn run_limited(cmd: Command, timeout: Duration, memory_mb: u64) -> std::io::Result<(bool, bool)> {
     run_limited_io(cmd, timeout, memory_mb, None, None)
@@ -382,7 +435,8 @@ fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: O
         }
         let last = activity.as_ref().map(|a| a.load(std::sync::atomic::Ordering::SeqCst)).filter(|&ms| ms > 0).map(Duration::from_millis);
         let cap = if activity.is_some() { DOWNLOAD_CAP } else { timeout };
-        if timed_out(start.elapsed(), last, timeout, cap) {
+        // A cancelled build ends like one over its limit: the whole tree is killed (callers report the cancellation).
+        if cancelled() || timed_out(start.elapsed(), last, timeout, cap) {
             #[cfg(unix)]
             unsafe {
                 libc::kill(-(child.id() as i32), libc::SIGKILL);
@@ -477,6 +531,9 @@ pub fn compile(root: &Path, req: CompileReq) -> CompileResp {
 pub type OnDownload = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload>) -> CompileResp {
+    if cancelled() {
+        return cancelled_resp();
+    }
     let mut resp = CompileResp::default();
     let Ok(_activity) = crate::maintenance::COMPILER_ACTIVITY.try_read() else {
         resp.log = "! Compiler maintenance is in progress; try compiling again when it finishes.".into();
@@ -649,9 +706,12 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
                 cb(&format!("installing {pkg}"));
             }
         };
-        if missing.is_empty() || crate::tinytex::install_missing(&missing, &mut tried, &run, &notify).is_empty() {
+        if cancelled() || missing.is_empty() || crate::tinytex::install_missing(&missing, &mut tried, &run, &notify).is_empty() {
             break;
         }
+    }
+    if cancelled() {
+        return cancelled_resp();
     }
 
     // Distributions do not reliably stop a document from *reading* outside the project (TeX Live 2026 ignores
@@ -686,8 +746,8 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
 }
 
 /// Tectonic: one XeTeX run per pass, packages downloaded on demand into its cache. Its reads cannot be verified (no
-/// recorder, absolute paths readable even with --untrusted), so the result is marked local-only: the app never shares
-/// it with co-authors (see design D3b).
+/// recorder, absolute paths readable even with --untrusted), so the result is marked local-only; every result stays on
+/// this device anyway.
 #[allow(clippy::too_many_arguments)]
 fn compile_tectonic(
     info: &EngineInfo,
@@ -750,6 +810,10 @@ fn compile_tectonic(
     let run = run_limited_io(cmd, timeout, req.memory_mb, Some(err_file), Some(activity));
     done.store(true, std::sync::atomic::Ordering::SeqCst);
     let _ = watcher.join();
+    if cancelled() {
+        let _ = fs::remove_file(&err_path);
+        return CompileResp { local_only: true, ..cancelled_resp() };
+    }
     let (success, timed_out) = match run {
         Ok(r) => r,
         Err(e) => {
@@ -950,6 +1014,35 @@ mod tests {
         assert!(ok && !killed, "downloading build was stopped");
         let (_, killed) = run_limited_io(slow(), Duration::from_secs(1), 0, None, Some(Default::default())).unwrap();
         assert!(killed, "idle build was not stopped");
+    }
+
+    /// A cancel ends the running command at once (its tree, like a timeout), and one sent before the build starts stops it.
+    #[test]
+    fn a_cancelled_build_stops_its_process_and_an_early_cancel_stops_the_build() {
+        let slow = || {
+            let mut c = if cfg!(windows) { Command::new("ping") } else { Command::new("sleep") };
+            if cfg!(windows) { c.args(["-n", "30", "127.0.0.1"]); } else { c.arg("29"); }
+            c
+        };
+        let flag: CancelFlag = Default::default();
+        CURRENT_CANCEL.with(|c| *c.borrow_mut() = Some(flag.clone()));
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let (ok, killed) = run_limited_io(slow(), Duration::from_secs(60), 0, None, None).unwrap();
+        CURRENT_CANCEL.with(|c| *c.borrow_mut() = None);
+        canceller.join().unwrap();
+        assert!(!ok && killed, "cancelled command was not stopped");
+        assert!(started.elapsed() < Duration::from_secs(10), "cancel waited for the command: {:?}", started.elapsed());
+
+        cancel_build("early");
+        let root = tmp("early-cancel");
+        let r = compile_build(&root, req("pc0", vec![file("main.tex", "x")], 60_000), None, Some("early"));
+        assert!(!r.ok && r.log.contains("cancelled"), "{}", r.log);
+        assert!(!cancels().contains_key("early"), "the cancel outlived its build");
+        assert!(!cancelled(), "the cancel leaked into this thread's next build");
     }
 
     fn file(path: &str, text: &str) -> FileIn {
@@ -1255,7 +1348,7 @@ Speed: \qty{3}{\metre\per\second}
             return;
         }
         let root = tmp("rc");
-        // latexmk rc files are Perl: a collaborator could run anything on the compile leader.
+        // latexmk rc files are Perl: untrusted project configuration must never run on the local compiler.
         let marker = root.join("rc-pwned.txt");
         let perl = format!("open(my $f, '>', '{}'); print $f 'pwned'; close($f);\n", marker.to_string_lossy().replace('\\', "/"));
         let files = vec![file("main.tex", DOC), file(".latexmkrc", &perl), file("latexmkrc", &perl)];
@@ -1319,6 +1412,28 @@ Speed: \qty{3}{\metre\per\second}
         assert!(!r.ok);
         assert!(r.log.contains("timed out"));
         assert!(t.elapsed() < Duration::from_secs(30));
+    }
+
+    /// Inputs changed (or the project closed) during a build that would run for minutes: cancelling it ends the compiler
+    /// process tree, and the next build of the project starts without waiting for the old one.
+    #[test]
+    fn cancelled_native_build_ends_the_compiler_and_the_next_build_runs() {
+        let Some(_tex) = test_tex() else {
+            return;
+        };
+        let root = tmp("cancel");
+        let looping = "\\documentclass{article}\\begin{document}\\def\\x{\\x}\\x\\end{document}\n";
+        let r2 = root.clone();
+        let t = Instant::now();
+        let build = std::thread::spawn(move || compile_build(&r2, req("pc1", vec![file("main.tex", looping)], 300_000), None, Some("b1")));
+        std::thread::sleep(Duration::from_secs(3));
+        cancel_build("b1");
+        let r = build.join().unwrap();
+        assert!(!r.ok && r.log.contains("cancelled"), "{}", r.log);
+        assert!(t.elapsed() < Duration::from_secs(30), "cancel waited for the build: {:?}", t.elapsed());
+        let doc = "\\documentclass{article}\\begin{document}After cancel\\end{document}\n";
+        let next = compile_build(&root, req("pc1", vec![file("main.tex", doc)], 120_000), None, Some("b2"));
+        assert!(next.ok, "{}", next.log);
     }
 
     #[test]

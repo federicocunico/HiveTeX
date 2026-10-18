@@ -1,6 +1,63 @@
 # Projects in folders
 
-A project can live **in the app** (stored on the device, the default) or **in a folder of your choice**: a plain directory
+## Recovery and filesystem failures
+
+A confirmed missing file is different from denied permission, a locked file, an unavailable volume or a failed scan.
+Errors suspend reconciliation and retry; they never become project deletions or empty files. The workspace reports
+the folder failure and recovery. A remote delete/rename checks the last shared disk hash, preserves the bytes in
+private Recovery and leaves an unimported external version on disk. Viewer edits are preserved locally before the
+shared version is restored; they are never uploaded as project assets.
+
+Native folder writes/removals first move the old inode into a sibling `.hivetex-recovery/` directory, then publish the
+new content with a rename that never replaces an existing file (`MoveFileExW` without replace on Windows,
+`renameat2(RENAME_NOREPLACE)` on Linux, `renamex_np(RENAME_EXCL)` on macOS). An external atomic-save that lands in
+between is kept and the write is retried. If publication fails, the previous file is put back the same way before the
+error is reported; while a write is being published or retried, the file's absence is never sent as a deletion.
+This works on FAT32, exFAT and network or cloud drives without hard links: where the exclusive rename flag is missing,
+a hard link is used, and without hard links an exclusive copy flushed to disk. That last fallback is not atomic for a
+program reading the file at that instant, which can briefly see a partly written file; HiveTeX itself never reads it as
+a change because the write is its own. The headless Node adapter (`mirror-node.ts`) has no exclusive rename and always
+uses the hard link, then the exclusive copy.
+
+The `.hivetex-recovery/` copy is **transient**. About a second after publication (so a late write through a handle
+that was already open still lands in it), HiveTeX compares it with what it last wrote or read there. If the bytes are
+the same, as for a co-author's ordinary edits, the copy is deleted; if they differ (external work HiveTeX had not
+read), they are captured into this device's History → Recovery and the copy is then deleted. The emptied directory is
+removed too. Copies left by a crash or a copy that could not be compared are captured on the next bind and removed;
+one that cannot be removed stays and is not read again. Retention: the folder holds a copy only for those seconds; in
+Recovery there is one entry per path and distinct external content (identical captures are deduplicated), kept on
+this device with the rest of the recovery material and included in the full recovery export. Copies are never synced,
+imported or uploaded by the app; a cloud client syncing the folder may see a copy during those seconds.
+
+One file that cannot be read, written or removed (locked by a viewer, denied) never stops the others: it is retried on
+its own with a delay that doubles up to 8 seconds, and a removal that is still pending is shown as such. Folder
+restarts, folder-wide reconciliation and per-file retries use separate timers, so one never cancels another; when a
+drive disconnects and returns, writes resume without restarting the app. Directory events are not read as files.
+If `.hivetex.json` disappears or names another project while the folder is bound, files missing from the folder are
+not deleted from the project (one notice, no retry loop); they are judged again when the marker returns, and binding
+the folder again writes them back.
+
+Browser folders are **import-only**: their adapter refuses writes and removals. The picker requests read access and
+opens an import preview; it never starts a live mirror or writes a project marker. A legacy remembered browser folder
+is detached on upgrade, with a notice; both its files and the project copy remain. Use Import to read it again.
+Use the desktop app for live folder sync with external editors. The browser API cannot atomically protect a commit
+against an arbitrary external writer, so this release does not use it to replace or delete external files.
+
+Case variants (`Intro.tex` / `intro.tex`), Unicode-normalization collisions, reserved Windows names (`CON`, `PRN`,
+`AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9` and the superscript `COM¹²³`/`LPT¹²³`, also with an
+extension) and file/directory overlaps (`sections` / `sections/a.tex`, also when a folder on disk was replaced by a
+file) are held before disk writes; a file is never removed to make room for a folder. Every project version stays
+recoverable; rename the conflicting path and the mirror retries. A case-only rename (`Intro.tex` → `intro.tex`) is
+not a collision: the old name is removed first, then the new one is written. Names that macOS lists in decomposed
+Unicode (NFD) are matched to the project's composed (NFC) path. Normal project saves do not require staging or a
+confirmation dialog. `.git/`, `node_modules/`, `target/` and `.hivetex-recovery/` folders are never mirrored in either
+direction, together with the build artifacts listed in the ignore defaults and `.hivetexignore`.
+
+Deleting a project file creates a retained deletion record. History → Recovery offers Download, Restore, Keep both,
+or Keep deleted while retaining recovery. A stale resolution is rejected; load the current conflict before deciding.
+Older orphaned documents have an explicitly unknown original path/author and can be downloaded or copied to Recovered.
+
+A project can live **in the app** (stored on the device, the default) or, in the desktop app, **in a folder of your choice**: a plain directory
 on your disk, such as a git clone, a Dropbox folder or `~/papers/thesis`. A folder project is still shared and synced in real time
 with every collaborator. The folder is just where *your* device keeps the files, so any program can open and edit them:
 Claude Code, Codex, Cursor, VS Code, `sed`, a shell script.
@@ -10,14 +67,14 @@ Folder paths and handles never leave the device; the server only knows that you 
 
 | | Desktop app (Windows, macOS, Linux) | Web app |
 |---|---|---|
-| Open a folder / create a project from a folder | yes | Chrome, Edge and other Chromium browsers (File System Access API) |
-| Change detection | instant (OS file watcher) | instant where the browser has `FileSystemObserver`, otherwise every 1.5 s |
-| After a restart | the folder is bound again automatically | the browser asks once: click **Allow access to "…"** at the bottom of the Files panel |
+| Open a folder / create a project from a folder | live folder sync | one-shot import in Chrome/Edge; the source folder stays unchanged |
+| Change detection | instant (OS file watcher) | no folder mirror; import again to read later external edits |
+| After a restart | the folder is bound again automatically | the project reopens from app storage; no external folder is changed |
 | Firefox, Safari | — | not available; projects live in the app (you can still import a folder or a .zip) |
 
 ## Choose where a new project lives
 
-**New project** → *Where to keep the files on this device* → **In a folder…** → pick an empty folder (or one with sources:
+In the desktop app: **New project** → *Where to keep the files on this device* → **In a folder…** → pick an empty folder (or one with sources:
 they become the project's files). Then **Create project**.
 
 ## Open a folder
@@ -32,8 +89,9 @@ they become the project's files). Then **Create project**.
 - **A collaborator's project folder you have not joined yet** (e.g. a clone of the project's GitHub backup): the *Join*
   form is prefilled with its ID. Enter the project password and the folder is used for it.
 
-What gets imported follows the mirror rules: `.git/`, `.claude/`, `.cursor/`, `.vscode/`, `node_modules/`, LaTeX build
-files and `.hivetexignore` patterns stay out. Files larger than 50 MB are skipped with a notice.
+In the browser, these actions instead open an import preview for the new or existing project. The folder is read once;
+later project edits do not write back to it. The usual import filters exclude tool folders and LaTeX build artifacts;
+oversized files are skipped with a notice. The desktop mirror additionally uses `.hivetexignore` patterns.
 
 ## Right-click in the Files panel: open the folder or a terminal
 
@@ -61,7 +119,7 @@ files, deletes and renames. Their edits are written to the folder within a secon
 > including LaTeX build files a tool may leave there (HiveTeX itself ignores them). Use *Use another folder…* to keep
 > the project elsewhere.
 
-In the web app, browsers cannot open a file manager or a terminal: the menu offers **Use a folder…** instead (Chrome,
+In the web app, browsers cannot open a file manager or a terminal: the menu offers **Import a folder…** instead (Chrome,
 Edge and other Chromium browsers).
 
 ## The Location menu
@@ -69,7 +127,8 @@ Edge and other Chromium browsers).
 In a project, the button at the bottom of the **Files** panel (**In the folder …** or **In the app**) shows where the
 files are on this device:
 
-- **Use a folder… / Use another folder…** moves the project's files into a folder (they are written there right away).
+- **Use a folder… / Use another folder…** (desktop) moves the project's files into a folder (they are written there right away).
+- **Import a folder…** (browser) reads a folder into an import preview without writing to it.
 - **Show in file manager** (desktop) opens the folder.
 - **Stop using the folder** keeps the project in the app. The files in the folder stay where they are, but later
   edits are no longer synced through it.
@@ -126,8 +185,9 @@ your local change was reverted").
 ### When a file cannot be written
 
 If a file cannot be written to the folder (disk full, locked by another program), the notice says so and the write is
-tried again with a growing delay. The project's text is never marked as written before it is on disk, and a file that
-was renamed or deleted while it was being written does not reappear under its old name.
+tried again with a growing delay (up to 8 seconds). The file keeps its previous content meanwhile, the other files
+keep syncing, and its temporary absence is not a deletion. The project's text is never marked as written before it is
+on disk, and a file that was renamed or deleted while it was being written does not reappear under its old name.
 
 ## Changes view: see and undo what the tools did
 
@@ -137,9 +197,12 @@ To keep that safe, every device keeps a **history of change sets**: **Changes** 
 - Each change set groups the edits from one source over a few seconds: the **folder on this device** (an AI tool or
   editor), **you** in this app, a **co-author**, or an **undo**. An icon and its tooltip say which.
 - Expand one to see the files and a line diff.
-- **Undo** (editors and owners) reverts exactly that change set for everyone, as a new change. If later edits touched
-  the same lines, the undo applies what it can and says it was partial.
-- History is kept on the device for 7 days (at least the last 500 change sets) and is never uploaded.
+- **Undo** (editors and owners) records an inverse as a new change for everyone. Later, independent edits stay intact.
+  Overlapping edits, changed binary versions or an occupied path refuse the affected inverse and explain the conflict.
+  A recovery checkpoint is saved before applying an undo or restoring a version.
+- Changes keeps seven days and at least 500 displayed groups. Retained operations and recovery material survive display
+  pruning. Signed operation evidence travels directly between project peers, preserving the original author and device;
+  it is not uploaded to the control server. Private folder recovery copies stay on this device.
 
 Typical AI workflow:
 

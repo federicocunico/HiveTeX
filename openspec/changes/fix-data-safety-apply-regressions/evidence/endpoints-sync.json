@@ -1,0 +1,40 @@
+﻿{
+    "command":  "pnpm --filter @hivetex/sync test",
+    "samples":  56,
+    "exit":  0,
+    "notLoopback":  0,
+    "endpoints":  [
+                      {
+                          "proto":  "udp",
+                          "process":  "rtc_cli.exe",
+                          "local":  "127.0.0.1:55681",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "rtc_cli.exe",
+                          "local":  "127.0.0.1:55682",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "rtc_cli.exe",
+                          "local":  "127.0.0.1:55684",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "rtc_cli.exe",
+                          "local":  "127.0.0.1:55686",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      }
+                  ]
+}

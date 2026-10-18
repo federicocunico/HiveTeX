@@ -1,17 +1,15 @@
 import { type Page, expect } from '@playwright/test';
 import { test } from './trace-fixture.js';
-import { addFile, createProject, editorText, joinProject, newUser, typeInEditor, uniq, useSharedBuilds } from './helpers.js';
+import { addFile, createProject, editorText, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
 
-const leaderText = (p: Page) => p.getByTestId('leader').innerText();
 
-test('three clients: concurrent edits, leader failover, read-only viewer and member removal (11.1, web part)', async ({ browser }) => {
+test('three clients: concurrent edits, independent local builds, read-only viewer and member removal (11.1, web part)', async ({ browser }) => {
   test.setTimeout(240_000);
   let slug = uniq('flow-');
   const [ctxO, ctxE, ctxV] = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()]);
   const O = await newUser(ctxO, 'olga');
   const E = await newUser(ctxE, 'edie');
   const V = await newUser(ctxV, 'vera');
-  for (const u of [O, E, V]) await useSharedBuilds(u.page); // leader failover (shared builds: deprecated, still available)
 
   // owner creates the project; newcomers start as editors, then the owner demotes vera
   slug = await createProject(O.page, slug);
@@ -57,24 +55,19 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
   await expect(V.page.locator('.cm-content')).not.toContainText('VIEWER-HACK');
   await expect(O.page.locator('.cm-content')).not.toContainText('VIEWER-HACK');
 
-  // a leader exists and everybody agrees on it (viewers never lead)
-  await expect.poll(async () => leaderText(O.page), { timeout: 30_000 }).not.toContain('none available');
-  await expect.poll(async () => new Set([await leaderText(O.page), await leaderText(E.page)].map((t) => t.replace(/\(this device\)/, '').trim())).size).toBeGreaterThan(0);
-  const leaderIsOwner = (await leaderText(O.page)).includes('this device');
-  const leaderIsEditor = (await leaderText(E.page)).includes('this device');
-  expect(leaderIsOwner || leaderIsEditor).toBe(true);
-  expect((await leaderText(V.page)).includes('this device')).toBe(false);
+  // Every member, including the viewer, builds and displays only their own local result.
+  for (const u of [O, E, V]) {
+    await expect(u.page.getByTestId('compile-location')).toContainText('this device');
+    await expect(u.page.getByTestId('compiled-by')).toContainText(u.username, { timeout: 30_000 });
+  }
+  await O.page.close();
+  const otherPage = E.page;
+  await typeInEditor(otherPage, ' after-owner-closed');
+  await expect(otherPage.getByTestId('compiled-by')).toContainText(E.username, { timeout: 30_000 });
+  await expect(V.page.locator('.cm-content')).toContainText('after-owner-closed');
+  await expect(V.page.getByTestId('compiled-by')).toContainText(V.username, { timeout: 30_000 });
 
-  // kill the leader's tab -> the other editor takes over within seconds and compiles
-  const [leaderPage, otherPage] = leaderIsOwner ? [O.page, E.page] : [E.page, O.page];
-  await leaderPage.close();
-  await expect.poll(async () => leaderText(otherPage), { timeout: 30_000 }).toContain('this device');
-  await typeInEditor(otherPage, ' after-failover');
-  const newLeaderName = leaderIsOwner ? E.username : O.username;
-  await expect(otherPage.getByTestId('compiled-by')).toContainText(newLeaderName, { timeout: 30_000 });
-  await expect(V.page.getByTestId('compiled-by')).toContainText(newLeaderName, { timeout: 30_000 });
-
-  // owner removes the editor; within the grace period the removed member is cut off. The tab that led was closed:
+  // owner removes the editor; within the grace period the removed member is cut off. The owner tab was closed:
   // reopen it on the same device (this also covers a quick re-join of the same device).
   const reopen = async (ctx: typeof ctxO) => {
     const page = await ctx.newPage();
@@ -88,8 +81,8 @@ test('three clients: concurrent edits, leader failover, read-only viewer and mem
     await expect(page.getByTestId('workspace')).toBeVisible();
     return page;
   };
-  const ownerPage = leaderIsOwner ? await reopen(ctxO) : O.page;
-  const removed = leaderIsOwner ? otherPage : await reopen(ctxE); // the editor's open page
+  const ownerPage = await reopen(ctxO);
+  const removed = otherPage;
   const removedName = E.username;
   // the (re-opened) owner page must be linked to both members before the removal, so it can announce the new epoch
   await expect(ownerPage.getByTestId('peer-count')).toContainText('2 co-authors', { timeout: 60_000 });

@@ -14,6 +14,10 @@ use std::time::{Duration, Instant};
 
 pub const PROTOCOL: u64 = 1;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
+pub const MAX_MESSAGE: usize = 160 * 1024 * 1024;
+const MORE: u32 = 0x80000000;
+const CONTINUATION: u32 = 0x40000000;
+const LENGTH: u32 = 0x3fffffff;
 
 /// Where the worker lives inside the app's resources. Nothing about it comes from the user or the network.
 #[derive(Clone, Debug)]
@@ -178,24 +182,32 @@ fn node_path(path: &Path) -> PathBuf {
 
 pub fn encode(msg: &Value) -> io::Result<Vec<u8>> {
     let body = serde_json::to_vec(msg).map_err(io::Error::other)?;
-    if body.len() > MAX_FRAME {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+    if body.len() > MAX_MESSAGE {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "message too large"));
     }
-    let mut out = (body.len() as u32).to_be_bytes().to_vec();
-    out.extend_from_slice(&body);
+    let count = body.len().div_ceil(MAX_FRAME);
+    let mut out = Vec::with_capacity(body.len() + count * 4);
+    for (part, bytes) in body.chunks(MAX_FRAME).enumerate() {
+        let header = bytes.len() as u32 | if part > 0 { CONTINUATION } else { 0 } | if part + 1 < count { MORE } else { 0 };
+        out.extend_from_slice(&header.to_be_bytes()); out.extend_from_slice(bytes);
+    }
     Ok(out)
 }
 
 /// Reads one frame. An oversized length or a non-JSON body is fatal for the stream (framing is lost).
 pub fn read_frame(r: &mut impl Read) -> io::Result<Value> {
-    let mut len = [0u8; 4];
-    r.read_exact(&mut len)?;
-    let n = u32::from_be_bytes(len) as usize;
-    if n > MAX_FRAME {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+    let mut body = Vec::new(); let mut continuation_expected = false;
+    loop {
+        let mut len = [0u8; 4]; r.read_exact(&mut len)?;
+        let header = u32::from_be_bytes(len);
+        let n = (header & LENGTH) as usize;
+        let more = header & MORE != 0; let continuation = header & CONTINUATION != 0;
+        if n > MAX_FRAME || body.len() + n > MAX_MESSAGE { return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large")); }
+        if continuation != continuation_expected || ((more || continuation) && n == 0) { return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid fragment sequence")); }
+        let start = body.len(); body.resize(start + n, 0); r.read_exact(&mut body[start..])?;
+        if !more { break; }
+        continuation_expected = true;
     }
-    let mut body = vec![0u8; n];
-    r.read_exact(&mut body)?;
     serde_json::from_slice(&body).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "malformed frame"))
 }
 
@@ -323,7 +335,9 @@ impl WorkerInput {
     fn send(&self, msg: &Value) -> io::Result<()> {
         use std::sync::atomic::Ordering;
         let bytes = encode(msg)?;
-        if self.queued.load(Ordering::SeqCst) + bytes.len() > INPUT_QUEUE_MAX {
+        let queued = self.queued.load(Ordering::SeqCst);
+        // Preserve the normal queue budget. One large storage message may occupy an otherwise empty pipe.
+        if queued + bytes.len() > INPUT_QUEUE_MAX && queued != 0 {
             return Err(io::Error::new(io::ErrorKind::WouldBlock, "worker is not reading its input"));
         }
         self.queued.fetch_add(bytes.len(), Ordering::SeqCst);
@@ -592,6 +606,20 @@ mod tests {
         assert!(states.lock().unwrap().iter().any(|s| matches!(s, SupervisorState::Restarting { gen: 1, .. })));
     }
 
+    #[test]
+    fn large_payload_roundtrips_through_the_real_worker_and_rust_pipe_codec() {
+        let Some(spec) = dev_spec() else { panic!("Node worker prerequisite missing"); };
+        let frames = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let received = frames.clone();
+        let sup = Supervisor::start(spec, std::sync::Arc::new(move |_, msg| received.lock().unwrap().push(msg)), std::sync::Arc::new(|_| {}), 0.01);
+        assert!(wait_for(|| frames.lock().unwrap().iter().any(|m| m["event"] == "ready"), 10));
+        let value = "exact large storage bytes λ".repeat(500_000);
+        sup.send(&json!({"v":1,"gen":1,"kind":"req","id":77,"method":"ping","params":value})).unwrap();
+        assert!(wait_for(|| frames.lock().unwrap().iter().any(|m| m["id"] == 77 && m["kind"] == "res"), 20));
+        assert_eq!(frames.lock().unwrap().iter().find(|m| m["id"] == 77).unwrap()["result"]["pong"], value);
+        sup.stop();
+    }
+
     /// The deadlock seen in a long relay session: the app sends frames under a lock while the worker is busy writing and
     /// does not read; the frame reader needs the same lock. Sends must never block on the pipe, so the worker's frames
     /// keep flowing.
@@ -693,6 +721,16 @@ setInterval(() => { for (let i = 0; i < 20; i++) process.stdout.write(frame({ v:
         let mut junk = 3u32.to_be_bytes().to_vec();
         junk.extend_from_slice(b"{{{");
         assert!(read_frame(&mut junk.as_slice()).is_err());
+    }
+
+    #[test]
+    fn large_storage_messages_use_bounded_fragments_and_reject_broken_sequences() {
+        let msg = json!({ "v": 1, "gen": 2, "kind": "req", "id": 4, "method": "store.transact", "params": "exact storage bytes".repeat(600_000) });
+        let bytes = encode(&msg).unwrap();
+        assert_eq!(u32::from_be_bytes(bytes[..4].try_into().unwrap()), MORE | MAX_FRAME as u32);
+        assert_eq!(read_frame(&mut bytes.as_slice()).unwrap(), msg);
+        assert!(read_frame(&mut &bytes[..MAX_FRAME + 4]).is_err());
+        assert!(read_frame(&mut &[0x40,0,0,1,b'{'][..]).is_err());
     }
 
     #[test]

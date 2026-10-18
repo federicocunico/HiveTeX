@@ -1,15 +1,11 @@
 import { exportRecoveryZip } from './recovery-export.js';
 import type { StoredDeviceKeys } from '@hivetex/crypto';
 import {
-  CompileClient,
-  CompileLeader,
+  LocalCompiler,
+  type LocalBuild,
   type CompileEngine,
   type CompileResult,
-  Election,
   NativeEngine,
-  SystemMonitor,
-  type SystemProbe,
-  measurePerformance,
   parseSyncTeXGz,
   type SyncIndex,
 } from '@hivetex/compile';
@@ -61,8 +57,7 @@ import { getGithubToken } from './github.js';
 import { toast } from '../ui/toast.svelte.js';
 import { syncEventText, syncNowMessage } from './sync-view.js';
 import { type PresentPerson, peopleFromAwareness, presenceColor } from './presence.js';
-import { COMPILE_MODE_KEY, type CompileMode, compileTargets, compilerLabel, policyFor, readCompileMode } from './compile-mode.js';
-import { folderPermission, webFs } from './fs-access.js';
+import { COMPILE_MODE_KEY, type CompileMode, compileMigrationPending, compilerLabel, dismissCompileMigrationNotice, readCompileMode } from './compile-mode.js';
 import { type Location, folderLabel, getLocation, migrateLegacyMirrors, setLocation } from './locations.js';
 import { localKeys, registerKeys } from './keys.js';
 
@@ -105,8 +100,6 @@ export class ProjectSession {
   files = $state<FileEntry[]>([]);
   peers = $state<PeerView[]>([]);
   role = $state<Role>('viewer');
-  leaderName = $state<string | null>(null);
-  amLeader = $state(false);
   connected = $state(false);
   noPeerOnline = $state(true);
   compileStatus = $state<'idle' | 'compiling' | 'ok' | 'error'>('idle');
@@ -129,10 +122,9 @@ export class ProjectSession {
   model!: ProjectModel;
   mesh!: Mesh;
   blobs!: BlobManager;
-  election!: Election;
-  leader!: CompileLeader;
-  client!: CompileClient;
-  engine: CompileEngine | null = null;
+  compiler!: LocalCompiler;
+  /** The engine builds use now; reactive (raw: engines are never proxied) so the status bar follows a paired helper. */
+  engine = $state.raw<CompileEngine | null>(null);
 
   get myDeviceId() {
     return this.deviceId;
@@ -235,7 +227,6 @@ export class ProjectSession {
       mergeReport: (r) => this.onMergeReport(r),
       role: (role) => {
         this.role = role;
-        this.election?.update({}); // leadership eligibility depends on the role (viewers never lead)
       },
       deviceId: (id) => this.adoptDevice(id),
       ticket: (r) => {
@@ -249,6 +240,8 @@ export class ProjectSession {
     this.mesh = this.runtime.mesh;
     this.blobs = this.runtime.blobs;
     this.changelog = this.runtime.changelog;
+    this.foregroundUnsubs.push(this.mesh.onHistory(() => { this.historyStatus = this.mesh.historyStatus; void this.refreshChanges(); }));
+    this.historyStatus = this.mesh.historyStatus;
     this.refreshFiles();
     this.foregroundUnsubs.push(this.model.onFilesChanged(() => this.refreshFiles()));
     // Who changed what (folder / editor / co-authors), kept on this device only.
@@ -317,8 +310,12 @@ export class ProjectSession {
 
   /** A zip of the project as held in memory right now, including edits storage refused (see recovery-export.ts). */
   async exportRecovery() {
-    return exportRecoveryZip(this.model, (h) => this.blobs.fetch(h, 5000), this.recoveryEntries);
+    const missing: string[] = [];
+    if (this.saveFailing) missing.push('uncommitted operation history (storage is failing; live document contents are included where available)');
+    try { await this.mirror?.captureRetained(); } catch { missing.push('private folder copies (folder unavailable)'); }
+    return exportRecoveryZip(this.model, (h) => this.blobs.fetch(h, 5000), this.recoveryEntries, this.store, missing);
   }
+  async folderRecoveries() { return this.mirror?.recoveries(); }
   private dedupeTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** After merging with peers, drop identical duplicate files (e.g. the same GitHub backup imported twice). */
@@ -390,12 +387,11 @@ export class ProjectSession {
 
   /** This device's compiler preference (Settings → Compiler); applies to every project. */
   compileMode = $state<CompileMode>(readCompileMode());
-  /** How this device actually takes part: a compiler whose reads cannot be verified (the quick compiler) builds for this device only (design D3b). */
-  get effectiveCompileMode(): CompileMode {
-    return this.compileMode === 'peers' ? 'peers' : this.localOnlyCompiler ? 'local' : this.compileMode;
-  }
-  private policy() {
-    return policyFor(this.effectiveCompileMode, localStorage.getItem('hivetex.compileForOthers') !== '0');
+  /** Shared compilation was removed: explained until the member dismisses it, here or in Account > Compiler. */
+  compileMigrationNotice = $state(compileMigrationPending());
+  dismissCompileMigration() {
+    this.compileMigrationNotice = false;
+    dismissCompileMigrationNotice();
   }
 
   /** The quick compiler's builds stay on this device (never shared, never leader). */
@@ -425,7 +421,6 @@ export class ProjectSession {
         this.engine = engine;
         this.engineKind = 'native';
         this.localOnlyCompiler = !engine.verifiedReads;
-        this.election?.update({ engine: 'native', supports: engine.supports, optOut: this.policy().optOut });
         this.scheduleLocalCompile(0);
       }
       this.compilerPhase = ok ? 'ready' : 'unavailable';
@@ -462,7 +457,7 @@ export class ProjectSession {
           this.compilerName = compilerLabel(native.flavor);
           this.compilerPhase = 'ready';
         } else if (!this.engineNote) {
-          this.engineNote = 'No LaTeX on this computer yet. Download the quick compiler in Account > Compiler, or let peers compile for you.';
+          this.engineNote = 'No LaTeX on this computer yet. Set up the quick compiler in Account > Compiler.';
         }
       } catch (e) {
         this.engineNote = `Native compiler unavailable: ${e instanceof Error ? e.message : String(e)}`;
@@ -494,7 +489,7 @@ export class ProjectSession {
           supports = wasm.supports;
           this.compilerName = 'in-browser compiler';
           this.compilerPhase = 'ready';
-        } else this.engineNote = 'In-browser compilation needs a TeX package server, which is not reachable. Another collaborator running the desktop app (with TeX installed) will compile for everyone, or set a server in Settings.';
+        } else this.engineNote = 'The TeX package server is unavailable and no compiler format is cached. Configure a server in Settings or use a compiler installed on this machine.';
       }
     }
     this.engineKind = kind;
@@ -524,19 +519,16 @@ export class ProjectSession {
     if (!engine) return 'not-found';
     this.engineKind = 'native';
     this.engineNote = '';
-    this.election?.update({ engine: 'native', supports: engine.supports, optOut: this.policy().optOut });
     // The PDF shown so far came from the in-browser compiler: the next build goes to the desktop app.
-    this.leader?.compilerSwitched();
+    this.compiler?.compilerSwitched();
     return 'paired';
   }
 
   private async setupCompile() {
     let kind: 'native' | 'wasm' | 'none' = 'none';
     let supports: ('pdflatex' | 'xelatex' | 'lualatex')[] = [];
-    const policy = this.policy();
-    if (policy.loadEngine) ({ kind, supports } = await this.loadEngine());
-    else this.engineNote = 'Using peers: this device does not compile.';
-    if (this.disposed) return;
+    ({ kind, supports } = await this.loadEngine());
+    if (this.disposed) { this.releaseEngine(); return; }
     if (isDesktop) {
       // Packages the compiler downloads during a build (quick compiler), for the status bar.
       const { listen } = await import('@tauri-apps/api/event');
@@ -546,40 +538,8 @@ export class ProjectSession {
       });
       if (this.disposed) { this.unlistenPackages(); return; }
     }
-    if (kind === 'wasm') {
-      // TeX files the in-browser compiler downloads (the first time each is needed), for the status bar.
-      const { onTexFetch } = await import('./wasm-engine.js');
-      const un = onTexFetch((f) => {
-        if (f.state !== 'start') return;
-        this.compilerPhase = 'packages';
-        this.compilerDetail = `downloading ${f.file}`;
-      });
-      const prev = this.unlistenPackages;
-      this.unlistenPackages = () => {
-        prev?.();
-        un();
-      };
-    }
+    if (kind === 'wasm') await this.watchTexFetches();
 
-    const power: 'mains' | 'battery' = 'mains';
-    const batteryPct = 100;
-
-    this.election = new Election(
-      this.mesh,
-      {
-        dev: this.deviceId,
-        uname: this.user.username,
-        engine: kind,
-        supports,
-        perf: measurePerformance(),
-        power,
-        batteryPct,
-        load: 0,
-        optOut: this.policy().optOut, // after loadEngine: a local-only compiler never leads
-      },
-      { engine: () => (String(this.model.settings.get('engine') ?? 'pdflatex') as 'pdflatex'), selfRole: () => this.role },
-    );
-    this.election.onLeaderChange((l) => this.onLeader(l));
     const current = () => this.engine;
     const engineProxy: CompileEngine = {
       // The engine can be adopted after setup (quick compiler installed, desktop app paired): read the current one.
@@ -602,66 +562,30 @@ export class ProjectSession {
         }
       },
     };
-    this.leader = new CompileLeader({
-      mesh: this.mesh,
-      model: this.model,
-      blobs: this.blobs,
-      election: this.election,
-      engine: engineProxy,
-      self: this.selfRef,
+    this.compiler = new LocalCompiler({
+      mesh: this.mesh, model: this.model, blobs: this.blobs, engine: engineProxy, self: this.selfRef,
+      automatic: () => !!this.engine && !this.disposed,
     });
-    this.client = new CompileClient({ mesh: this.mesh, model: this.model, blobs: this.blobs, election: this.election, leader: this.leader });
-    this.client.onChange(() => void this.onCompileChange());
-    this.election.start();
-    this.onLeader(this.election.leader());
-    this.monitor = new SystemMonitor(this.election, () => this.probeSystem());
-    this.monitor.start();
-    // A device that shows only its own builds (This device only, the quick compiler) compiles once ready, not only after an edit.
+    this.foregroundUnsubs.push(this.compiler.onResult((build) => void this.acceptLocalBuild(build)));
+    this.foregroundUnsubs.push(this.compiler.onState((running) => {
+      if (running) this.compileStatus = 'compiling';
+      else if (this.compiler.latest) this.compileStatus = this.compiler.latest.result.ok ? 'ok' : 'error';
+    }));
     this.scheduleLocalCompile(0);
   }
 
-  private monitor: SystemMonitor | null = null;
-
-  private async probeSystem(): Promise<SystemProbe> {
-    if (isDesktop) {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const p = await invoke<{ power: 'mains' | 'battery'; battery_pct: number; cpu_load: number }>('probe_system');
-      return { power: p.power, batteryPct: p.battery_pct, load: p.cpu_load };
-    }
-    try {
-      const nav = navigator as unknown as { getBattery?: () => Promise<{ charging: boolean; level: number }> };
-      const b = await nav.getBattery?.();
-      if (b) return { power: b.charging ? 'mains' : 'battery', batteryPct: Math.round(b.level * 100), load: 0 };
-    } catch {
-      /* Battery API unavailable (Firefox/Safari): assume mains */
-    }
-    return { power: 'mains', batteryPct: 100, load: 0 };
-  }
-
-  private onLeader(l: string | null) {
-    this.amLeader = l === this.deviceId;
-    const peer = this.mesh.peers.find((p) => p.deviceId === l);
-    this.leaderName = this.amLeader ? `${this.user.username} (this device)` : (peer?.claims.uname ?? null);
-  }
-
-  private async onCompileChange() {
-    // "This device only": the PDF shown is always this device's own.
-    if (!this.policy().acceptRemote) return;
-    const r = this.client.latest;
-    if (r) {
-      this.result = r;
-      this.compileStatus = r.ok ? 'ok' : 'error';
-    }
-    this.compiledBy = this.client.lastGood?.result.by.uname ?? null;
-    const good = this.client.lastGood;
-    if (good && good.pdf !== this.pdf) {
-      this.pdf = good.pdf;
+  private async acceptLocalBuild(build: LocalBuild) {
+    if (this.disposed) return;
+    this.result = build.result;
+    this.compileStatus = build.result.ok ? 'ok' : 'error';
+    if (build.result.ok && build.pdf) {
+      this.compiledBy = `${this.user.username} (this device)`;
+      this.pdf = build.pdf;
       this.pdfRev++;
-      if (good.result.stateHash !== this.pdfState) {
-        this.pdfState = good.result.stateHash;
-        this.pdfShownAt = Date.now();
-      }
-      this.syncIndex = good.synctex ? await parseSyncTeXGz(good.synctex).catch(() => null) : null;
+      this.pdfState = build.result.stateHash;
+      this.pdfShownAt = Date.now();
+      const index = build.synctex ? await parseSyncTeXGz(build.synctex).catch(() => null) : null;
+      if (!this.disposed && this.result === build.result) this.syncIndex = index;
     }
     this.scheduleStaleCheck();
   }
@@ -670,7 +594,7 @@ export class ProjectSession {
     if (this.staleTimer) clearTimeout(this.staleTimer);
     this.staleTimer = setTimeout(async () => {
       try {
-        this.stale = await this.client.isStale();
+        this.stale = await this.compiler.isStale();
       } catch {
         this.stale = true;
       }
@@ -681,67 +605,62 @@ export class ProjectSession {
   private pdfState = '';
 
   requestCompile() {
-    const t = compileTargets({ amLeader: this.amLeader, leaderExists: this.election?.leader() != null, autoLocal: this.policy().autoLocal, hasEngine: !!this.engine });
-    if (t.runLeader) void this.leader.run();
-    if (t.request) this.client.requestCompile();
-    if (t.local) void this.compileLocal().catch(() => {});
+    void this.compileLocal().catch((e) => toast(e instanceof Error ? e.message : 'Local compile failed', 'error'));
   }
 
   async compileLocal() {
-    if (!this.engine) throw new Error(this.engineNote || 'No compiler available on this device');
+    // The in-browser engine was unavailable at open (TeX file server unreachable, no cached format): try it again now.
+    if (!this.engine && !this.disposed && this.compiler) await this.retryWasmEngine();
+    if (!this.engine) throw new Error(this.engineNote || 'Set up a local compiler in Account > Compiler.');
+    await this.engine.refresh?.();
     this.compileStatus = 'compiling';
-    try {
-      const r = await this.leader.compileLocally();
-      this.result = r.result;
-      this.compileStatus = r.result.ok ? 'ok' : 'error';
-      if (r.pdf) {
-        this.compiledBy = `${this.user.username} (this device)`;
-        this.pdf = r.pdf;
-        this.pdfRev++;
-        this.syncIndex = r.synctex ? await parseSyncTeXGz(r.synctex).catch(() => null) : null;
-        this.stale = false;
-        this.pdfState = r.result.stateHash;
-        this.pdfShownAt = Date.now();
-      }
-    } catch (e) {
-      this.compileStatus = 'error';
-      throw e;
-    }
+    try { await this.compiler.run(); }
+    catch (e) { this.compileStatus = 'error'; throw e; }
   }
 
-  setCompileForOthers(on: boolean) {
-    localStorage.setItem('hivetex.compileForOthers', on ? '1' : '0');
-    this.election.update({ optOut: this.policy().optOut });
+  async setCompileMode(_mode: CompileMode) {
+    this.compileMode = 'local';
+    try { localStorage.setItem(COMPILE_MODE_KEY, 'local'); } catch { /* session-only preference */ }
+    this.scheduleLocalCompile(0);
   }
 
-  /** Switches this device's compiler preference; takes effect at once (election eligibility, engine, local compiles). */
-  async setCompileMode(mode: CompileMode) {
-    this.compileMode = mode;
-    try {
-      localStorage.setItem(COMPILE_MODE_KEY, mode);
-    } catch {
-      /* storage unavailable: applies to this session only */
-    }
-    const policy = this.policy();
-    if (policy.loadEngine && !this.engine) {
-      const { kind, supports } = await this.loadEngine();
-      this.election.update({ engine: kind, supports });
-    }
-    if (!policy.loadEngine) this.engineNote = 'Using peers: this device does not compile.';
-    else if (this.engine && this.engineNote.startsWith('Using peers')) this.engineNote = '';
-    this.election.update({ optOut: policy.optOut });
-    if (policy.autoLocal) this.scheduleLocalCompile(0);
-    else void this.onCompileChange(); // back to the leader's results
-  }
-
-  private localTimer: ReturnType<typeof setTimeout> | undefined;
   private unlistenPackages: (() => void) | null = null;
-  /** "This device only": compile here once edits settle. */
-  private scheduleLocalCompile(delay = 1500) {
+  private scheduleLocalCompile(delay = 1500) { this.compiler?.schedule(delay); }
+
+  /** TeX files the in-browser compiler downloads (the first time each is needed), for the status bar. */
+  private async watchTexFetches() {
+    const { onTexFetch } = await import('./wasm-engine.js');
     if (this.disposed) return;
-    if (!this.policy().autoLocal || !this.engine) return;
-    if (this.localTimer) clearTimeout(this.localTimer);
-    this.localTimer = setTimeout(() => void this.compileLocal().catch(() => {}), delay);
+    const un = onTexFetch((f) => {
+      if (f.state !== 'start') return;
+      this.compilerPhase = 'packages';
+      this.compilerDetail = `downloading ${f.file}`;
+    });
+    const prev = this.unlistenPackages;
+    this.unlistenPackages = () => {
+      prev?.();
+      un();
+    };
+  }
+
+  /** Loads the in-browser engine again after it was unavailable at open, and uses it when it can build now. */
+  private async retryWasmEngine() {
+    const { loadWasmEngine } = await import('./wasm-engine.js');
+    const wasm = await loadWasmEngine(this.project.id);
+    if (!wasm || this.disposed || this.engine) { wasm?.dispose?.(); return; }
+    this.engine = wasm;
+    this.engineKind = 'wasm';
+    this.engineNote = '';
+    this.compilerName = 'in-browser compiler';
+    this.compilerPhase = 'ready';
+    await this.watchTexFetches();
+  }
+
+  /** Ends the compiler workers this session started (the in-browser engine's runners). */
+  private releaseEngine() {
+    const engine = this.engine;
+    this.engine = null;
+    engine?.dispose?.();
   }
 
   /** Creates the project's runtime (first attachment only): store, identity, replica and synchronization actor. */
@@ -791,6 +710,7 @@ export class ProjectSession {
       store: opened.store,
       keys,
       deviceId: local.deviceId || null,
+      localAuthor: { uid: this.user.id, name: this.user.username },
       trusted: cachedTrusted,
       // The runtime's own role, not one workspace's: several workspaces and the background share it.
       canWrite: () => runtime.role !== 'viewer',
@@ -871,7 +791,6 @@ export class ProjectSession {
   /** The registration gave this device its id: everything that identified it by the temporary one follows. */
   private adoptDevice(id: string) {
     this.selfRef.dev = id;
-    this.election?.setDevice(id);
   }
 
   /** Browser RTC, or the Rust stack where the webview has none; chosen when the connection manager starts. */
@@ -944,7 +863,6 @@ export class ProjectSession {
     this.peers = this.runtime.peers.map((p) => ({ ...p }));
     this.connected = this.peers.length > 0;
     this.noPeerOnline = this.peers.length === 0;
-    this.onLeader(this.election?.leader() ?? null);
   }
 
   // ---- files ----
@@ -1071,10 +989,10 @@ export class ProjectSession {
     if (loc.kind !== 'folder') return;
     try {
       if (loc.desktopPath && isDesktop) await this.bindFolder({ desktopPath: loc.desktopPath, label: loc.label });
-      else if (loc.handle) {
-        // Browsers ask again for access after a restart; that needs a click (see allowFolderAccess).
-        if ((await folderPermission(loc.handle)) === 'granted') await this.bindFolder({ handle: loc.handle, label: loc.label });
-        else this.folderPending = true;
+      else if (loc.handle || !isDesktop) {
+        this.location = { kind: 'app' };
+        await setLocation(this.project.id, { kind: 'app' });
+        this.mirrorNotice = 'Browser folders are now import-only. Your folder has not been changed. Use Import to read it again, or the desktop app for live folder sync.';
       }
     } catch (e) {
       this.mirrorNotice = `Could not re-open the folder "${loc.label}": ${e instanceof Error ? e.message : e}`;
@@ -1083,12 +1001,8 @@ export class ProjectSession {
 
   /** Web: the user clicked "Allow access" for the remembered folder. */
   async allowFolderAccess() {
-    const loc = this.location;
-    if (loc.kind !== 'folder' || !loc.handle) return false;
-    if ((await folderPermission(loc.handle, true)) !== 'granted') return false;
     this.folderPending = false;
-    await this.bindFolder({ handle: loc.handle, label: loc.label });
-    return true;
+    return false;
   }
 
   /**
@@ -1097,21 +1011,15 @@ export class ProjectSession {
    */
   async bindFolder(target: { desktopPath: string; label?: string } | { handle: FileSystemDirectoryHandle; label?: string }) {
     if (this.disposed) return;
+    if (!isDesktop || 'handle' in target) throw new Error('Browser folders are import-only. Use Import, or the desktop app for live folder sync.');
     await this.unbindFolder(false);
     const generation = this.folderGeneration;
     if (this.disposed) return;
-    let fsa: FsAdapter & { dispose(): unknown };
-    let loc: Location;
-    if ('desktopPath' in target) {
-      const { tauriFs } = await import('./tauri-fs.js');
-      const id = `${this.project.id}-${crypto.randomUUID()}`;
-      fsa = await tauriFs(id, target.desktopPath);
-      if (generation === this.folderGeneration && !this.disposed) this.mirrorNativeId = id;
-      loc = { kind: 'folder', label: target.label ?? folderLabel(target.desktopPath), desktopPath: target.desktopPath };
-    } else {
-      fsa = webFs(target.handle);
-      loc = { kind: 'folder', label: target.label ?? target.handle.name, handle: target.handle };
-    }
+    const { tauriFs } = await import('./tauri-fs.js');
+    const id = `${this.project.id}-${crypto.randomUUID()}`;
+    const fsa = await tauriFs(id, target.desktopPath);
+    if (generation === this.folderGeneration && !this.disposed) this.mirrorNativeId = id;
+    const loc: Location = { kind: 'folder', label: target.label ?? folderLabel(target.desktopPath), desktopPath: target.desktopPath };
     if (generation !== this.folderGeneration || this.disposed) { await fsa.dispose(); return; }
     this.mirrorFs = fsa;
     const mirror = new MirrorSync({
@@ -1119,6 +1027,7 @@ export class ProjectSession {
       mesh: this.mesh,
       blobs: this.blobs,
       fs: fsa,
+      recoveryStore: this.store,
       getRole: () => this.runtime.role,
       marker: { id: this.project.id, slug: this.project.slug },
       // Folder and project changed the same lines while the app was closed: kept as a conflict to resolve.
@@ -1232,6 +1141,7 @@ export class ProjectSession {
 
   changelog: ChangeLog | null = null;
   changes = $state<ChangeSet[]>([]);
+  historyStatus = $state({ complete: false, received: 0, pending: 0, legacyPeers: 0, quarantined: 0 });
 
   async refreshChanges() {
     if (this.changelog) this.changes = await this.changelog.list();
@@ -1252,11 +1162,10 @@ export class ProjectSession {
     this.disposed = true;
     // Remove schedulers before awaiting storage, so a retained seed cannot start foreground work meanwhile.
     for (const off of this.foregroundUnsubs.splice(0)) off();
-    this.leader?.stop();
-    this.client?.stop();
+    // Stops the running build (a native build's process tree is killed) and ends this session's compiler workers.
+    this.compiler?.stop();
+    this.releaseEngine();
     this.backup?.stop();
-    this.monitor?.stop();
-    this.election?.stop();
     if (this.snapTimer) clearTimeout(this.snapTimer);
     await this.changelog?.flush().catch(() => {});
     if (this.flushHandler) {
@@ -1268,10 +1177,7 @@ export class ProjectSession {
     await this.unbindFolder(false);
     this.backup?.stop();
     clearTimeout(this.dedupeTimer);
-    clearTimeout(this.localTimer);
     this.unlistenPackages?.();
-    this.monitor?.stop();
-    this.election?.stop();
     this.unlisten?.();
     if (this.unloadGuard) window.removeEventListener('beforeunload', this.unloadGuard);
     // Detach this editor: the runtime (replica, mesh, store) closes only if nothing else needs it (a background seed).

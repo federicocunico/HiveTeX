@@ -1,0 +1,59 @@
+[06:29:36.084] ▶ preflight: disk, leftover instances, host profile, host firewall
+[06:29:39.086] ✓ preflight: disk, leftover instances, host profile, host firewall (3002 ms)
+[06:29:39.087] ▶ stage the app for both machines
+[06:29:39.173] ✓ stage the app for both machines (86 ms)
+[06:29:39.173] ▶ start the local server with signaling and request logs
+[06:29:41.827] ✓ start the local server with signaling and request logs (2654 ms)
+[06:29:41.827] ▶ start the web app for the browser (mixed)
+[06:30:24.551] ✓ start the web app for the browser (mixed) (42724 ms)
+[06:30:24.551] ▶ start Windows Sandbox and verify its firewall
+[06:30:50.176] ✓ start Windows Sandbox and verify its firewall (25625 ms)
+[06:30:50.176] ▶ reachability: sandbox -> host TCP :3000, UDP echo both ways
+[06:30:59.816] ✓ reachability: sandbox -> host TCP :3000, UDP echo both ways (9640 ms)
+[06:30:59.816] ▶ launch the app on both machines
+[06:31:02.375] ✓ launch the app on both machines (2559 ms)
+[06:31:02.375] ▶ attach to both apps (DevTools)
+[06:31:04.183] ✓ attach to both apps (DevTools) (1808 ms)
+[06:31:04.183] ▶ register an account on each machine
+[06:31:06.615] ✓ register an account on each machine (2432 ms)
+[06:31:06.615] ▶ host creates the project; joiners become editors
+[06:31:08.145] ✓ host creates the project; joiners become editors (1530 ms)
+[06:31:08.145] ▶ sandbox joins the project
+[06:31:11.166] ✓ sandbox joins the project (3021 ms)
+[06:31:11.166] ▶ the sandbox joined as editor
+[06:31:11.167] ✓ the sandbox joined as editor (1 ms)
+[06:31:11.167] ▶ peers see each other with a route
+[06:31:11.169] ✓ peers see each other with a route (2 ms)
+[06:31:11.170] ▶ host → sandbox: a new file arrives
+[06:31:11.570] ✓ host → sandbox: a new file arrives (400 ms)
+[06:31:11.570] ▶ sandbox → host: a new file arrives
+[06:31:11.934] ✓ sandbox → host: a new file arrives (364 ms)
+[06:31:11.934] ▶ sandbox → host: an edit to the host’s file arrives
+[06:31:12.304] ✓ sandbox → host: an edit to the host’s file arrives (370 ms)
+[06:31:12.305] ▶ concurrent edits on both sides converge
+[06:31:12.357] ✓ concurrent edits on both sides converge (52 ms)
+[06:31:12.358] ▶ an edit arrives within 5 s each way
+[06:31:12.475] ✓ an edit arrives within 5 s each way (117 ms)
+[06:31:12.475] ▶ scenario assets
+[06:31:20.474] ✓ scenario assets (7999 ms)
+[06:31:20.474] ▶ scenario rename-delete
+[06:31:23.842] ✓ scenario rename-delete (3368 ms)
+[06:31:23.842] ▶ scenario offline
+[06:31:27.895] ✓ scenario offline (4053 ms)
+[06:31:27.895] ▶ scenario crash
+[06:32:04.489] ✓ scenario crash (36594 ms)
+[06:32:04.489] ▶ scenario author
+[06:32:09.637] ✓ scenario author (5148 ms)
+[06:32:09.638] ▶ scenario recovery
+[06:32:15.407] ✓ scenario recovery (5769 ms)
+[06:32:15.407] ▶ scenario folder
+[06:32:23.191] ✓ scenario folder (7784 ms)
+[06:32:23.191] ▶ scenario compile
+[06:34:09.867] ✓ scenario compile (106676 ms)
+[06:34:09.867] ▶ scenario mixed
+[06:34:20.933] ✓ scenario mixed (11066 ms)
+[06:34:20.934] ▶ connection test (Test connection) on both sides at once
+[06:34:20.982] ✓ connection test (Test connection) on both sides at once (48 ms)
+[06:34:20.982] ▶ collect diagnostics and logs
+[06:34:24.081] ✓ collect diagnostics and logs (3099 ms)
+[06:34:30.831] PASS — results in C:\Users\feder\AppData\Local\Temp\p2platex-sandbox\2026-10-18T06-29-36

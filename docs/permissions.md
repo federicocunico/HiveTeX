@@ -14,7 +14,7 @@ account and per IP); wrong ID and wrong password give the same error.
 |---|---|---|---|---|
 | `owner` | ✔ | ✔ | ✔ | ✔ (no limit on members; ≥ 1 owner always) |
 | `editor` | ✔ | ✔ | ✔ | – |
-| `viewer` | ✔ | – (enforced by every peer) | ✔ (asks the compile leader) | – |
+| `viewer` | ✔ | – (enforced by every peer) | ✔ (builds locally) | – |
 
 Owners can: change roles, remove or **ban** members, set the default role, change/disable the project password, change the
 project name prefix (the server returns a newly suffixed ID; the old one stops resolving immediately), link GitHub, and delete the project.
@@ -25,7 +25,7 @@ The control plane issues each member device a **membership ticket**: an EdDSA-si
 role and the project's **membership epoch**, valid for **15 minutes**. Peers verify tickets offline against the pinned
 control-plane public key and prove possession of the device key bound to the specific encrypted connection.
 
-* **Read-only**: a peer drops every update, blob announcement and compile result coming from a connection whose ticket says
+* **Read-only**: a peer drops every live document operation and blob announcement coming from a connection whose ticket says
   `viewer`, and never forwards them. A tampered viewer client therefore cannot change anyone's copy.
 * **Revocation timing**: removing a member or lowering a role bumps the project's *epoch*. Peers gossip the highest epoch
   they have seen; a peer whose ticket carries an older epoch must present a refreshed one within **60 seconds** or it is

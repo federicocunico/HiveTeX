@@ -190,18 +190,28 @@ test('the status bar and PDF bar speak plainly', async ({ browser }) => {
   await p.getByRole('treeitem', { name: 'main.tex' }).click();
   await expect(p.getByTestId('statusbar')).toContainText('Saved on this device');
   await expect(p.getByTestId('peer-count')).toHaveText('No co-authors online');
-  // The default builds on this device and shows the PDF as it comes; the shared modes (deprecated) are still offered.
-  await expect(p.getByTestId('compile-mode')).toHaveValue('local');
-  await expect(p.getByTestId('compile-mode').locator('option')).toHaveText(['This device', 'Shared (deprecated)', 'Use peers (deprecated)']);
-  await p.getByTestId('compile-mode').selectOption('auto');
+  // Every build runs on this device: the indicator says so, and there is no build mode to choose.
+  await expect(p.getByTestId('compile-mode')).toHaveText('Build: this device');
+  await expect(p.getByTestId('compile-location')).toHaveText('Compiles on this device');
+  await expect(p.locator('select[data-testid=compile-mode]')).toHaveCount(0);
+  await expect(p.getByTestId('no-peer-compiler')).toHaveCount(0);
   await p.getByRole('button', { name: 'Recompile' }).click();
   await expect(p.getByTestId('compiled-by')).toBeVisible({ timeout: 30_000 });
   await expect(p.getByTestId('stale-badge')).toBeHidden();
-  // Only co-authors may compile now (none is online), so the PDF stays outdated after typing.
-  await p.getByTestId('compile-mode').selectOption('peers');
-  await expect(p.getByTestId('no-peer-compiler')).toBeVisible();
+  // Edits are built here once they settle, without any co-author.
   await typeInEditor(p, ' more');
-  await expect(p.getByTestId('stale-badge')).toContainText(/Outdated: \d+ edits? since the last compile/);
+  await expect(p.getByTestId('stale-badge')).toBeHidden({ timeout: 30_000 });
+  // A failing build keeps the last good PDF, which says how far behind it is.
+  await typeInEditor(p, ' \\fail');
+  await expect(p.getByTestId('stale-badge')).toContainText(/Outdated: \d+ edits? since the last compile/, { timeout: 30_000 });
+  // The former "Compile on this device only" command is gone; its shortcut compiles like the others.
+  await p.getByRole('button', { name: 'Compile options' }).click();
+  await expect(p.getByRole('menuitem', { name: 'Compile now' })).toBeVisible();
+  await expect(p.getByRole('menuitem', { name: /this device only/ })).toHaveCount(0);
+  await p.keyboard.press('Escape');
+  const commands = await p.evaluate(() => (window as unknown as { __commands: () => Array<{ id: string; title: string; keys: string[] }> }).__commands());
+  expect(commands.filter((c) => /this device only/.test(c.title))).toEqual([]);
+  expect(commands.find((c) => c.id === 'compile')?.keys).toContain('Mod+Shift+Enter');
   await o.ctx.close();
 });
 

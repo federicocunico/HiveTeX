@@ -97,7 +97,7 @@ struct CompileReply {
     pdf_b64: Option<String>,
     synctex_b64: Option<String>,
     timed_out: bool,
-    /// The build must not be shared with co-authors (quick compiler).
+    /// Built by the quick compiler, whose file reads cannot be verified (kept for older web clients; no build is shared).
     local_only: bool,
 }
 

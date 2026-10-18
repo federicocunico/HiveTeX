@@ -64,7 +64,7 @@
     { icon: Cpu, title: 'Compiled by the hive', text: 'The fastest computer online builds the PDF and sends it to everyone. If it leaves, the next one takes over.' },
     { icon: Lock, title: 'Private by design', text: 'Sources travel encrypted between co-authors’ devices. The server only knows who is in the project.' },
     { icon: CloudUpload, title: 'GitHub backup', text: 'Commit to your own repository after a burst of edits, or when you stop typing for a while.' },
-    { icon: FolderOpen, title: 'Bring your project', text: 'Import an Overleaf .zip or a folder, or keep the project mirrored to a folder your other tools can read.' },
+    { icon: FolderOpen, title: 'Bring your project', text: 'Import an Overleaf .zip or a folder. The desktop app can keep a live folder for your other tools.' },
   ];
 </script>
 
@@ -88,7 +88,7 @@
         <p class="eyebrow">Free and open source LaTeX editor</p>
         <h1 id="hero-title">Write your paper <em>together</em>, on your own machines.</h1>
         <p class="lead">
-          Co-authors edit the same document live, keep writing offline, and the fastest computer in the group compiles the PDF for everyone.
+          Co-authors edit the same document live, keep writing offline, and compile their own PDF locally on each device.
           Your sources stay on your devices.
         </p>
         <div class="ctas">
@@ -177,7 +177,7 @@
             <li>A command palette for every action (<kbd class="kbd">Ctrl</kbd> <kbd class="kbd">K</kbd>)</li>
             <li>Vim or Emacs keys, SyncTeX both ways, outline jump</li>
             <li>Your own TeX Live, or a built-in compiler that installs itself</li>
-            <li>Mirror the project to a folder for Git, scripts or your AI tools</li>
+            <li>Desktop folder sync for Git, scripts or your AI tools</li>
           </ul>
         </div>
       </div>

@@ -800,6 +800,42 @@ test('local mode: no account, nothing sent anywhere; later sign in, share one lo
   assert.equal((await b.findAll('[data-testid="local-project"]')).length, 0, 'no local project left');
 });
 
+test('the sync worker dies with a project open: the editor reattaches and every edit reaches the disk', { timeout: 240_000 }, async () => {
+  if (process.platform !== 'win32') return;
+  const { spawnSync } = await import('node:child_process');
+  const invoke = (cmd, args = {}) => b.execute(async (c, a) => JSON.stringify((await window.__TAURI_INTERNALS__.invoke(c, a)) ?? null), cmd, args).then(JSON.parse);
+  const ps = (script) => (spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' }).stdout ?? '').trim();
+  const dir = uniq('restart-');
+  writeDisk(dir, 'main.tex', 'before the crash\n');
+  pickNext(dir);
+  await home();
+  await (await byTestId('open-folder')).click();
+  await byTestId('from-folder');
+  await (await byTestId('from-folder-slug')).setValue(uniq('restart-'));
+  await (await byTestId('from-folder-password')).setValue(PROJECT_PW);
+  await (await byTestId('from-folder-create')).click();
+  await byTestId('workspace');
+  await until(() => b.execute(() => !!window.__p2p?.session?.model.find('main.tex')), 'main.tex in the project');
+  const append = (t) => b.execute((x) => {
+    const s = window.__p2p.session;
+    void s.model.openText(s.model.find('main.tex').id).then((y) => { y.insert(y.length, x); return s.model.flush(); }).catch(() => {});
+  }, t);
+  const before = await invoke('worker_diagnostics');
+  ps(`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*hivetex-worker*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`);
+  await append('typed while the worker restarts\n');
+  await until(async () => {
+    const d = await invoke('worker_diagnostics');
+    return d.generation > before.generation && d.ready && d.attachments >= 1;
+  }, 'a new worker with the editor attached again', 90_000);
+  await append('typed after the restart\n');
+  await until(() => {
+    const t = readDisk(dir, 'main.tex') ?? '';
+    return t.includes('typed while the worker restarts') && t.includes('typed after the restart');
+  }, 'both edits on disk', 60_000);
+  const t = readDisk(dir, 'main.tex');
+  assert.equal(t.split('typed while the worker restarts').length, 2, 'the edit made during the restart lands once');
+});
+
 // Last: Quit ends the app this WebDriver session drives. (Close-to-background and second launch: lifecycle.mjs.)
 test('launch at login is opt-in and removable; Quit flushes, stops the worker and exits', { timeout: 120_000 }, async () => {
   const { spawnSync } = await import('node:child_process');

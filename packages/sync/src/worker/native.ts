@@ -95,6 +95,7 @@ export function nativeProjects(
       store,
       keys,
       deviceId: saved.deviceId,
+      localAuthor: { uid: p.account, name: ((await store.getMeta('localAuthor')) as {name?: string} | undefined)?.name ?? p.account },
       trusted,
       canWrite: () => runtime.role !== "viewer" && !runtime.revoked,
       ...(transfers ? { transfers: { scheduler: transfers.scheduler, foreground: () => transfers.foreground(p) } } : {}),

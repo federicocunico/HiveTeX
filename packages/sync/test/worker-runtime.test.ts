@@ -10,6 +10,7 @@ import { encodeValue, decodeValue } from "../src/native-persistence.js";
 import { fakeNative } from "./native-fake.js";
 import { sha256Hex } from '../src/model.js';
 import { emptySeedData, type SeedData } from '../src/worker/catalog.js';
+import * as Y from 'yjs';
 
 describe("live packaged worker and editor replica", () => {
   let bundle: string, secret: string;
@@ -140,6 +141,46 @@ describe("live packaged worker and editor replica", () => {
     await view.close();
     w.child.stdin.end();
   });
+  it('streams a coherent native backup through the live worker and closes complete or cancelled exports', async () => {
+    const native = fakeNative(), original = native.invoke;
+    const raw = new Uint8Array(3 * 1024 * 1024 + 19).map((_, i) => i % 251);
+    let closes = 0;
+    native.invoke = async <T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> => {
+      if (cmd === 'store_export_open') return { token: 'private-export', size: raw.length } as T;
+      if (cmd === 'store_export_read') return Buffer.from(raw.subarray(Number(args.offset), Number(args.offset) + 1024 * 1024)).toString('base64') as T;
+      if (cmd === 'store_export_close') { closes++; return undefined as T; }
+      return original(cmd, args);
+    };
+    const w = start(native), editor = new WorkerRenderer(w.link); await editor.open(project('local-full-backup'));
+    const chunks: Uint8Array[] = [];
+    for await (const bytes of editor.store.exportRawStore!()) { expect(bytes.length).toBeLessThanOrEqual(1024 * 1024); chunks.push(bytes); }
+    expect(Buffer.concat(chunks.map((b) => Buffer.from(b)))).toEqual(Buffer.from(raw)); expect(closes).toBe(1);
+    for await (const _ of editor.store.exportRawStore!()) break;
+    expect(closes).toBe(2);
+    const abandoned = editor.store.exportRawStore!()[Symbol.asyncIterator]();
+    await abandoned.next();
+    await editor.close(); w.child.stdin.end();
+    expect(closes).toBe(3);
+  });
+  it('exports the authoritative live text while its native persistence transaction is still pending', async () => {
+    const native = fakeNative(), original = native.invoke;
+    let docId = '', held: (() => void) | null = null;
+    native.invoke = async <T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> => {
+      if (cmd === 'store_transact' && docId && (args.ops as Array<{doc?:string}>).some((op) => op.doc === docId)) {
+        docId = ''; await new Promise<void>((resolve) => { held = resolve; });
+      }
+      return original(cmd, args);
+    };
+    const w = start(native), editor = new WorkerRenderer(w.link); await editor.open(project('local-live-export'));
+    const id = await editor.model.createTextNow('live.tex','persisted base');
+    const text = await editor.model.openText(id); docId = `f:${id}`;
+    text.insert(text.length, ' uncommitted actor contribution');
+    await expect.poll(() => held !== null).toBe(true);
+    const copy = new Y.Doc(); for (const bytes of await editor.store.load(`f:${id}`)) Y.applyUpdate(copy,bytes);
+    expect(copy.getText('t').toString()).toBe('persisted base uncommitted actor contribution');
+    (held as unknown as () => void)(); await editor.model.flush();
+    copy.destroy(); await editor.close(); w.child.stdin.end();
+  });
   it('streams an asset larger than the IPC ceiling through native staging and reads bounded ranges', async () => {
     const w = start(), editor = new WorkerRenderer(w.link);
     await editor.open(project('local-large-asset'));
@@ -242,6 +283,41 @@ describe("live packaged worker and editor replica", () => {
     const again=new WorkerRenderer(next.link);await again.open(project('local-crash'));
     expect((await again.model.openText(id)).toString()).toBe('base recovered');
     await reopened.close();await again.close();next.child.stdin.end();
+  });
+  it('keeps the open editor working across a worker restart: journaled, typed-while-down and new edits all land once', async () => {
+    const native = fakeNative();
+    const first = start(native, true);
+    // One link for the editor that moves to whichever worker is current, as the desktop's invoke/listen do.
+    let current = first;
+    const handlers: Array<[string, (p: any) => void]> = [];
+    const subscribe = (w: typeof first) => { for (const [event, cb] of handlers) w.link.on(event, cb); };
+    const link = {
+      request: <T>(method: string, p: unknown) => current.link.request<T>(method, p),
+      on: (event: string, cb: (p: any) => void) => { handlers.push([event, cb]); return current.link.on(event, cb); },
+    };
+    const editor = new WorkerRenderer(link);
+    await editor.open(project('local-restart'));
+    const id = await editor.model.createTextNow('main.tex', 'base');
+    const text = await editor.model.openText(id);
+    text.insert(4, ' journaled');
+    await expect.poll(() => first.custodied).toBe(true);
+    first.child.kill(); first.rpc.close();
+    for (const h of first.handles) await native.invoke('store_close', { id: h });
+    text.insert(text.length, ' typed-while-down');
+    await expect(editor.model.flush()).rejects.toThrow();
+    expect(editor.runtime.saveFailing).toBe(true);
+    const next = start(native);
+    current = next; subscribe(next);
+    await editor.reattach();
+    expect(editor.runtime.saveFailing).toBe(false);
+    text.insert(text.length, ' after');
+    await editor.model.flush();
+    const expected = 'base journaled typed-while-down after';
+    expect(text.toString()).toBe(expected);
+    const other = new WorkerRenderer(next.link);
+    await other.open(project('local-restart'));
+    expect((await other.model.openText(id)).toString()).toBe(expected);
+    await other.close(); await editor.close(); next.child.stdin.end();
   });
   it('freezes networking/new attachments before flushing existing local input, and local mode can then reopen', async () => {
     const w = start(), editor = new WorkerRenderer(w.link);

@@ -43,11 +43,19 @@ struct Peer {
     _lease: Option<crate::transport::Lease>,
 }
 
-#[derive(Default)]
 pub struct RtcState {
     peers: Mutex<HashMap<String, Arc<Peer>>>,
     /// Shared, generation-scoped UDP listeners for muxed connections (the worker's native transport).
     pub transport: Arc<crate::transport::Transport>,
+    /// The `interface_policy` of connections created without one.
+    interfaces: Option<&'static str>,
+}
+
+impl Default for RtcState {
+    /// Every interface in the app; loopback only in this crate's tests (no firewall prompt, docs/testing.md).
+    fn default() -> Self {
+        if cfg!(test) { Self::loopback() } else { Self::all_interfaces() }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -64,10 +72,17 @@ fn event_name(id: &str) -> String {
 /// Which local addresses gather host candidates (and so which pairs ICE checks):
 /// - `None` / `"all"`: every interface (the stack's default);
 /// - `"default"`: only the address of the default route, as Chromium does by default;
-/// - `"physical"`: every interface except virtual adapters (Hyper-V, WSL, Docker, VPN tunnels, Wi-Fi Direct ...).
+/// - `"physical"`: every interface except virtual adapters (Hyper-V, WSL, Docker, VPN tunnels, Wi-Fi Direct ...);
+/// - `"loopback"`: loopback addresses only and no mDNS socket (tests on one machine: nothing listens on a real
+///   interface, so no firewall prompt).
 /// Fewer interfaces mean fewer pairs to check; whether that helps is measured in `make rtc-lab` (docs/decisions).
 fn interface_policy(setting: &mut SettingEngine, mode: Option<&str>) {
     match mode {
+        Some("loopback") => {
+            setting.set_include_loopback_candidate(true);
+            setting.set_ip_filter(Box::new(|a: std::net::IpAddr| a.is_loopback()));
+            setting.set_ice_multicast_dns_mode(webrtc::ice::mdns::MulticastDnsMode::Disabled);
+        }
         Some("default") => {
             if let Some(ip) = default_route_ip() {
                 setting.set_ip_filter(Box::new(move |a: std::net::IpAddr| a == ip));
@@ -148,6 +163,17 @@ fn watch_buffer(dc: Arc<RTCDataChannel>, emit: Emit, id: String, label: String) 
 }
 
 impl RtcState {
+    pub fn all_interfaces() -> Self {
+        let transport = crate::transport::Transport::with_bind_ip(std::net::Ipv4Addr::UNSPECIFIED.into());
+        Self { peers: Mutex::default(), transport: Arc::new(transport), interfaces: None }
+    }
+
+    /// Listener and host candidates on loopback only (`interface_policy` "loopback").
+    pub fn loopback() -> Self {
+        let transport = crate::transport::Transport::with_bind_ip(std::net::Ipv4Addr::LOCALHOST.into());
+        Self { peers: Mutex::default(), transport: Arc::new(transport), interfaces: Some("loopback") }
+    }
+
     async fn peer(&self, id: &str) -> Result<Arc<Peer>, String> {
         self.peers.lock().await.get(id).cloned().ok_or_else(|| "unknown peer connection".to_string())
     }
@@ -175,7 +201,7 @@ impl RtcState {
         if let Some(lease) = &lease {
             setting.set_udp_network(lease.udp_network());
         }
-        interface_policy(&mut setting, interfaces);
+        interface_policy(&mut setting, interfaces.or(self.interfaces));
         // Explicit rather than the stack's defaults: a pair is "disconnected" after 5 s without answers, the agent fails
         // after 20 s (the client's attempt deadline is longer, so relay pairs get the whole window), keepalive 2 s.
         setting.set_ice_timeouts(Some(ICE_DISCONNECTED), Some(ICE_FAILED), Some(ICE_KEEPALIVE));
@@ -385,7 +411,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn two_bridged_peers_connect_and_exchange_binary_messages() {
-        let st = RtcState::default();
+        let st = RtcState::loopback();
         let (ea, mut ra) = emitter();
         let (eb, mut rb) = emitter();
         st.create("a", vec![], ea.clone()).await.unwrap();
@@ -520,7 +546,7 @@ mod tests {
     #[ignore]
     async fn idle_connection_cpu() {
         for muxed in [false, true] {
-            let (sa, sb) = (Arc::new(RtcState::default()), Arc::new(RtcState::default()));
+            let (sa, sb) = (Arc::new(RtcState::loopback()), Arc::new(RtcState::loopback()));
             let (_ra, _rb) = pair(sa.clone(), "a", sb.clone(), "b", muxed).await;
             tokio::time::sleep(Duration::from_secs(3)).await;
             let start = cpu_seconds();
@@ -535,7 +561,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn muxed_connections_share_one_listener_and_survive_each_others_close() {
-        let (sa, sb) = (Arc::new(RtcState::default()), Arc::new(RtcState::default()));
+        let (sa, sb) = (Arc::new(RtcState::loopback()), Arc::new(RtcState::loopback()));
         let (_a1, mut b1) = pair(sa.clone(), "a1", sb.clone(), "b1", true).await;
         let (_a2, mut b2) = pair(sa.clone(), "a2", sb.clone(), "b2", true).await;
         assert_eq!(recv(&mut b1).await, b"hello");
@@ -572,19 +598,22 @@ mod tests {
         st.local_sdp(id).await.unwrap().unwrap()
     }
 
+    /// Lab test: gathers on the machine's real interfaces, so it binds sockets a firewall asks about (`make rtc-lab`, or
+    /// `cargo test --lib muxed_gathering_keeps_ipv6 -- --ignored`).
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "lab: real interfaces (make rtc-lab)"]
     async fn muxed_gathering_keeps_ipv6_host_candidates_where_the_machine_has_them() {
         let v6_hosts = |sdp: &str| -> usize {
             sdp.lines().filter(|l| l.starts_with("a=candidate") && l.contains(" typ host") && l.split(' ').nth(4).is_some_and(|ip| ip.contains(':'))).count()
         };
-        let plain = RtcState::default();
+        let plain = RtcState::all_interfaces();
         plain.create("p", vec![], Arc::new(|_, _| {})).await.unwrap();
         plain.create_data_channel("p", "sync", Arc::new(|_, _| {})).await.unwrap();
         let offer = plain.create_offer("p").await.unwrap();
         plain.set_local("p", "offer", offer).await.unwrap();
         tokio::time::sleep(Duration::from_millis(1500)).await;
         let ordinary = plain.local_sdp("p").await.unwrap().unwrap();
-        let muxed = gathered_sdp(&RtcState::default(), "m").await;
+        let muxed = gathered_sdp(&RtcState::all_interfaces(), "m").await;
         // IPv6 host candidates come from ephemeral sockets next to the IPv4 mux: same set as ordinary gathering.
         assert_eq!(v6_hosts(&muxed), v6_hosts(&ordinary), "ordinary:\n{ordinary}\nmuxed:\n{muxed}");
         println!("ipv6 host candidates: {}", v6_hosts(&muxed));
@@ -610,7 +639,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn relay_policy_gathers_no_host_or_reflexive_candidates() {
-        let st = RtcState::default();
+        let st = RtcState::loopback();
         // No TURN server: with the relay policy nothing at all may be gathered.
         st.create_opts("r", vec![], Arc::new(|_, _| {}), false, Some("relay")).await.unwrap();
         st.create_data_channel("r", "sync", Arc::new(|_, _| {})).await.unwrap();
@@ -624,7 +653,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn ice_state_and_selected_pair_are_reported() {
-        let (sa, sb) = (Arc::new(RtcState::default()), Arc::new(RtcState::default()));
+        let (sa, sb) = (Arc::new(RtcState::loopback()), Arc::new(RtcState::loopback()));
         let (ea, mut ra) = emitter();
         let (eb, rb) = emitter();
         sa.create("a", vec![], ea.clone()).await.unwrap();
@@ -665,7 +694,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn negotiation_does_not_wait_for_a_slow_router_and_publishes_nothing_unverified() {
-        let st = RtcState::default();
+        let st = RtcState::loopback();
         let discover: crate::portmap::Discover = Arc::new(|| Box::pin(async {
             tokio::time::sleep(Duration::from_secs(30)).await;
             Err(crate::igd::IgdError::NotFound)
@@ -676,6 +705,9 @@ mod tests {
         let sdp = gathered_sdp(&st, "slow").await;
         assert!(started.elapsed() < Duration::from_secs(3), "ICE waited for UPnP");
         assert!(sdp.contains(" typ host") && !sdp.contains("typ srflx raddr"), "{sdp}");
+        // Tests gather on loopback only: nothing listens on a real interface.
+        let hosts: Vec<&str> = sdp.lines().filter(|l| l.starts_with("a=candidate")).filter_map(|l| l.split(' ').nth(4)).collect();
+        assert!(!hosts.is_empty() && hosts.iter().all(|ip| ip.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())), "{sdp}");
         assert_eq!(mapper.status(), crate::portmap::MapStatus::Discovering);
         mapper.disable().await;
         st.close("slow").await;
@@ -683,7 +715,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn verified_mapping_is_offered_by_new_negotiations_only_while_published() {
-        let st = RtcState::default();
+        let st = RtcState::loopback();
         let lease = st.transport.acquire().await.unwrap();
         let port = lease.local_addr().port();
         let external: std::net::SocketAddr = format!("203.0.113.7:{port}").parse().unwrap();

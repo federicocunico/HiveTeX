@@ -1,4 +1,4 @@
-import { MemoryPersistence, ProjectModel } from '@hivetex/sync';
+import { MemoryPersistence, ProjectModel, type StoreOp } from '@hivetex/sync';
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { exportRecoveryZip } from '../src/lib/recovery-export.js';
@@ -7,9 +7,9 @@ import { saveWarning, syncLabel } from '../src/lib/sync-view.js';
 /** Storage that refuses every write, like a full or revoked IndexedDB. */
 class BrokenStore extends MemoryPersistence {
   broken = true;
-  override async append(docId: string, updates: Uint8Array[]) {
-    if (this.broken) throw new Error('QuotaExceededError');
-    return super.append(docId, updates);
+  override async transact(ops: StoreOp[]) {
+    if (this.broken && ops.some((op) => op.op === 'append')) throw new Error('QuotaExceededError');
+    return super.transact(ops);
   }
 }
 
@@ -46,7 +46,7 @@ describe('local save failures reach the workspace', () => {
     const out = await exportRecoveryZip(model, async () => {
       throw new Error('no blob');
     });
-    expect(out.missing).toEqual([]);
+    expect(out.missing).toEqual(['uncommitted operation history (storage is failing; live document contents are included where available)']);
     expect(new TextDecoder().decode(unzipSync(out.zip)['main.tex'])).toBe('unsaved thesis');
 
     // storage recovers: the warning clears only once the retained edit is committed
@@ -54,6 +54,7 @@ describe('local save failures reach the workspace', () => {
     await wait(() => !failing);
     expect(store.docs.get(`f:${id}`)?.length).toBeGreaterThan(0);
     expect(saveWarning(failing)).toBeNull();
+    await model.destroy();
   });
 
   it('lists files that cannot be read instead of failing the export', async () => {
@@ -67,6 +68,7 @@ describe('local save failures reach the workspace', () => {
     });
     expect(out.missing).toEqual(['img.png']);
     const files = unzipSync(out.zip);
-    expect(Object.keys(files).sort()).toEqual(['RECOVERY-MISSING.txt', 'a.tex']);
+    expect(Object.keys(files).filter((name) => !name.startsWith('.hivetex-archive/')).sort()).toEqual(['RECOVERY-MISSING.txt', 'a.tex']);
+    expect(files['.hivetex-archive/manifest.json']).toBeDefined();
   });
 });

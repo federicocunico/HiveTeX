@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { MsgType } from '@hivetex/protocol';
 import type { Node } from '../src/testkit.js';
 import { waitFor } from './helpers.js';
 import { Net, converged, text } from './net.js';
@@ -15,7 +16,7 @@ afterEach(() => net?.destroy());
 const FAST = { immediate: true };
 const pct = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] as number;
 
-/** Counts application frames sent by every connection (updates, relays) while `fn` runs. */
+/** Counts live document updates/relays, separately from bootstrap history/control traffic. */
 async function countFrames(nodes: Node[], fn: () => Promise<void>) {
   let frames = 0;
   const restore: Array<() => void> = [];
@@ -23,7 +24,7 @@ async function countFrames(nodes: Node[], fn: () => Promise<void>) {
     for (const p of n.mesh.peers) {
       const orig = p.conn.send.bind(p.conn);
       p.conn.send = (async (...a: Parameters<typeof orig>) => {
-        frames++;
+        if (a[0] === MsgType.UPDATE || a[0] === MsgType.AUTHORED) frames++;
         return orig(...a);
       }) as typeof orig;
       restore.push(() => {

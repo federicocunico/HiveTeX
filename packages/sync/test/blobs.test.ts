@@ -1,6 +1,6 @@
 import { BLOB_CHUNK_SIZE, MsgType } from '@hivetex/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BlobManager } from '../src/blobs.js';
+import { BlobManager, referencedBlobs } from '../src/blobs.js';
 import { jsonBytes, utf8 } from '../src/frames.js';
 import type { PeerInfo } from '../src/mesh.js';
 import { sha256Hex } from '../src/model.js';
@@ -207,4 +207,48 @@ describe('reconnect with a binary transfer in flight (9.2)', () => {
     // settled: nothing left pending for the finished fetch
     expect(w.has(hash)).toBe(false);
   }, 40_000);
+});
+
+describe('generated outputs of a 0.8.0 build leader (local-compilation)', () => {
+  it('are neither announced nor served, while an uploaded figure.pdf used as an input still syncs', async () => {
+    net = await Net.create();
+    const [upgraded, joiner] = [await net.add('upg', 'owner'), await net.add('join', 'editor')];
+    const pdf = (s: string) => utf8(`%PDF-1.4\n${s}\n%%EOF\n`);
+    // the store holds the PDF and SyncTeX a former build leader added as shared assets, referenced by no file
+    const [leaderPdf, leaderSynctex] = [pdf('built by the old leader'), utf8('SyncTeX Version:1')];
+    const old = [await sha256Hex(leaderPdf), await sha256Hex(leaderSynctex)];
+    await upgraded.store.putBlob(old[0] as string, leaderPdf);
+    await upgraded.store.putBlob(old[1] as string, leaderSynctex);
+    const blobs = new BlobManager(upgraded.mesh, upgraded.store, { referenced: () => referencedBlobs(upgraded.model, upgraded.store) });
+    const figure = pdf('figure used by includegraphics');
+    const figureHash = await blobs.add(figure);
+    upgraded.model.createBinary('figure.pdf', figureHash, figure.length);
+    // an earlier version of a replaced input and a deleted input remain offered (Recovery, History)
+    const earlier = pdf('earlier logo');
+    const earlierHash = await blobs.add(earlier);
+    const logo = upgraded.model.createBinary('logo.pdf', earlierHash, earlier.length);
+    const replaced = pdf('replaced logo');
+    upgraded.model.setBinary(logo, await blobs.add(replaced), replaced.length);
+    const gone = pdf('deleted plot');
+    const goneHash = await blobs.add(gone);
+    upgraded.model.delete(upgraded.model.createBinary('plot.pdf', goneHash, gone.length));
+    const jb = new BlobManager(joiner.mesh, joiner.store);
+    const announced = () => (jb as unknown as Internals).peerHas.get(upgraded.dev) ?? new Set<string>();
+    await net.link(upgraded, joiner);
+    await waitFor(() => announced().has(figureHash));
+    for (const h of [earlierHash, goneHash]) expect(announced().has(h)).toBe(true);
+    for (const h of old) expect(announced().has(h)).toBe(false);
+    expect(same(await jb.fetch(figureHash, 10_000), figure)).toBe(true);
+    // a peer asking for a generated output by hash (an old client that saw it in a build result) is told there is none
+    const legacy = await net.add('legacy', 'editor');
+    await net.link(upgraded, legacy);
+    const none: string[] = [];
+    const chunks: number[] = [];
+    legacy.mesh.onRaw(MsgType.BLOB_NONE, (_f, p) => none.push((JSON.parse(new TextDecoder().decode(p)) as { hash: string }).hash));
+    legacy.mesh.onRaw(MsgType.BLOB_CHUNK, () => chunks.push(1));
+    await legacy.mesh.sendTo(upgraded.dev, MsgType.BLOB_WANT, jsonBytes({ hash: old[0], from: 0, to: 1 }), true);
+    await waitFor(() => none.includes(old[0] as string));
+    expect(chunks).toEqual([]);
+    expect(await jb.has(old[0] as string)).toBe(false);
+  });
 });

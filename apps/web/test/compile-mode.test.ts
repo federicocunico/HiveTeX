@@ -1,52 +1,37 @@
-import { describe, expect, it } from 'vitest';
-import { COMPILE_MODES, COMPILE_MODE_KEY, compileTargets, policyFor, readCompileMode } from '../src/lib/compile-mode.js';
+﻿import { describe, expect, it } from 'vitest';
+import { COMPILE_MODE_KEY, compileMigrationPending, dismissCompileMigrationNotice, readCompileMode } from '../src/lib/compile-mode.js';
 
-const store = (v: string | null) => ({ getItem: (k: string) => (k === COMPILE_MODE_KEY ? v : null), setItem: () => {} });
+function preferences(mode: string | null) {
+  const values = new Map<string, string>(mode === null ? [] : [[COMPILE_MODE_KEY, mode]]);
+  return { values, getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+}
 
-describe('compiler preference', () => {
-  it('defaults to this device (local) and ignores unknown values', () => {
-    expect(readCompileMode(store(null))).toBe('local');
-    expect(readCompileMode(store('weird'))).toBe('local');
-    expect(readCompileMode(store('peers'))).toBe('peers');
-    expect(readCompileMode(store('local'))).toBe('local');
-    expect(readCompileMode(undefined)).toBe('local');
+describe('local-only compiler preference', () => {
+  it.each(['auto', 'peers'])('migrates %s permanently to local and explains the change until dismissed', (old) => {
+    const storage = preferences(old);
+    expect(readCompileMode(storage)).toBe('local');
+    expect(storage.values.get(COMPILE_MODE_KEY)).toBe('local');
+    // A session that reads the notice and closes before the member sees it does not consume it.
+    expect(compileMigrationPending(storage)).toBe(true);
+    expect(compileMigrationPending(storage)).toBe(true);
+    expect(readCompileMode(storage)).toBe('local');
+    expect(compileMigrationPending(storage)).toBe(true);
+    dismissCompileMigrationNotice(storage);
+    expect(compileMigrationPending(storage)).toBe(false);
+    expect(readCompileMode(storage)).toBe('local');
+    expect(compileMigrationPending(storage)).toBe(false);
   });
-  it('moves the old shared default to local once; a shared mode chosen afterwards stays (deprecated, still available)', () => {
-    const items = new Map<string, string>([['hivetex.compileMode', 'auto']]);
-    const s = { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) };
-    expect(readCompileMode(s)).toBe('local');
-    expect(items.get('hivetex.compileMode')).toBe('local');
-    items.set('hivetex.compileMode', 'auto'); // chosen again in Account > Compiler
-    expect(readCompileMode(s)).toBe('auto');
-    expect(COMPILE_MODES.find((m) => m.id === 'auto')?.deprecated).toBe(true);
-    expect(COMPILE_MODES[0]?.id).toBe('local');
+  it.each([null, 'local', 'unknown'])('keeps local builds without a migration notice for %s', (old) => {
+    const storage = preferences(old);
+    expect(readCompileMode(storage)).toBe('local');
+    expect(compileMigrationPending(storage)).toBe(false);
+    dismissCompileMigrationNotice(storage);
+    expect(storage.values.has('hivetex.compileMigrationNotice')).toBe(false);
   });
-  it("automatic: loads a compiler, leads unless 'compile for others' is off, shows the leader's PDFs", () => {
-    expect(policyFor('auto', true)).toEqual({ loadEngine: true, optOut: false, autoLocal: false, acceptRemote: true });
-    expect(policyFor('auto', false).optOut).toBe(true);
-  });
-  it("use peers: never loads a compiler or leads, shows the leader's PDFs", () => {
-    expect(policyFor('peers', true)).toEqual({ loadEngine: false, optOut: true, autoLocal: false, acceptRemote: true });
-  });
-  it("this device only: compiles here after edits, never leads, ignores others' PDFs", () => {
-    expect(policyFor('local', true)).toEqual({ loadEngine: true, optOut: true, autoLocal: true, acceptRemote: false });
-  });
-});
-
-describe('explicit compile request', () => {
-  const base = { amLeader: false, leaderExists: false, autoLocal: false, hasEngine: true };
-  it('a device showing only its own results builds here, even with a leader or co-authors around', () => {
-    expect(compileTargets({ ...base, autoLocal: true, leaderExists: true })).toEqual({ runLeader: false, request: false, local: true });
-    expect(compileTargets({ ...base, autoLocal: true, hasEngine: false }).local).toBe(false);
-  });
-  it('the leader runs its own build once (no extra local build)', () => {
-    expect(compileTargets({ ...base, amLeader: true, leaderExists: true })).toEqual({ runLeader: true, request: false, local: false });
-  });
-  it('another device leads: ask it, do not build here', () => {
-    expect(compileTargets({ ...base, leaderExists: true })).toEqual({ runLeader: false, request: true, local: false });
-  });
-  it('nobody leads: ask anyway and build here when this device has a compiler', () => {
-    expect(compileTargets(base)).toEqual({ runLeader: false, request: true, local: true });
-    expect(compileTargets({ ...base, hasEngine: false })).toEqual({ runLeader: false, request: true, local: false });
+  it('remains local when storage is unavailable', () => {
+    const storage = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(readCompileMode(storage)).toBe('local');
+    expect(compileMigrationPending(storage)).toBe(false);
+    expect(() => dismissCompileMigrationNotice(storage)).not.toThrow();
   });
 });

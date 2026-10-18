@@ -8,7 +8,8 @@
  * 3. a second launch hands over to the running app and exits; the same process shows its window again.
  *
  * Windows only (process/window queries through PowerShell). Runs at the end of run.mjs, which provides the web dev
- * server and API the debug build loads its page from.
+ * server and API the debug build loads its page from. Apps end through `app_quit` (WebView2 DevTools port
+ * HIVETEX_CDP_PORT, loopback) while they have a page, and are killed only when that fails (harness.mjs).
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -16,13 +17,17 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { appExe, ensureNoTestInstance, quitThroughCdp, stopApp } from './harness.mjs';
 
 if (process.platform !== 'win32') {
   console.log('# lifecycle.mjs: Windows only; skipped');
   process.exit(0);
 }
 const here = dirname(fileURLToPath(import.meta.url));
-const exe = process.env.HIVETEX_APP ?? join(resolve(here, '../src-tauri/target/debug'), 'hivetex-desktop.exe');
+const exe = process.env.HIVETEX_APP ?? appExe;
+const CDP = Number(process.env.HIVETEX_CDP_PORT ?? 9448);
+// Every launch can be asked to quit through its page (secondaries hand over before they create one).
+const appEnv = (extra = {}) => ({ ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP}`, ...extra });
 const copyDir = mkdtempSync(join(tmpdir(), 'hivetex-instance-'));
 assert.equal(dirname(resolve(copyDir)), resolve(tmpdir()), 'temporary executable directory stays within the test temp root');
 const copy = join(copyDir, 'hivetex-desktop.exe');
@@ -53,7 +58,12 @@ async function until(fn, msg, ms = 30_000) {
   }
   throw new Error(`timed out: ${msg} (apps: ${JSON.stringify(apps())})`);
 }
-const killAll = () => ps(`Get-Process hivetex-desktop -ErrorAction SilentlyContinue | Where-Object { ${pathFilter} } | Stop-Process -Force`);
+/** Quits every app of this harness (`app_quit`, then forced after 15 s); returns how each one ended. */
+const killAll = async () => {
+  const ended = [];
+  for (const a of apps()) ended.push(await stopApp(a.id, () => quitThroughCdp(CDP), 15_000));
+  return ended;
+};
 const exited = (child) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => { child.kill(); reject(new Error('secondary launch did not exit within 15 seconds')); }, 15_000);
   child.once('error', (e) => { clearTimeout(timer); reject(e); });
@@ -65,20 +75,20 @@ if (!(await fetch('http://localhost:1420').then((r) => r.ok).catch(() => false))
   console.error('lifecycle.mjs needs the web dev server on http://localhost:1420 and the API on :3000: run it through run.mjs');
   process.exit(1);
 }
-killAll();
+await ensureNoTestInstance([copyDir]);
 try {
-  const primary = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_INSTANCE_WINDOW_MS: '5000' }, stdio: 'ignore' });
+  const primary = spawn(exe, [], { env: appEnv({ HIVETEX_TEST_INSTANCE_WINDOW_MS: '5000' }), stdio: 'ignore' });
   await until(() => apps().some((a) => a.id === primary.pid), 'primary acquired its startup process');
-  const burst = Array.from({ length: 12 }, (_, i) => spawn(i % 2 ? copy : exe, [], { env: process.env, stdio: 'ignore' }));
+  const burst = Array.from({ length: 12 }, (_, i) => spawn(i % 2 ? copy : exe, [], { env: appEnv(), stdio: 'ignore' }));
   assert.deepEqual(await Promise.all(burst.map(exited)), Array(12).fill(0), 'all simultaneous/cross-path secondaries hand over and exit');
   await until(() => apps().some((a) => a.id === primary.pid && a.title === 'HiveTeX'), 'primary window shown');
   assert.deepEqual(apps().map((a) => a.id), [primary.pid], 'delayed primary is the only app process');
   await until(() => workers(primary.pid) > 0, 'primary worker started after the window');
   assert.equal(workers(primary.pid), 1, 'the startup burst leaves one worker');
   console.log('ok - 12 simultaneous launches across two executable paths leave one app and worker during delayed startup');
-  killAll();
+  console.log(`# ended: ${(await killAll()).join(', ')}`);
 
-  const first = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_CLOSE_MAIN_MS: '6000' }, stdio: 'ignore', detached: false });
+  const first = spawn(exe, [], { env: appEnv({ HIVETEX_TEST_CLOSE_MAIN_MS: '6000' }), stdio: 'ignore', detached: false });
   const pid = first.pid;
   await until(() => apps().some((a) => a.id === pid && a.title === 'HiveTeX'), 'window shown');
   await until(() => workers(pid) > 0, 'sync worker started after the window');
@@ -90,17 +100,17 @@ try {
   assert.equal(workers(pid), 1, 'the sync worker kept running');
   console.log('ok - closing the window keeps the app and its sync worker running');
 
-  const second = spawn(exe, [], { env: process.env, stdio: 'ignore' });
+  const second = spawn(exe, [], { env: appEnv(), stdio: 'ignore' });
   assert.equal(await exited(second), 0, 'second launch hands over');
   await until(() => apps().some((a) => a.id === pid && a.title === 'HiveTeX'), 'existing app shows its window again');
   assert.deepEqual(apps().map((a) => a.id), [pid], 'still one app process');
   assert.equal(workers(pid), 1, 'still one sync worker (one network identity per project)');
   console.log('ok - a second launch reopens the running app instead of starting another');
-  killAll();
+  console.log(`# ended: ${(await killAll()).join(', ')}`);
 
   // A browser asks to pair (compile on this computer) while the window is closed: the window comes back for the
   // confirmation instead of waiting invisibly.
-  const third = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_CLOSE_MAIN_MS: '6000', HIVETEX_HELPER_ORIGINS: 'http://pair.test' }, stdio: 'ignore' });
+  const third = spawn(exe, [], { env: appEnv({ HIVETEX_TEST_CLOSE_MAIN_MS: '6000', HIVETEX_HELPER_ORIGINS: 'http://pair.test' }), stdio: 'ignore' });
   await until(() => apps().some((a) => a.id === third.pid && a.title === 'HiveTeX'), 'window shown');
   await until(() => apps().some((a) => a.id === third.pid && a.title !== 'HiveTeX'), 'window closed');
   const ctl = new AbortController();
@@ -114,10 +124,10 @@ try {
   await until(() => apps().some((a) => a.id === third.pid && a.title === 'HiveTeX'), 'pairing request shows the window', 20_000);
   ctl.abort();
   console.log('ok - a browser pairing request opens a visible window when the app runs in the background');
-  killAll();
+  console.log(`# ended: ${(await killAll()).join(', ')}`);
 
   // The post-update restart: durable quit, then exactly one new app with one worker (no duplicate seed).
-  const old = spawn(exe, [], { env: { ...process.env, HIVETEX_TEST_RESTART_MS: '6000' }, stdio: 'ignore' });
+  const old = spawn(exe, [], { env: appEnv({ HIVETEX_TEST_RESTART_MS: '6000' }), stdio: 'ignore' });
   await until(() => apps().some((a) => a.id === old.pid && a.title === 'HiveTeX'), 'window shown');
   await until(() => !apps().some((a) => a.id === old.pid), 'old instance exited', 30_000);
   const next = await until(() => apps().find((a) => a.title === 'HiveTeX'), 'restarted app shows its window', 30_000);
@@ -125,7 +135,7 @@ try {
   assert.deepEqual(apps().map((a) => a.id), [next.id], 'exactly one app after the restart');
   assert.equal(workers(next.id), 1, 'exactly one sync worker after the restart');
   console.log('ok - restarting after an update leaves one app and one sync worker');
-  killAll();
+  console.log(`# ended: ${(await killAll()).join(', ')}`);
 
   // Login startup with "start in background": no window, the worker restores the projects.
   // The test build has its own identifier (tauri.e2e.conf.json), so the installed app's settings are untouched.
@@ -136,14 +146,14 @@ try {
   const saved = existsSync(settings) ? readFileSync(settings) : null;
   writeFileSync(settings, JSON.stringify({ background: true }));
   try {
-    const login = spawn(exe, ['--background'], { env: process.env, stdio: 'ignore' });
+    const login = spawn(exe, ['--background'], { env: appEnv(), stdio: 'ignore' });
     await until(() => workers(login.pid) === 1, 'worker started at login');
     await new Promise((r) => setTimeout(r, 5000));
     assert.equal(apps().find((a) => a.id === login.pid)?.title === 'HiveTeX', false, 'no window at a background login start');
     assert.equal(workers(login.pid), 1);
-    killAll();
+    console.log(`# ended: ${(await killAll()).join(', ')}`);
     // A manual launch with the same setting still opens the window.
-    const manual = spawn(exe, [], { env: process.env, stdio: 'ignore' });
+    const manual = spawn(exe, [], { env: appEnv(), stdio: 'ignore' });
     await until(() => apps().some((a) => a.id === manual.pid && a.title === 'HiveTeX'), 'manual launch opens the window');
     await until(() => workers(manual.pid) > 0, 'manual launch starts its worker');
     assert.equal(workers(manual.pid), 1, 'manual launch leaves one worker');
@@ -163,6 +173,6 @@ try {
   }
   console.log('ok - maintenance stops a live app and worker and removes its isolated profiles');
 } finally {
-  killAll();
+  await killAll();
   rmSync(copyDir, { recursive: true, force: true });
 }

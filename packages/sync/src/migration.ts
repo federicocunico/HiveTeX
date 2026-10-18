@@ -89,7 +89,7 @@ export interface MigrateProjectOptions {
 }
 
 export const LEGACY_SCHEMA = 'indexeddb-v2';
-export const NATIVE_SCHEMA = 'sqlite-v1';
+export const NATIVE_SCHEMA = 'sqlite-safety-v1';
 
 /** Runs (or resumes) the migration. Idempotent once done. Throws on failure; rerunning resumes from the checkpoint. */
 export async function migrateProject(o: MigrateProjectOptions): Promise<MigrationManifest> {

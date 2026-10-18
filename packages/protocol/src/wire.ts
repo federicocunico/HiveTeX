@@ -14,6 +14,8 @@ export const MsgType = {
   STEP2: 0x11,
   /** Incremental Yjs update. */
   UPDATE: 0x12,
+  /** Signed incremental operation preserving the original author through forwarding. */
+  AUTHORED: 0x14,
   /** y-protocols awareness update (presence, cursors). */
   AWARENESS: 0x13,
   /** JSON {epoch}: highest membership epoch seen by the sender. */
@@ -30,7 +32,7 @@ export const MsgType = {
   BLOB_NONE: 0x33,
   /** JSON {devices: [...]}: peer exchange for mesh introductions. */
   PEERS: 0x40,
-  /** JSON {topic, body}: application-level control messages (compile election, etc.). */
+  /** JSON {topic, body}: application-level control messages. */
   APP: 0x60,
 } as const;
 export type MsgTypeName = keyof typeof MsgType;

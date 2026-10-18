@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { COMPILE_MODES, type CompileMode } from '../../lib/compile-mode.js';
   import type { ProjectSession } from '../../lib/session.svelte.js';
+  import { go } from '../../lib/router.svelte.js';
   import { saveWarning, syncLabel } from '../../lib/sync-view.js';
   import { Cpu, RefreshCw, Users, WifiOff } from '../../ui/icons.js';
   import Icon from '../../ui/Icon.svelte';
@@ -74,20 +74,21 @@
     <Icon icon={Users} size={13} /><span data-testid="peer-count">{peopleText}{others ? `: ${s.peers.map((p) => p.uname).join(', ')}` : ''}</span>
   </button>
 
-  <span class="item" data-tip="The device that builds the PDF for everyone: the best one online, chosen automatically">
+  <span class="item" data-tip="Every PDF is built locally on this computer">
     <Icon icon={Cpu} size={13} />
-    {#if s.effectiveCompileMode === 'local'}
-      <span data-testid="leader">Compiles only on this device{s.compileMode !== 'local' && s.localOnlyCompiler ? ` (${s.compilerName || 'quick compiler'})` : ''}</span>
-    {:else if s.leaderName}
-      <span data-testid="leader">Compiles on {s.leaderName}{s.leaderName.includes('(this device)') ? '' : ' (best available)'}</span>
-    {:else if s.compilerPhase === 'setting-up'}
-      <span data-testid="leader">Setting up the compiler…</span>
+    {#if s.compilerPhase === 'setting-up'}
+      <span data-testid="compile-location">Setting up the local compiler…</span>
+    {:else if s.engine}
+      <span data-testid="compile-location">Compiles on this device</span>
     {:else}
-      <span data-testid="leader">Compiler: none available</span>
+      <span data-testid="compile-location">Set up a local compiler</span>
     {/if}
   </span>
-  {#if s.compileMode === 'peers' && !s.leaderName}
-    <span class="pill warn" role="status" data-testid="no-peer-compiler" data-tip="Switch to This device (needs LaTeX or the in-browser compiler) or ask a co-author with the desktop app and LaTeX to open the project">No co-author can compile right now</span>
+  {#if s.compileMigrationNotice}
+    <span class="item" role="status" data-testid="compile-migration">Shared compilation was removed. Builds now run on this device.
+      {#if !s.engine && s.compilerPhase !== 'setting-up'}<button type="button" class="linkish" onclick={() => go('/account')} data-testid="compile-migration-setup">Set up a local compiler</button>{/if}
+      <button type="button" class="linkish" onclick={() => s.dismissCompileMigration()} data-testid="compile-migration-dismiss">Dismiss</button>
+    </span>
   {/if}
   {#if s.revoked}<span class="pill bad">you no longer have access</span>{/if}
   {#if s.mirrorNotice}<span class="pill warn" role="status">{s.mirrorNotice}</span>{/if}
@@ -96,11 +97,7 @@
 
   {#if keymapMode}<span class="item mono" data-testid="keymap-mode">{keymapMode}</span>{/if}
   {#if cursor}<span class="item num" data-testid="cursor-pos">Ln {cursor.line}, Col {cursor.col}</span>{/if}
-  <label class="item compiler" data-tip={COMPILE_MODES.find((m) => m.id === s.compileMode)?.hint}>Compile:
-    <select value={s.compileMode} onchange={(e) => void s.setCompileMode((e.currentTarget as HTMLSelectElement).value as CompileMode)} data-testid="compile-mode">
-      {#each COMPILE_MODES as m (m.id)}<option value={m.id}>{m.label}</option>{/each}
-    </select>
-  </label>
+  <span class="item compiler" data-testid="compile-mode">Build: this device</span>
   <span class="item" data-testid="compiler-state">
     {#if s.compilerPhase === 'setting-up'}Setting up the {s.compilerName}{s.compilerDetail ? ` (${s.compilerDetail})` : ''}…
     {:else if s.compilerPhase === 'packages'}{s.compilerName}: {s.compilerDetail}…
@@ -160,18 +157,6 @@
   }
   .mono {
     font-family: var(--font-code);
-  }
-  .compiler select {
-    min-height: 22px;
-    width: auto;
-    padding: 0 4px;
-    font-size: var(--text-xs);
-    border-color: transparent;
-    background: transparent;
-    color: var(--ink);
-  }
-  .compiler select:hover {
-    border-color: var(--line-strong);
   }
   .pill {
     font-size: 11px;

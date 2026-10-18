@@ -1,0 +1,2848 @@
+﻿{
+    "command":  "pnpm exec playwright test e2e/changes.spec.ts e2e/recovery.spec.ts e2e/folder-import.spec.ts e2e/compile-modes.spec.ts e2e/full-flow.spec.ts e2e/offline-and-compile.spec.ts e2e/compiler-state.spec.ts e2e/workspace.spec.ts --retries=0",
+    "samples":  106,
+    "exit":  0,
+    "notLoopback":  65,
+    "endpoints":  [
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49328",
+                          "state":  "FIN_WAIT_2",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49328",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49339",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49548",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49557",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49577",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49616",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49627",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49669",
+                          "state":  "CLOSE_WAIT",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49669",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49797",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:49882",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50157",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50215",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50277",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50279",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50416",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50486",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50488",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50509",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50608",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50813",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50820",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50849",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:50989",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51147",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51152",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51217",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51303",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51567",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51607",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51618",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51688",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51736",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51779",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51782",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51856",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51908",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51952",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51953",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:51964",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52238",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52387",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52417",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52637",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52803",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52847",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52960",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:52998",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53107",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53242",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53420",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53478",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53548",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53617",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53659",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53800",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53841",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:53975",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54008",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54255",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54258",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54451",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54453",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54796",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54826",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:54993",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55367",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55418",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55453",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55457",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55741",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55748",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55822",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55884",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:55923",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56003",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56094",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56153",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56330",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56431",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56489",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56500",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56589",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56674",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56693",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56762",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56773",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56833",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56848",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56948",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:56987",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57042",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57119",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57185",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57192",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57259",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57419",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57425",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57436",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57855",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:57904",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58061",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58116",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58231",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58256",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58260",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58270",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58343",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58393",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58411",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58440",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58471",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:58523",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59107",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59260",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59265",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59274",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59275",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59290",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:59331",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60704",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60760",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60780",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60783",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60790",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60807",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60825",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60836",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60837",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60846",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60852",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60858",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60868",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60870",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:60982",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61044",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61164",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61219",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61233",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61361",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61383",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61411",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61468",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61482",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61492",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61499",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61504",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61573",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61578",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61747",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61831",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61865",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61880",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61980",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61985",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:61994",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62045",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62272",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62294",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62424",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62498",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62589",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62602",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62673",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:62737",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63028",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63041",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63166",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63223",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63348",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63369",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63372",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63442",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63486",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63691",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63720",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63784",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63899",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:63998",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64075",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64096",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64192",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64302",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64497",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64698",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:64826",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65007",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65017",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65024",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65055",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65056",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65176",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65196",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65351",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::1]:65419",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:49157",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:49679",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:50060",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:50461",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:50534",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:50684",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:51177",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:51186",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:51260",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:51686",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:51727",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:52861",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:53779",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:53879",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:54689",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:55264",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:55896",
+                          "state":  "CLOSE_WAIT",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:55896",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:56552",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:56675",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:56912",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:57169",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:57275",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:57496",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58048",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58117",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58186",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58380",
+                          "state":  "CLOSE_WAIT",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58380",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58416",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58464",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58551",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:58655",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:59256",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:59290",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:59291",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:59308",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:59308",
+                          "state":  "CLOSE_WAIT",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:60789",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:60827",
+                          "state":  "CLOSE_WAIT",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:60827",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:60832",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:60847",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:60865",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:61236",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:61505",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:61550",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:61725",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:62279",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:62293",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:62405",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:62466",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:62783",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:64313",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:64559",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "127.0.0.1:65219",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "[::1]:1420",
+                          "state":  "FIN_WAIT_2",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "[::1]:1420",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "[::1]:1420",
+                          "state":  "CLOSE_WAIT",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "[::1]:1420",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "[::1]:1420",
+                          "state":  "CLOSING",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "[::1]:63941",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:3000",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:3000",
+                          "state":  "FIN_WAIT_2",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:3000",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:49681",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:51187",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:51729",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:51862",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:52863",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:53880",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:55244",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:55928",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:56554",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:56678",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:57170",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:58049",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:58119",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:58187",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:58420",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:58462",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:58553",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:60829",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:61507",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:61551",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:61727",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:62296",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:62606",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:63031",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:63033",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:63922",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:64317",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:64561",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "node.exe",
+                          "local":  "127.0.0.1:65273",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:49839",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:49891",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:51793",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:51795",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:52090",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:52092",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:52456",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:5353",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:55884",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:56306",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:57481",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:57988",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:61186",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:61793",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:63085",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:63680",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:64222",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:64406",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:64408",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:64410",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:64412",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "[::]:64936",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:49838",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:49839",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:49890",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:49891",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:51791",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:51793",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:51794",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:51795",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:52089",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:52090",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:52091",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:52092",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:52455",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:52456",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:5353",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:55883",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:55884",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:56305",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:56306",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:57480",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:57481",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:57987",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:57988",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:61185",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:61186",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:61792",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:61793",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:63084",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:63085",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:63679",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:63680",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64221",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64222",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64405",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64406",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64407",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64408",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64409",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64410",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64411",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64412",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64935",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "chrome-headless-shell.exe",
+                          "local":  "0.0.0.0:64936",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  false
+                      }
+                  ]
+}

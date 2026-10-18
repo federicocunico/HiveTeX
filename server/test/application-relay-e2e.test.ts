@@ -201,7 +201,7 @@ describe("application relay between current clients (3.x)", () => {
       for (const peer of d.mesh.peers) {
         const original = peer.conn.send.bind(peer.conn);
         peer.conn.send = async (...args: Parameters<typeof original>) => {
-          if (args[0] === MsgType.UPDATE) frames++;
+          if (args[0] === MsgType.UPDATE || args[0] === MsgType.AUTHORED) frames++;
           return original(...args);
         };
         restore.push(() => {

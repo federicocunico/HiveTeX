@@ -1,0 +1,7 @@
+
+> @hivetex/web@0.8.0 size C:\Users\feder\AppData\Local\Temp\p2platex-acceptance-55a586ed4f344eb3b76dfc31fe14fc05\apps\web
+> node check-bundle.mjs
+
+initial  assets/index-Dz6-0YjJ.js  162.6 KB gz
+initial  assets/yjs-CjLDE16h.js  26.7 KB gz
+initial JS total: 189.2 KB gz (budget 250 KB)

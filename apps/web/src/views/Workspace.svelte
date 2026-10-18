@@ -32,7 +32,7 @@
   import { MigrationAssociationRequired, confirmLegacyAssociation, exportLegacyRecovery, type StoreRef } from '../lib/project-store.js';
   import { registerCommands, registerSource, setGotoLine } from '../lib/commands.svelte.js';
   import { openPalette, openShortcuts } from '../lib/palette.svelte.js';
-  import { takeFreshFolderProject } from '../lib/folders.js';
+  import { takeFreshFolderProject, takeBrowserFolderImport, readBrowserFolder } from '../lib/folders.js';
   import { forgetLocalProject, getLocalProject, removeLocalProjectData, takePendingLink } from '../lib/local-projects.js';
   import { folderAccessSupported, pickDirectory } from '../lib/fs-access.js';
   import { type LooseItem, isArchiveName, readLoose } from '../lib/import/sources.js';
@@ -219,12 +219,15 @@
       scheduleIndex();
       const pending = takePendingImport();
       if (pending && s.canWrite) importRequest = pending;
+      const browserFolder = takeBrowserFolderImport(s.project.id);
+      const freshFolder = takeFreshFolderProject(s.project.id);
+      if (browserFolder && s.canWrite) importRequest = { kind: 'load', name: browserFolder.name, load: (progress) => readBrowserFolder(browserFolder, progress), fresh: freshFolder };
       const link = takePendingLink(s.project.id);
       if (link && s.canWrite) void linkLocal(s, link.localId);
       const tpl = takePendingTemplate();
       if (tpl && s.canWrite && s.files.length === 0) await applyTemplate(s.model, tpl.files, tpl.main);
       // Created from a folder: its files were imported when the folder was bound; pick main and engine from them.
-      if (takeFreshFolderProject(s.project.id) && s.canWrite) {
+      if (freshFolder && !browserFolder && s.canWrite) {
         const main = await s.detectMainAndEngine().catch(() => null);
         if (main) toast(`Main document: ${main}`, 'info');
       }
@@ -375,15 +378,6 @@
     }
   }
 
-  async function compileLocal() {
-    compileError = '';
-    try {
-      await session?.compileLocal();
-    } catch (e) {
-      compileError = e instanceof Error ? e.message : String(e);
-    }
-  }
-
   function openFile(f: FileEntry) {
     stopFollowing();
     overlayOpen = false;
@@ -487,7 +481,9 @@
       } else {
         const handle = await pickDirectory();
         if (!handle) return;
-        await session.bindFolder({ handle });
+        if (!session.canWrite) return;
+        importRequest = { kind: 'load', name: handle.name, load: (progress) => readBrowserFolder(handle, progress) };
+        return;
       }
       toast(`Project files are now in the folder "${session.mirrorDir}"`);
     } catch (e) {
@@ -498,7 +494,7 @@
   /** Files context menu: the project's folder (desktop), or linking one (web). */
   function folderActions(path: string | null): MenuItem[] {
     if (!session) return [];
-    if (!isDesktop) return canUseFolders && !session.mirrorDir ? [{ label: 'Use a folder…', icon: FolderInput, onSelect: () => void linkFolder(), testid: 'ctx-use-folder' }] : [];
+    if (!isDesktop) return canUseFolders && session.canWrite ? [{ label: 'Import a folder…', icon: FolderInput, onSelect: () => void linkFolder(), testid: 'ctx-use-folder' }] : [];
     const items: MenuItem[] = [
       { label: 'Open folder', icon: FolderOpen, onSelect: () => void folderAction({ kind: 'open' }), testid: 'ctx-open-folder' },
       { label: 'Open in terminal', icon: SquareTerminal, onSelect: () => void folderAction({ kind: 'terminal' }), testid: 'ctx-terminal' },
@@ -726,8 +722,8 @@
     const has = () => !!session;
     const writable = () => !!session?.canWrite;
     const off = registerCommands([
-      { id: 'compile', title: 'Compile now', group: 'Compile', keys: ['Mod+Enter', 'Mod+S'], icon: Play, aliases: ['recompile', 'build', 'save'], when: has, run: () => void compileNow() },
-      { id: 'compile-local', title: 'Compile on this device only', group: 'Compile', keys: ['Mod+Shift+Enter'], icon: Play, when: () => !!session?.engine, run: () => void compileLocal() },
+      // Every build is local: Mod+Shift+Enter (the former "this device only" command) is one more alias.
+      { id: 'compile', title: 'Compile now', group: 'Compile', keys: ['Mod+Enter', 'Mod+S', 'Mod+Shift+Enter'], icon: Play, aliases: ['recompile', 'build', 'save'], when: has, run: () => void compileNow() },
       { id: 'synctex-forward', title: 'Show this line in the PDF', group: 'Navigate', keys: ['Mod+Alt+J'], editor: true, aliases: ['synctex', 'forward search'], when: () => active?.kind === 'text', run: () => forward(cursor?.line ?? 1) },
       { id: 'goto-line', title: 'Go to line…', group: 'Navigate', aliases: ['line number'], when: () => active?.kind === 'text', run: () => openPalette(':') },
       { id: 'goto-heading', title: 'Go to heading…', group: 'Navigate', aliases: ['outline', 'section'], when: has, run: () => openPalette('@') },
@@ -806,6 +802,7 @@
     return [
       ...(s.canWrite ? [{ label: 'Import…', icon: FolderOpen, onSelect: () => (importRequest = { kind: 'pick' }), testid: 'more-import' } as MenuItem] : []),
       { label: 'Download project (.zip)', icon: Download, onSelect: () => void downloadZip() },
+      { label: 'Export full recovery copy', icon: Download, onSelect: () => void exportRecovery() },
       { label: 'Download PDF', icon: Download, onSelect: () => void downloadPdf(), disabled: !s.pdf },
       'separator',
       { label: 'History', icon: History, onSelect: () => openPanel('history') },
@@ -824,7 +821,6 @@
     if (!s) return [];
     return [
       { label: 'Compile now', icon: Play, hint: 'Mod+Enter', onSelect: () => void compileNow() },
-      ...(s.engine ? [{ label: 'Compile on this device only', icon: Play, hint: 'Mod+Shift+Enter', onSelect: () => void compileLocal(), testid: 'compile-local' } as MenuItem] : []),
       { label: 'Download PDF', icon: Download, onSelect: () => void downloadPdf(), disabled: !s.pdf },
     ];
   });
@@ -951,7 +947,7 @@
                 {#if canUseFolders}
                   <div class="location">
                     {#if s.folderPending}
-                      <button type="button" class="small primary" onclick={allowFolder} data-testid="allow-folder" data-tip={`Let the app read and write "${s.location.kind === 'folder' ? s.location.label : ''}" again`}>Allow access to “{s.location.kind === 'folder' ? s.location.label : ''}”</button>
+                      <button type="button" class="small primary" onclick={allowFolder} data-testid="allow-folder" data-tip={`Let the app read "${s.location.kind === 'folder' ? s.location.label : ''}" again (browser folders are import-only)`}>Allow access to “{s.location.kind === 'folder' ? s.location.label : ''}”</button>
                     {/if}
                     <button type="button" class="loc-btn" onclick={() => (showLocation = !showLocation)} aria-expanded={showLocation} aria-haspopup="menu" data-testid="location-btn" data-tip={s.mirrorDir ? `Files are in ${s.mirrorDir}` : "Where this project's files live on this device"}>
                       <Icon icon={FolderOpen} size={14} /><span class="loc-label">{s.mirrorDir ? `In the folder ${folderName(s.mirrorDir)}` : 'In the app'}</span><Icon icon={ChevronDown} size={14} />
@@ -964,8 +960,8 @@
                           <button type="button" role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use another folder…</button>
                           <button type="button" role="menuitem" class="small" onclick={unlinkFolder} data-testid="unlink-folder">Stop using the folder</button>
                         {:else}
-                          <p>Files are stored in the app on this device. Put them in a folder to edit them with Claude Code, Codex or any editor.</p>
-                          <button type="button" role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">Use a folder…</button>
+                          <p>{isDesktop ? 'Files are stored in the app on this device. Put them in a folder to edit them with any editor.' : 'Files are stored in the app. Import a folder to copy its files; live folder sync is available in the desktop app.'}</p>
+                          {#if isDesktop || s.canWrite}<button type="button" role="menuitem" class="small" onclick={linkFolder} data-testid="link-folder">{isDesktop ? 'Use a folder…' : 'Import a folder…'}</button>{/if}
                         {/if}
                       </div>
                     {/if}
@@ -1102,7 +1098,7 @@
         onSync={() => openPanel('sync')}
         onConflicts={() => (showConflicts = { initial: null })}
         onExportRecovery={() => void exportRecovery()}
-        onUseDesktop={!isDesktop && s.engineKind !== 'native' && s.compileMode !== 'peers' ? compileWithDesktop : undefined}
+        onUseDesktop={!isDesktop && s.engineKind !== 'native' ? compileWithDesktop : undefined}
         {pairing}
         {pairMessage}
       />

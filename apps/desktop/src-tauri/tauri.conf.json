@@ -4,7 +4,7 @@
   "version": "0.8.0",
   "identifier": "app.hivetex.desktop",
   "build": {
-    "beforeDevCommand": "pnpm --filter @hivetex/web dev",
+    "beforeDevCommand": "node prepare-worker.mjs && pnpm --filter @hivetex/web dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "node prepare-worker.mjs && pnpm --filter @hivetex/web build",
     "frontendDist": "../../web/dist"

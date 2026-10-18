@@ -1,0 +1,71 @@
+{
+    "version":  1,
+    "atUtc":  "2026-10-17T07:35:29.1420315Z",
+    "baseCommit":  "9aeb8df323b4afc7654b8257c052a34ce00b965e",
+    "sourceManifestSha256":  "afd74ab94a9f59f5511bdb62ce39887f7c0b1db321cd4f210f4dfd138aca1203",
+    "testedCheckoutMatchesSource":  true,
+    "sourceFiles":  118,
+    "environment":  {
+                        "os":  "Windows",
+                        "node":  "22.22.0",
+                        "pnpm":  "10.34.6",
+                        "turbo":  "2.11.7",
+                        "rust":  "1.93.1",
+                        "cargoNetwork":  "offline",
+                        "nativeTargetVolume":  "C:"
+                    },
+    "checks":  {
+                   "buildLintTest":  "27/27; no cache; 5m33.666s",
+                   "sync":  "483 passed; native RTC required; no skips",
+                   "compile":  "37 passed; native TeX required; no skips",
+                   "web":  "323 passed",
+                   "server":  "181 passed; 15 optional external-service skips",
+                   "github":  "29 passed",
+                   "rust":  "150 passed; 5 explicitly ignored",
+                   "browser":  "11 passed; 0 retries; includes real WASM and warm offline compilation",
+                   "types":  "0 errors; 15 warnings in 8 files",
+                   "initialBundleGzipKiB":  181.8,
+                   "bundleBudgetKiB":  250,
+                   "ciPolicy":  "17 passed",
+                   "requiredCompilerAbsent":  "2 expected failures; no successful skip",
+                   "nativeArchive":  "11 snapshots x 16 MiB; database \u003e160 MiB; bounded reads, coherent reopen, owner isolation",
+                   "liveWorkerExport":  "13 passed including uncommitted authoritative document and cancellation"
+               },
+    "dependencies":  {
+                         "vulnerabilities":  {
+                                                 "info":  0,
+                                                 "low":  0,
+                                                 "moderate":  1,
+                                                 "high":  0,
+                                                 "critical":  0
+                                             },
+                         "advisory":  "GHSA-67mh-4wv8-2f99",
+                         "affectedPath":  "server \u003e drizzle-kit \u003e @esbuild-kit/esm-loader \u003e @esbuild-kit/core-utils \u003e esbuild 0.18.20",
+                         "decision":  "No serve/context path in examined toolchain; dependency remains, no forced override"
+                     },
+    "notExecuted":  [
+                        "8.3: Full desktop/desktop and mixed UI acceptance on distinct machines",
+                        "8.4: Managed TeX installation from scratch without system TeX",
+                        "8.5: Two-network NAT/STUN/TURN, deaf-session and five-minute hold matrix"
+                    ],
+    "logs":  [
+                 "clean-gates.log",
+                 "clean-sync.log",
+                 "clean-web.log",
+                 "clean-web-build.log",
+                 "clean-web-lint.log",
+                 "svelte-check.log",
+                 "bundle-size.log",
+                 "rust.log",
+                 "browser.log",
+                 "required-compiler-negative.log",
+                 "live-worker-export.log",
+                 "ci-policy.log",
+                 "offline-native-build.log",
+                 "worker-preparation.log"
+             ],
+    "pushPerformed":  false,
+    "remoteCiClaimed":  false,
+    "firewallPermissionTimeoutsClassifiedAsBugs":  false,
+    "pythonUsed":  false
+}

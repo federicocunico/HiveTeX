@@ -48,7 +48,7 @@
 
 ## 8. Integration
 
-- [ ] 8.1 Run the `make sandbox-sync` matrix locally (STUN only, TURN, relay on, deaf session) with a 5-minute hold; verify every scenario passes, sync starts within 5 s and continues across a socket rotation
+- [ ] 8.1 Run the `make sandbox-sync` matrix locally (STUN only, TURN, relay on, deaf session) with a 5-minute hold; verify every scenario passes, sync starts within 5 s and continues across a socket rotation. Evidence: `../fix-data-safety-apply-regressions/evidence/matrix.md` (Windows Sandbox and host on one PC, Hyper-V NAT, not real NATs; STUN-only fails with checks-failed on this setup, every relay/TURN scenario passes; open because STUN-only does not pass on this setup).
 - [x] 8.2 Run `make sandbox-sync` against production with a 5-minute hold; verify it passes and the timeline shows relay first and, when a direct link survives probation, the handover
 - [x] 8.3 Two-PC test with the new installer (`make installer`) on two different networks; verify both reports show sync within 5 s and the route used
 

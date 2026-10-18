@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { webFs } from '../src/lib/fs-access.js';
+import { readBrowserFolder } from '../src/lib/folders.js';
 
 /** In-memory stand-in for the File System Access API (just what webFs uses). */
 class FakeFile {
@@ -55,11 +56,38 @@ const enc = (s: string) => new TextEncoder().encode(s);
 const dec = (b: Uint8Array | null) => (b ? new TextDecoder().decode(b) : null);
 
 describe('web folder adapter (File System Access API)', () => {
-  it('reads, writes nested files, removes, and lists without walking tool folders', async () => {
+  it('refuses every browser write/delete without touching external bytes, even through the adapter directly', async () => {
+    const root = new FakeDir('paper');
+    const original = await root.getFileHandle('main.tex', { create: true }); original.data = enc('external contribution');
+    const fs = webFs(root as unknown as FileSystemDirectoryHandle);
+    await expect(fs.write('main.tex', enc('replacement'))).rejects.toThrow('import-only');
+    await expect(fs.write('new.tex', enc('new'))).rejects.toThrow('import-only');
+    await expect(fs.remove('main.tex')).rejects.toThrow('import-only');
+    expect(dec(await fs.read('main.tex'))).toBe('external contribution');
+    expect(original.writes).toBe(0); expect([...root.children.keys()]).toEqual(['main.tex']);
+    const bundle = await readBrowserFolder(root as unknown as FileSystemDirectoryHandle);
+    expect(bundle.files).toMatchObject([{ path: 'main.tex', kind: 'text', text: 'external contribution' }]);
+    expect(original.writes).toBe(0); fs.dispose();
+  });
+
+  it('distinguishes a missing file from revoked permission and I/O errors (audit F01)', async () => {
     const root = new FakeDir('paper');
     const fs = webFs(root as unknown as FileSystemDirectoryHandle);
-    await fs.write('sections/intro.tex', enc('hello'));
-    await fs.write('main.tex', enc('main'));
+    expect(await fs.read('missing.tex')).toBeNull();
+    const file = await root.getFileHandle('main.tex', { create: true }); file.data = enc('preserve this text');
+    file.getFile = async () => { throw new DOMException('permission revoked', 'NotAllowedError'); };
+    await expect(fs.read('main.tex')).rejects.toMatchObject({ name: 'NotAllowedError' });
+    await expect(readBrowserFolder(root as unknown as FileSystemDirectoryHandle)).rejects.toMatchObject({ name: 'NotAllowedError' });
+    expect(dec(file.data)).toBe('preserve this text');
+    fs.dispose();
+  });
+
+  it('imports nested files without walking tool folders or creating a mirror', async () => {
+    const root = new FakeDir('paper');
+    const fs = webFs(root as unknown as FileSystemDirectoryHandle);
+    const sections = await root.getDirectoryHandle('sections', { create: true });
+    (await sections.getFileHandle('intro.tex', { create: true })).data = enc('hello');
+    (await root.getFileHandle('main.tex', { create: true })).data = enc('main');
     const git = await root.getDirectoryHandle('.git', { create: true });
     await git.getFileHandle('HEAD', { create: true });
     expect(dec(await fs.read('sections/intro.tex'))).toBe('hello');
@@ -67,15 +95,17 @@ describe('web folder adapter (File System Access API)', () => {
     const listed = (await fs.list()).map((f) => f.path).sort();
     expect(listed).toEqual(['main.tex', 'sections/intro.tex']);
     expect(root.listed.concat(git.listed)).not.toContain('.git'); // never descended into
-    await fs.remove('main.tex');
-    expect(await fs.read('main.tex')).toBeNull();
-    await expect(fs.write('../escape.tex', enc('x'))).rejects.toThrow(/invalid path/);
+    const bundle = await readBrowserFolder(root as unknown as FileSystemDirectoryHandle);
+    expect(bundle.files.map((f) => f.path).sort()).toEqual(['main.tex', 'sections/intro.tex']);
+    expect(dec(await fs.read('main.tex'))).toBe('main');
+    await expect(fs.read('../escape.tex')).rejects.toThrow(/invalid path/);
+    fs.dispose();
   });
 
   it('reports changes made by other programs within one poll', async () => {
     const root = new FakeDir('paper');
     const fs = webFs(root as unknown as FileSystemDirectoryHandle, { pollMs: 20 });
-    await fs.write('main.tex', enc('v1'));
+    (await root.getFileHandle('main.tex', { create: true })).data = enc('v1');
     const seen: string[] = [];
     const stop = fs.watch((e) => seen.push(e.path));
     await new Promise((r) => setTimeout(r, 40)); // first snapshot

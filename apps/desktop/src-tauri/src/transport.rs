@@ -9,8 +9,11 @@
 //! sockets) and adds verified mapped endpoints of this very socket as server-reflexive candidates. That last part is
 //! the pinned `webrtc-ice` patch in `vendor/webrtc-ice` (see `vendor/PATCHES.md`). Only a mapping verified for the
 //! listener's own generation and port is published, and only to negotiations that start after it was set.
+//!
+//! The listener binds every interface in the app and loopback in this crate's tests (`Transport::with_bind_ip`), so a
+//! local test run opens nothing a firewall would ask about (docs/testing.md).
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use async_trait::async_trait;
@@ -96,13 +99,41 @@ struct Inner {
 }
 
 /// The process-wide transport service.
-#[derive(Default)]
 pub struct Transport {
     inner: Mutex<Inner>,
     bind: Mutex<()>,
+    /// Address new listeners bind (port 0).
+    bind_ip: Mutex<IpAddr>,
+}
+
+impl Default for Transport {
+    /// Every interface in the app; loopback in this crate's tests.
+    fn default() -> Self {
+        Self::with_bind_ip(if cfg!(test) { Ipv4Addr::LOCALHOST.into() } else { Ipv4Addr::UNSPECIFIED.into() })
+    }
 }
 
 impl Transport {
+    pub fn with_bind_ip(ip: IpAddr) -> Self {
+        Self { inner: Mutex::default(), bind: Mutex::new(()), bind_ip: Mutex::new(ip) }
+    }
+
+    /// Changes the address later listeners bind; the current one is released to its connections (as `fresh_listener`).
+    pub fn set_bind_ip(&self, ip: IpAddr) {
+        let mut bind_ip = self.bind_ip.lock().unwrap();
+        if *bind_ip == ip {
+            return;
+        }
+        *bind_ip = ip;
+        let mut inner = self.inner.lock().unwrap();
+        inner.current = Weak::new();
+        inner.mapping = None;
+    }
+
+    pub fn bind_ip(&self) -> IpAddr {
+        *self.bind_ip.lock().unwrap()
+    }
+
     /// A lease on the current generation's listener, binding it if no connection holds one.
     pub async fn acquire(&self) -> Result<Lease, String> {
         let _bind = self.bind.lock().unwrap_or_else(|e| e.into_inner());
@@ -113,7 +144,7 @@ impl Transport {
             }
             inner.generation
         };
-        let socket = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("bind UDP listener: {e}"))?;
+        let socket = std::net::UdpSocket::bind(SocketAddr::new(self.bind_ip(), 0)).map_err(|e| format!("bind UDP listener: {e}"))?;
         socket.set_nonblocking(true).map_err(|e| e.to_string())?;
         let socket = tokio::net::UdpSocket::from_std(socket).map_err(|e| e.to_string())?;
         let local = socket.local_addr().map_err(|e| e.to_string())?;
@@ -204,9 +235,28 @@ impl Transport {
 mod tests {
     use super::*;
 
+    fn loopback() -> Transport {
+        Transport::with_bind_ip(Ipv4Addr::LOCALHOST.into())
+    }
+
+    #[tokio::test]
+    async fn tests_bind_loopback_and_a_bind_change_takes_a_new_listener() {
+        assert_eq!(Transport::default().bind_ip(), IpAddr::from(Ipv4Addr::LOCALHOST), "crate tests never bind a real interface");
+        let t = loopback();
+        let a = t.acquire().await.unwrap();
+        assert!(a.local_addr().ip().is_loopback(), "{}", a.local_addr());
+        t.set_bind_ip(Ipv4Addr::LOCALHOST.into());
+        assert_eq!(t.current_local().map(|l| l.1), Some(a.local_addr()), "the same address keeps the listener");
+        t.set_bind_ip(Ipv4Addr::UNSPECIFIED.into());
+        assert!(t.current_local().is_none(), "a new address releases the current listener to its connections");
+        t.set_bind_ip(Ipv4Addr::LOCALHOST.into());
+        let b = t.acquire().await.unwrap();
+        assert!(b.local_addr().ip().is_loopback() && b.local_addr() != a.local_addr(), "{}", b.local_addr());
+    }
+
     #[tokio::test]
     async fn listeners_are_shared_reference_counted_and_scoped_to_a_generation() {
-        let t = Transport::default();
+        let t = loopback();
         let a = t.acquire().await.unwrap();
         let b = t.acquire().await.unwrap();
         assert_eq!(a.local_addr(), b.local_addr(), "connections of one generation share the socket");
@@ -224,7 +274,7 @@ mod tests {
         let mut rebound = false;
         for _ in 0..50 {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            if std::net::UdpSocket::bind(("0.0.0.0", old_port)).is_ok() {
+            if std::net::UdpSocket::bind(("127.0.0.1", old_port)).is_ok() {
                 rebound = true;
                 break;
             }
@@ -256,7 +306,7 @@ mod tests {
 
     #[tokio::test]
     async fn mappings_are_accepted_only_for_the_current_listener_and_withdrawn_on_network_change() {
-        let t = Transport::default();
+        let t = loopback();
         let lease = t.acquire().await.unwrap();
         let port = lease.local_addr().port();
         let external: SocketAddr = format!("203.0.113.7:{port}").parse().unwrap();

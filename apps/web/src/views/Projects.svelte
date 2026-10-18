@@ -111,7 +111,7 @@
       // A collaborator's project folder (e.g. a clone of its GitHub backup): join it, then use this folder.
       joinSlug = marker.project.slug;
       joinFolder = f;
-      folderMessage = `“${f.label}” belongs to the project ${marker.project.slug}. Enter its password to join; the folder will be used for it on this device.`;
+      folderMessage = `“${f.label}” belongs to the project ${marker.project.slug}. Enter its password to join; ${isDesktop ? 'the folder will be used for it on this device' : 'you can then import its files without changing the folder'}.`;
       showJoin = true;
     } else {
       fromFolder = f;
@@ -417,7 +417,7 @@
       </div>
     </div>
     {/if}
-    {#if folders}
+    {#if isDesktop}
       <fieldset class="where">
         <legend>Where to keep the files on this device</legend>
         <label class="check"><input type="radio" name="where" checked={!createFolder} onchange={() => (createFolder = null)} /> In the app</label>
@@ -470,7 +470,7 @@
 {#if fromFolder}
   <Dialog title={`New project from “${fromFolder.label}”`} onClose={() => (fromFolder = null)} onsubmit={createFromFolder} testid="from-folder">
     {#if error}<div class="error" role="alert">{error}</div>{/if}
-    <p class="muted intro">The project gets this folder's files and tree, and stays in sync with it: edits made here or by any tool in the folder reach every collaborator.</p>
+    <p class="muted intro">{isDesktop ? "The project gets this folder's files and tree, and stays in sync with it: edits made here or by any tool in the folder reach every collaborator." : "The folder's files are imported into the project. The original folder stays unchanged; use the desktop app for live folder sync."}</p>
     {#if auth.local}
       <div class="field">
         <label for="ff-slug">Name</label>

@@ -6,21 +6,22 @@
  * Needs `tauri-driver` (cargo install tauri-driver --locked) and the platform driver: on Windows the msedgedriver
  * matching the installed WebView2 runtime is downloaded once into src-tauri/target/msedgedriver/<version>/ (or set
  * MSEDGEDRIVER=path to use your own); on Linux, WebKitWebDriver (webkit2gtk-driver).
- * SKIP_BUILD=1 reuses the last build; SKIP_SERVER=1 uses a server already listening on :3000. Extra arguments go to
- * node --test (e.g. --test-name-pattern="application relay").
+ *
+ *   E2E_TARGET_DIR    the test build's Cargo target (default CARGO_TARGET_DIR, else src-tauri/target/e2e; see harness.mjs).
+ *                     target/debug/hivetex-desktop.exe of `tauri dev` is never replaced.
+ *   E2E_OUT           results (run.json, background report); default <E2E target>/e2e-results
+ *   SKIP_BUILD=1      reuse the last test build; SKIP_SERVER=1 uses a server already listening on :3000
+ * Extra arguments go to node --test (e.g. --test-name-pattern="application relay"). Before launching, no previous test
+ * instance may be running; at the end no test app may be left (both checked, see harness.mjs).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { appExe as exe, buildApp, desktop, ensureNoTestInstance, forceKill, here, instances, root, targetDir, win } from './harness.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const desktop = resolve(here, '..');
-const root = resolve(desktop, '../..');
-const win = process.platform === 'win32';
 const lifecycleOnly = process.env.HIVETEX_LIFECYCLE_ONLY === '1';
-const exe = join(desktop, 'src-tauri/target/debug', win ? 'hivetex-desktop.exe' : 'hivetex-desktop');
+const out = process.env.E2E_OUT || join(targetDir, 'e2e-results');
 const children = [];
 // Not 4444 (tauri-driver's default; the Docker stack's Neon proxy listens there) nor 4445 (its native driver).
 const DRIVER_PORT = process.env.HIVETEX_DRIVER_PORT ?? '4446';
@@ -82,23 +83,20 @@ function start(cmd, args, env = {}) {
   return c;
 }
 
+mkdirSync(out, { recursive: true });
 const pickDir = mkdtempSync(join(tmpdir(), 'hivetex-desktop-e2e-'));
+const report = { exe, targetDir, startedAt: new Date().toISOString() };
 let code = 1;
 try {
   const nativeDriver = win && !lifecycleOnly ? await edgeDriver() : null;
-  if (!process.env.SKIP_BUILD) {
-    // The pinned Node runtime and the worker bundle (checksummed resources the app verifies before starting it).
-    run(process.execPath, [join(desktop, 'prepare-worker.mjs')], { cwd: desktop, shell: false });
-    run('pnpm', ['exec', 'tauri', 'build', '--debug', '--no-bundle', '--features', 'test-picker', '--config', join(here, 'tauri.e2e.conf.json')], {
-      cwd: desktop,
-      env: { ...process.env, VITE_API_BASE: 'http://localhost:3000', VITE_E2E: '1' },
-    });
-  }
+  if (!process.env.SKIP_BUILD) buildApp(run);
   if (!existsSync(exe)) throw new Error(`app not built: ${exe}`);
+  report.leftoverBefore = (await ensureNoTestInstance()).leftover;
   if (!process.env.SKIP_SERVER) {
-    start('pnpm', [ '--filter', '@hivetex/server', 'dev'], { MEMORY_DB: '1', PORT: '3000', E2E_NO_LIMITS: '1', APPLICATION_RELAY: '1' });
+    // Loopback only: no firewall prompt for a local run (docs/testing.md).
+    start('pnpm', [ '--filter', '@hivetex/server', 'dev'], { MEMORY_DB: '1', HOST: '127.0.0.1', PORT: '3000', E2E_NO_LIMITS: '1', APPLICATION_RELAY: '1' });
   }
-  await waitFor('http://localhost:3000/api/health');
+  await waitFor('http://127.0.0.1:3000/api/health');
   // The application-relay test drives a browser against the web app as well.
   if (!process.env.SKIP_SERVER) {
     start('pnpm', [ '--filter', '@hivetex/web', 'dev']);
@@ -112,23 +110,35 @@ try {
     await waitFor(`http://127.0.0.1:${DRIVER_PORT}/status`, 30_000);
     const r = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...process.argv.slice(2), join(here, process.env.HIVETEX_E2E_FILE ?? 'desktop.test.mjs')], {
       stdio: 'inherit', cwd: root,
-      env: { ...process.env, HIVETEX_APP: exe, HIVETEX_TEST_PICK_DIR: pickDir, HIVETEX_DRIVER_PORT: DRIVER_PORT },
+      env: { ...process.env, HIVETEX_APP: exe, HIVETEX_TEST_PICK_DIR: pickDir, HIVETEX_DRIVER_PORT: DRIVER_PORT, E2E_OUT: out },
     });
     code = r.status ?? 1;
+    report.webdriver = code;
   }
   // Close-to-background, second launch, pairing, restart and login start without WebDriver (the driver ends the
   // app when its only window closes). Same build, with the web dev server and API still running.
   if (code === 0 && win && !process.env.HIVETEX_E2E_FILE && !process.argv.some((x) => x.startsWith('--test-name-pattern'))) {
-    const l = spawnSync(process.execPath, [join(here, 'lifecycle.mjs')], { stdio: 'inherit', cwd: root, env: { ...process.env, HIVETEX_APP: exe } });
+    await ensureNoTestInstance();
+    const l = spawnSync(process.execPath, [join(here, 'lifecycle.mjs')], { stdio: 'inherit', cwd: root, env: { ...process.env, HIVETEX_APP: exe, E2E_OUT: out } });
     code = l.status ?? 1;
+    report.lifecycle = code;
   }
 } catch (e) {
   console.error(e instanceof Error ? e.message : e);
+  report.error = e instanceof Error ? e.message : String(e);
 } finally {
+  // Every test app should have quit through its harness; one left over is reported (and ended) here.
+  const left = instances().apps.filter((a) => a.path && a.path.toLowerCase() === exe.toLowerCase());
+  for (const a of left) forceKill(a.id);
+  report.leftoverAfter = left;
+  if (left.length) console.error(`# test app(s) still running at the end, killed: ${left.map((a) => a.id).join(', ')}`);
   for (const c of children) {
     if (win && c.pid) spawnSync('taskkill', ['/pid', String(c.pid), '/T', '/F'], { stdio: 'ignore' });
     else c.kill('SIGTERM');
   }
   rmSync(pickDir, { recursive: true, force: true });
+  report.code = code;
+  report.finishedAt = new Date().toISOString();
+  writeFileSync(join(out, 'run.json'), JSON.stringify(report, null, 2));
 }
 process.exit(code);

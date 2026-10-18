@@ -1,85 +1,31 @@
-/**
- * How this device takes part in compilation (per device, all projects):
- * - local: compile here after edits and show only this device's PDFs; never compile for others. The default.
- * - auto:  shared builds (deprecated): compile for the project when this device is the best available (unless "compile
- *          for others" is off), otherwise show the leader's PDFs;
- * - peers: shared builds (deprecated): never compile here (no TeX needed); show the leader's PDFs.
- * Shared builds depend on another device's compiler and connection; field reports (2026-10-14) showed builds failing on
- * customer machines that way, so every device builds its own PDF unless the user picks a shared mode explicitly.
- */
-export type CompileMode = 'auto' | 'peers' | 'local';
-
+/** Every build runs on this machine. Legacy shared preferences are migrated once. */
+export type CompileMode = 'local';
 export const COMPILE_MODE_KEY = 'hivetex.compileMode';
-/** Set once the stored mode was moved from the old default (shared) to local. */
-export const COMPILE_MODE_MIGRATED_KEY = 'hivetex.compileMode.localDefault';
-export const COMPILE_MODES: ReadonlyArray<{ id: CompileMode; label: string; hint: string; deprecated?: boolean }> = [
-  { id: 'local', label: 'This device', hint: 'Compile here after edits (recommended)' },
-  { id: 'auto', label: 'Shared (deprecated)', hint: 'Deprecated: the best connected device compiles for everyone', deprecated: true },
-  { id: 'peers', label: 'Use peers (deprecated)', hint: 'Deprecated: never compile on this device; show the PDFs another device builds', deprecated: true },
-];
+const MIGRATION_NOTICE_KEY = 'hivetex.compileMigrationNotice';
+type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-export interface CompilePolicy {
-  /** Detect / load a compiler on this device. */
-  loadEngine: boolean;
-  /** Not eligible as the project's compile leader. */
-  optOut: boolean;
-  /** Compile on this device automatically after edits settle. */
-  autoLocal: boolean;
-  /** Show results produced by the leader. */
-  acceptRemote: boolean;
+function safeLocalStorage(): PreferenceStorage | undefined {
+  try { return localStorage; } catch { return undefined; }
 }
 
-/**
- * The device's compile mode: local unless a shared mode was chosen. "Automatic" (shared) was the old default, so a
- * stored `auto` from before is moved to local once; a shared mode chosen after that is kept.
- */
-export function readCompileMode(storage: Pick<Storage, 'getItem' | 'setItem'> | undefined = safeLocalStorage()): CompileMode {
-  let v: string | null | undefined;
+export function readCompileMode(storage: PreferenceStorage | undefined = safeLocalStorage()): CompileMode {
   try {
-    v = storage?.getItem(COMPILE_MODE_KEY);
-    if (v === 'auto' && storage?.getItem(COMPILE_MODE_MIGRATED_KEY) !== '1') {
+    const old = storage?.getItem(COMPILE_MODE_KEY);
+    if (old === 'auto' || old === 'peers') {
       storage?.setItem(COMPILE_MODE_KEY, 'local');
-      v = 'local';
+      storage?.setItem(MIGRATION_NOTICE_KEY, '1');
     }
-    storage?.setItem(COMPILE_MODE_MIGRATED_KEY, '1');
-  } catch {
-    /* storage unavailable: the default applies */
-  }
-  return v === 'peers' || v === 'auto' ? v : 'local';
+  } catch { /* local builds still apply when preferences cannot be stored */ }
+  return 'local';
 }
 
-export function policyFor(mode: CompileMode, compileForOthers: boolean): CompilePolicy {
-  switch (mode) {
-    case 'peers':
-      return { loadEngine: false, optOut: true, autoLocal: false, acceptRemote: true };
-    case 'local':
-      return { loadEngine: true, optOut: true, autoLocal: true, acceptRemote: false };
-    default:
-      return { loadEngine: true, optOut: !compileForOthers, autoLocal: false, acceptRemote: true };
-  }
+/** Whether the one-time explanation is still owed. Reading does not consume it: it stays until the member dismisses it. */
+export function compileMigrationPending(storage: PreferenceStorage | undefined = safeLocalStorage()): boolean {
+  try { return storage?.getItem(MIGRATION_NOTICE_KEY) === '1'; } catch { return false; }
 }
 
-/**
- * Where an explicit compile request is carried out: this device's own build when it shows only its own results, the
- * leader's build otherwise, and this device's build as well when nobody leads (the request would go unanswered).
- */
-export function compileTargets(s: { amLeader: boolean; leaderExists: boolean; autoLocal: boolean; hasEngine: boolean }): {
-  runLeader: boolean;
-  request: boolean;
-  local: boolean;
-} {
-  if (s.autoLocal) return { runLeader: false, request: false, local: s.hasEngine };
-  if (s.amLeader) return { runLeader: true, request: false, local: false };
-  if (s.leaderExists) return { runLeader: false, request: true, local: false };
-  return { runLeader: false, request: true, local: s.hasEngine };
-}
-
-function safeLocalStorage() {
-  try {
-    return localStorage;
-  } catch {
-    return undefined;
-  }
+export function dismissCompileMigrationNotice(storage: PreferenceStorage | undefined = safeLocalStorage()) {
+  try { if (storage?.getItem(MIGRATION_NOTICE_KEY) === '1') storage.setItem(MIGRATION_NOTICE_KEY, '0'); } catch { /* shown again next time */ }
 }
 
 /** Human name of a native compiler flavor reported by the desktop app. */

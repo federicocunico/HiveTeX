@@ -33,6 +33,6 @@ test('compiler state: "no compiler here" when the browser cannot compile and not
   await page.reload();
   await createProject(page, uniq('cnone-'));
   await expect(page.getByTestId('compiler-state')).toContainText('no compiler here');
-  await expect(page.getByText('In-browser compilation needs a TeX package server')).toBeVisible();
+  await expect(page.getByText('The TeX package server is unavailable and no compiler format is cached.', { exact: false })).toBeVisible();
   await ctx.close();
 });

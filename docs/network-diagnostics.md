@@ -104,7 +104,7 @@ Where the trace is collected:
 
 - `make sandbox-sync` (Windows 11) runs the desktop test build on this PC and in Windows Sandbox, has them share a project
   and edit it (optionally for minutes: `HOLD_S`; or a scenario matrix: `MATRIX`), and writes both traces and the
-  server's signaling log merged by time to `apps/desktop/src-tauri/target/sandbox-sync/<run>/timeline.txt` (see the
+  server's signaling log merged by time to `<SANDBOX_OUT>/<run>/timeline.txt` (default `apps/desktop/src-tauri/target/e2e/sandbox-sync`; see docs/testing.md and the
   script header for the server, TURN and fault options).
 - `make rtc-lab` (Windows 11) compares WebRTC stacks on the same two machines without HiveTeX code: browser and/or
   native peers, relay-only and direct scenarios, pings for `HOLD_S` seconds; results in

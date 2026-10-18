@@ -524,3 +524,40 @@ describe('peer-to-peer data path', () => {
     expect(lo.mesh.peers.length).toBe(1);
   });
 });
+
+/** Node's WebSocket (undici): closing a socket that is still connecting fails it and fires `error` again, synchronously. */
+class UndiciLikeWs {
+  readyState = 0;
+  closeCalls = 0;
+  onopen: (() => void) | null = null;
+  onmessage: ((ev: { data: unknown }) => void) | null = null;
+  onclose: ((ev?: { code?: number }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  send() {}
+  close() {
+    if (++this.closeCalls > 50) throw new RangeError('Maximum call stack size exceeded');
+    if (this.readyState === 0) this.onerror?.();
+    if (this.readyState !== 3) { this.readyState = 3; queueMicrotask(() => this.onclose?.({ code: 1006 })); }
+  }
+}
+
+it('a signaling socket that fails while connecting (no network) is closed once and retried, never recursing', async () => {
+  const { auth, lo } = await pair();
+  const sockets: UndiciLikeWs[] = [];
+  const { mgr } = managerFor(lo, auth, PID, new FakeRtcNetwork(), {
+    wsFactory: () => {
+      const ws = new UndiciLikeWs();
+      sockets.push(ws);
+      queueMicrotask(() => ws.onerror?.()); // the connection attempt fails: unreachable network
+      return ws;
+    },
+  });
+  cleanup.push(() => mgr.stop());
+  mgr.start(); mgr.reconnectNow();
+  await vi.waitFor(() => expect(sockets.length).toBeGreaterThan(0), { timeout: 2000 });
+  await flush(30);
+  expect(sockets[0]!.closeCalls).toBe(1);
+  expect(sockets[0]!.readyState).toBe(3);
+  // The manager stays alive and tries again after its backoff.
+  await vi.waitFor(() => expect(sockets.length).toBeGreaterThan(1), { timeout: 5000 });
+});

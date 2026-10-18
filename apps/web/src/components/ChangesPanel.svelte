@@ -23,7 +23,7 @@
 
   const icon = (c: ChangeSet) => (c.source.kind === 'folder' ? FolderOpen : c.source.kind === 'peer' ? User : c.source.kind === 'undo' ? Undo : Pencil);
   const sourceLabel = (c: ChangeSet) =>
-    c.source.kind === 'folder' ? 'In the folder on this device' : c.source.kind === 'peer' ? 'Co-author' : c.source.kind === 'undo' ? 'Undo' : 'In this app';
+    c.source.kind === 'folder' ? 'In the folder on this device' : c.source.kind === 'peer' ? `Co-author · ${c.source.origin ?? 'legacy'}` : c.source.kind === 'undo' ? 'Undo' : c.source.kind === 'restore' ? 'Version restore' : c.source.kind === 'import' ? 'Import' : 'In this app';
 
   const opLabel: Record<string, string> = { edit: 'edited', create: 'created', delete: 'deleted', rename: 'renamed', binary: 'replaced' };
 
@@ -46,8 +46,15 @@
 <section class="panel" aria-labelledby="changes-title" data-testid="changes-panel">
   <PanelHead title="Changes" id="changes-title" />
   <p class="intro">
-    Every change, grouped by who made it: edits in this app, by co-authors, or in the project folder on this device
-    (for example by Claude Code). Nothing is locked. Kept on this device only.
+    File changes grouped by author and device, with the original origin shown when verified. Retained peer history
+    is received separately from the current sources. Private folder recovery copies stay on this device.
+  </p>
+  <p class="intro" role="status" data-testid="history-sync-status">
+    {#if session.historyStatus.quarantined}An unsafe or unsupported sync update was held in private Recovery. Update the sending peer before retrying.
+    {:else if session.historyStatus.legacyPeers}A connected older peer cannot supply verified history. Original authors may be unknown.
+    {:else if session.historyStatus.pending}Receiving retained history from peers…
+    {:else if session.historyStatus.complete}Retained history received from connected peers.
+    {:else}History held on this device; source sync status is shown separately.{/if}
   </p>
   {#if message}<div class="notice" role="status" data-testid="changes-message">{message}</div>{/if}
   {#if session.changes.length === 0}
@@ -62,6 +69,8 @@
             <span class="src" data-tip={sourceLabel(c)}><Icon icon={icon(c)} size={14} /></span>
             <span class="who">
               <strong>{c.source.name}</strong>
+              {#if c.source.actorName && c.source.actorName !== c.source.name}<span class="meta">By {c.source.actorName}</span>{/if}
+              {#if c.source.device}<span class="meta">Device {c.source.device} · {c.source.provenance === 'verified' ? 'verified origin' : 'local record'}</span>{/if}
               <span class="meta">{c.files.length} file{c.files.length === 1 ? '' : 's'} · {ago(c.endedAt)}</span>
             </span>
           </button>
@@ -71,7 +80,7 @@
         </div>
         {#if open === c.id}
           <ul class="files">
-            {#each c.files as f (f.fileId + f.op)}
+            {#each c.files as f, fileIndex (f.fileId + f.op + fileIndex)}
               <li>
                 <button type="button" class="file" onclick={() => (openFile = openFile === c.id + f.fileId ? null : c.id + f.fileId)}>
                   <code>{f.path}</code> {opLabel[f.op]}{f.from ? ` (from ${f.from})` : ''}

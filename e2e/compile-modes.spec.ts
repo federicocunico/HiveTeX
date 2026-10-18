@@ -1,76 +1,40 @@
-import { type Page, expect } from '@playwright/test';
+﻿import { expect } from '@playwright/test';
 import { test } from './trace-fixture.js';
-import { addFile, createProject, joinProject, newUser, typeInEditor, uniq, useSharedBuilds } from './helpers.js';
+import { addFile, createProject, joinProject, newUser, typeInEditor, uniq } from './helpers.js';
 
-const leaderText = (p: Page) => p.getByTestId('leader').innerText();
-const setMode = (p: Page, mode: 'auto' | 'peers' | 'local') => p.getByTestId('compile-mode').selectOption(mode);
-
-test('compiler preference: hand-off when the leader chooses "Use peers", peers never compile, "This device only" stays local', async ({ browser }) => {
-  test.setTimeout(180_000);
-  let slug = uniq('cm-');
-  const [co, ce] = [await browser.newContext(), await browser.newContext()];
-  const O = await newUser(co, 'cmo');
-  const E = await newUser(ce, 'cme');
-  for (const u of [O, E]) await useSharedBuilds(u.page); // the leader and its hand-offs (deprecated, still available)
-  slug = await createProject(O.page, slug);
-  await O.page.getByTestId('settings-btn').click();
-  await O.page.getByLabel('Default role').selectOption('editor');
-  await O.page.getByRole('button', { name: 'Save', exact: true }).first().click();
-  await O.page.getByRole('button', { name: 'Close' }).click();
-  await addFile(O.page, 'main.tex');
-  await O.page.getByRole('treeitem', { name: 'main.tex' }).click();
-  await typeInEditor(O.page, '\\documentclass{article}\n\\begin{document}\nHello\n\\end{document}\n');
-  await E.page.goto('/#/');
-  await joinProject(E.page, slug);
-  await E.page.getByRole('treeitem', { name: 'main.tex' }).click();
-  for (const u of [O, E]) await expect(u.page.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
-
-  // whoever leads now switches to "Use peers": the other device takes over, without reopening anything
-  await expect.poll(() => leaderText(O.page), { timeout: 30_000 }).not.toContain('none available');
-  const ownerLeads = (await leaderText(O.page)).includes('this device');
-  const [L, M] = ownerLeads ? [O, E] : [E, O];
-  await setMode(L.page, 'peers');
-  await expect.poll(() => leaderText(M.page), { timeout: 30_000 }).toContain('this device');
-  await expect.poll(() => leaderText(L.page), { timeout: 30_000 }).toContain(M.username);
-
-  // the "Use peers" device never compiles: its PDFs come from the other device
-  await L.page.locator('.cm-content').click();
-  await L.page.keyboard.press('Control+End');
-  await L.page.keyboard.type('% edit from the peers-only device');
-  await expect(L.page.getByTestId('compiled-by')).toContainText(M.username, { timeout: 30_000 });
-  await expect(L.page.getByTestId('compiled-by')).not.toContainText(L.username);
-
-  // nobody eligible any more: the peers-only device says so
-  await setMode(M.page, 'local');
-  await expect(L.page.getByTestId('no-peer-compiler')).toBeVisible({ timeout: 30_000 });
-  await expect(M.page.getByTestId('leader')).toHaveText('Compiles only on this device');
-
-  // "This device only" compiles its own PDF after edits
-  await M.page.locator('.cm-content').click();
-  await M.page.keyboard.press('Control+End');
-  await M.page.keyboard.type('% local edit');
-  await expect(M.page.getByTestId('compiled-by')).toContainText(`${M.username} (this device)`, { timeout: 30_000 });
-
-  // "This device only" also compiles when the project opens, without waiting for an edit (as the quick compiler does)
-  await M.page.reload();
-  await expect(M.page.getByTestId('leader')).toHaveText('Compiles only on this device', { timeout: 30_000 });
-  await expect(M.page.getByTestId('compiled-by')).toContainText(`${M.username} (this device)`, { timeout: 30_000 });
-  await expect(M.page.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
-
-  // back to automatic: it leads again
-  await setMode(M.page, 'auto');
-  await expect.poll(() => leaderText(M.page), { timeout: 30_000 }).toContain('this device');
-  await expect(L.page.getByTestId('no-peer-compiler')).toHaveCount(0, { timeout: 30_000 });
-
-  // nobody leads (automatic, but not compiling for others) while a co-author is connected: Recompile builds here
-  await M.page.evaluate(() => localStorage.setItem('hivetex.compileForOthers', '0'));
-  await M.page.reload();
-  await expect(M.page.getByTestId('peer-count')).toContainText('1 co-author', { timeout: 30_000 });
-  await expect(M.page.getByTestId('leader')).toHaveText('Compiler: none available', { timeout: 30_000 });
-  await expect(M.page.getByTestId('compiled-by')).toHaveCount(0);
-  await M.page.getByTestId('compile-btn').click();
-  await expect(M.page.getByTestId('compiled-by')).toContainText(`${M.username} (this device)`, { timeout: 30_000 });
-  await M.page.evaluate(() => localStorage.removeItem('hivetex.compileForOthers'));
-  await co.close();
-  await ce.close();
+test('builds stay on each device, including after legacy preference migration and peer disconnect', async ({ browser }) => {
+  const [ownerContext, editorContext] = [await browser.newContext(), await browser.newContext()];
+  const owner = await newUser(ownerContext, 'localo');
+  const editor = await newUser(editorContext, 'locale');
+  const slug = await createProject(owner.page, uniq('local-'));
+  await addFile(owner.page, 'main.tex');
+  await owner.page.getByRole('treeitem', { name: 'main.tex' }).click();
+  await typeInEditor(owner.page, '\nlocal source');
+  await joinProject(editor.page, slug);
+  await editor.page.getByRole('treeitem', { name: 'main.tex' }).click();
+  for (const user of [owner, editor]) {
+    await expect(user.page.getByTestId('peer-count')).toContainText('1 co-author');
+    await expect(user.page.getByTestId('compile-location')).toHaveText('Compiles on this device');
+    await expect(user.page.getByTestId('compiled-by')).toContainText(user.username);
+    await expect(user.page.getByTestId('compile-mode')).toHaveText('Build: this device');
+  }
+  await editor.page.evaluate(() => localStorage.setItem('hivetex.compileMode', 'peers'));
+  await editor.page.reload();
+  await expect(editor.page.getByTestId('compile-migration')).toContainText('Shared compilation was removed');
+  await expect(editor.page.getByTestId('compiled-by')).toContainText(editor.username);
+  expect(await editor.page.evaluate(() => localStorage.getItem('hivetex.compileMode'))).toBe('local');
+  // A reload before the member read it keeps the explanation; dismissing it ends it for good.
+  await editor.page.reload();
+  await expect(editor.page.getByTestId('compile-migration')).toContainText('Shared compilation was removed');
+  await expect(editor.page.getByTestId('compile-migration-setup')).toHaveCount(0);
+  await editor.page.getByTestId('compile-migration-dismiss').click();
+  await expect(editor.page.getByTestId('compile-migration')).toHaveCount(0);
+  await editor.page.reload();
+  await expect(editor.page.getByTestId('compile-location')).toBeVisible();
+  await expect(editor.page.getByTestId('compile-migration')).toHaveCount(0);
+  await editorContext.close();
+  await typeInEditor(owner.page, '\nstill building here');
+  await owner.page.getByTestId('compile-btn').click();
+  await expect(owner.page.getByTestId('compiled-by')).toContainText(owner.username);
+  await ownerContext.close();
 });

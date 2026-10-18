@@ -184,11 +184,14 @@ export function directLink(actor: ActorDocs, latencyMs = 0): ActorLink {
 /** Typed project commands from an attached editor (7.2): never whole-snapshot replacements. */
 export type ActorCommand =
   | { kind: 'create'; path: string; text?: string; source?:'folder' }
-  | { kind: 'rename'; id: string; path: string }
-  | { kind: 'delete'; id: string }
+  | { kind: 'rename'; id: string; path: string; source?: 'folder' }
+  | { kind: 'delete'; id: string; source?: 'folder' }
   | { kind: 'batch'; ops: import('./model.js').BatchOp[] }
   | { kind: 'undo'; changeSetId: string }
-  | { kind: 'restore'; snapshotId: string };
+  | { kind: 'restore-deleted'; id: string; deletionId: string; path?: string }
+  | { kind: 'confirm-deletion'; id: string; deletionId: string; expectedRevision: number }
+  | { kind: 'resolve-binary'; id: string; hash: string; expectedRevision?: number }
+  | { kind: 'restore'; snapshotId: string; expectedRevision?: number; requestId?: string };
 
 export type CommandResult = { ok: true; value?: unknown } | { ok: false; reason: 'denied' | 'not-found' | 'error'; message?: string };
 
@@ -212,11 +215,11 @@ export class ActorCommands {
           break;
         case 'rename':
           if (!m.byId(c.id)) return { ok: false, reason: 'not-found' };
-          m.rename(c.id, c.path);
+          m.rename(c.id, c.path, c.source === 'folder' ? MIRROR_ORIGIN : undefined);
           break;
         case 'delete':
           if (!m.byId(c.id)) return { ok: false, reason: 'not-found' };
-          m.delete(c.id);
+          m.delete(c.id, c.source === 'folder' ? MIRROR_ORIGIN : undefined);
           break;
         case 'batch':
           value = Object.fromEntries((await m.applyBatch(c.ops, this.o.canApply)).created);
@@ -229,7 +232,16 @@ export class ActorCommands {
           break;
         }
         case 'restore':
-          value = await m.restore(c.snapshotId, this.o.canApply);
+          value = await m.restore(c.snapshotId, this.o.canApply, c.expectedRevision, c.requestId);
+          break;
+        case 'restore-deleted':
+          m.restoreDeleted(c.id, c.deletionId, c.path, this.o.canApply);
+          break;
+        case 'confirm-deletion':
+          m.confirmDeletion(c.id, c.deletionId, c.expectedRevision, this.o.canApply);
+          break;
+        case 'resolve-binary':
+          m.resolveBinary(c.id, c.hash, this.o.canApply, c.expectedRevision);
           break;
         default:
           return { ok: false, reason: 'error', message: 'Unknown project command' };

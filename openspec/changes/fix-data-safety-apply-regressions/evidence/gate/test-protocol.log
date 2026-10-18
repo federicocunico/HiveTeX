@@ -1,0 +1,9 @@
+
+ RUN  v5.0.3 C:/Users/feder/AppData/Local/Temp/p2platex-acceptance-55a586ed4f344eb3b76dfc31fe14fc05/packages/protocol
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  11:25:42
+   Duration  362ms (transform 47%, import 44%, worker 7%, tests 2%)
+

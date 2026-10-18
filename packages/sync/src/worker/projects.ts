@@ -6,7 +6,9 @@ import type { Persistence } from "../persistence.js";
 import { RuntimeRegistry, runtimeKeyString, type RuntimeKey, type Lease } from "../registry.js";
 import type { ProjectRuntime } from "../runtime.js";
 import type { RpcEndpoint } from "../worker-ipc.js";
+import { onRecoveryChange } from "../recovery.js";
 import { encodeAwarenessUpdate } from "y-protocols/awareness";
+import * as Y from 'yjs';
 
 export interface ProjectOpen extends RuntimeKey {
   scope: string;
@@ -50,6 +52,8 @@ export class WorkerProjects {
   private blocked = false;
   private uploads = new Map<string, BlobUpload>();
   private uploadCleanup: Promise<unknown> = Promise.resolve();
+  private exportDocs = new Map<string, { attachment: string; bytes: Uint8Array; at: number }>();
+  private exportStores = new Map<string, { attachment: string; iterator: AsyncIterator<Uint8Array>; busy: boolean; at: number }>();
   constructor(
     private o: {
       create(p: ProjectOpen): Promise<WorkerProject>;
@@ -99,12 +103,13 @@ export class WorkerProjects {
         const unsubs: Array<() => void> = [
           off,
           replaced,
+          onRecoveryChange(project.store, () => this.emitFor(key, "recovery", {})),
           r.mesh.onPeerJoin((p) => this.emitFor(key, "peer.join", peer(p))),
           r.mesh.onPeerLeave((p) => this.emitFor(key, "peer.leave", peer(p))),
           r.mesh.onDocReconciled((docId, from) =>
             this.emitFor(key, "reconciled", { docId, from: peer(from) }),
           ),
-          ...["cap", "beat", "compiled", "compile-request", "gh-cap"].map((topic) =>
+          ...["gh-cap"].map((topic) =>
             r.mesh.onApp(topic, (from, body) =>
               this.emitFor(key, "app", { topic, from: peer(from), body }),
             ),
@@ -157,6 +162,7 @@ export class WorkerProjects {
       mergeError: r.mergeError ? String(r.mergeError) : null,
       conflicts: r.conflicts.map((c) => ({ ...c, rev: ActorConflicts.revision(c) })),
       syncStatus: r.syncStatus,
+      historyStatus: r.mesh.historyStatus,
       peers: r.peers,
       connecting: r.connecting,
       doorbellState: r.doorbellState,
@@ -228,6 +234,11 @@ export class WorkerProjects {
     const a = this.attachments.get(attachment);
     if (!a) return;
     this.attachments.delete(attachment);
+    for (const [id, value] of this.exportDocs) if (value.attachment === attachment) this.exportDocs.delete(id);
+    for (const [id, value] of this.exportStores) if (value.attachment === attachment) {
+      this.exportStores.delete(id);
+      await value.iterator.return?.().catch(() => {});
+    }
     await this.abortUploads(attachment);
     const actor = this.registry.get(a.key);
     actor?.docs.detach(attachment);
@@ -371,25 +382,105 @@ export class WorkerProjects {
     handle("project.history", async (p) =>
       (await this.actor(p.attachment)).runtime.changelog.list(),
     );
+    handle("project.undoInterrupted", async (p) => (await this.actor(p.attachment)).runtime.changelog.interruptedUndos());
+    handle("project.undoAbandon", async (p) => {
+      const a = await this.actor(p.attachment);
+      if (typeof p.changeSetId !== "string" || p.changeSetId.length > 200) throw new Error("invalid change set");
+      const canApply = () => !this.blocked && !a.runtime.revoked && a.runtime.role !== "viewer" && this.attachments.has(p.attachment);
+      return (await a.runtime.changelog.abandonUndo(p.changeSetId, canApply))?.id ?? null;
+    });
     handle("project.snapshots", async (p) =>
       (await this.actor(p.attachment)).store.listSnapshots(),
     );
     handle("project.snapshot", async (p) =>
       (await this.actor(p.attachment)).runtime.model.captureSnapshot(),
     );
+    handle("project.previewRestore", async (p) =>
+      (await this.actor(p.attachment)).runtime.model.previewRestore(p.snapshotId),
+    );
+    handle("project.recoveryFiles", async (p) =>
+      (await this.actor(p.attachment)).runtime.model.recoveryFiles(),
+    );
+    handle('project.recoveryState', async (p) => (await this.actor(p.attachment)).runtime.model.recoveryState());
     handle("project.docs", async (p) => {
       const m = (await this.actor(p.attachment)).runtime.model;
       return [
         ROOT_DOC_ID,
-        ...m
-          .list()
+        ...[...m.list(), ...m.deletedFiles()]
           .filter((f) => f.kind === "text")
           .map((f) => fileDocId(f.id)),
       ].map((docId) => ({ docId, complete: m.availability(docId) === "complete" }));
     });
     handle("project.meta", async (p) => (await this.actor(p.attachment)).store.getMeta(p.key));
+    handle("project.metaKeys", async (p) => {
+      if (p.prefix !== undefined && (typeof p.prefix !== "string" || p.prefix.length > 200)) throw new Error("invalid metadata prefix");
+      return (await this.actor(p.attachment)).store.listMetaKeys?.(p.prefix) ?? [];
+    });
+    handle('project.storeDocs', async (p) => {
+      const actor = await this.actor(p.attachment);
+      return [...new Set([...(await actor.store.listDocs()), ...actor.runtime.model.loadedDocIds()])];
+    });
+    handle('project.storeExportOpen', async (p) => {
+      const store = (await this.actor(p.attachment)).store;
+      for (const [id, value] of this.exportStores) if (Date.now() - value.at > 120_000) {
+        this.exportStores.delete(id); await value.iterator.return?.().catch(() => {});
+      }
+      if (!store.exportRawStore) throw new Error('Native store export unavailable');
+      if (this.exportStores.size >= 2) throw new Error('Too many active store exports');
+      const id = crypto.randomUUID();
+      // With its size known up front, the renderer can refuse an archive over the ZIP limit before writing (D7).
+      const raw = await store.openRawExport?.();
+      const chunks = raw?.chunks[Symbol.asyncIterator]();
+      // Closed even when refused before the first read (a generator's finally would not run then).
+      const iterator: AsyncIterator<Uint8Array> = raw && chunks ? {
+        next: async () => { const n = await chunks.next(); if (n.done) await raw.close(); return n; },
+        return: async () => { await chunks.return?.(); await raw.close(); return { done: true, value: undefined }; },
+      } : store.exportRawStore()[Symbol.asyncIterator]();
+      this.exportStores.set(id, { attachment: p.attachment, iterator, busy: false, at: Date.now() });
+      return raw ? { id, size: raw.size } : { id };
+    });
+    handle('project.storeExportRead', async (p) => {
+      await this.actor(p.attachment);
+      const value = this.exportStores.get(p.id);
+      if (!value || value.attachment !== p.attachment || value.busy || Date.now() - value.at > 120_000) throw new Error('Invalid store export read');
+      value.busy = true; value.at = Date.now();
+      try {
+        const next = await value.iterator.next();
+        if (this.exportStores.get(p.id) !== value) throw new Error('Store export closed');
+        if (next.done) { this.exportStores.delete(p.id); return { done: true }; }
+        if (!(next.value instanceof Uint8Array) || !next.value.length || next.value.length > 1024 * 1024) throw new Error('Invalid store export chunk');
+        return { done: false, bytes: next.value };
+      } catch (error) {
+        this.exportStores.delete(p.id); await value.iterator.return?.().catch(() => {}); throw error;
+      } finally { value.busy = false; value.at = Date.now(); }
+    });
+    handle('project.storeExportClose', async (p) => {
+      await this.actor(p.attachment);
+      const value = this.exportStores.get(p.id);
+      if (!value) return;
+      if (value.attachment !== p.attachment) throw new Error('Wrong store export attachment');
+      this.exportStores.delete(p.id); await value.iterator.return?.();
+    });
+    handle('project.exportDocOpen', async (p) => {
+      const actor = await this.actor(p.attachment);
+      for (const [id, value] of this.exportDocs) if (Date.now() - value.at > 60_000) this.exportDocs.delete(id);
+      if (this.exportDocs.size >= 2) throw new Error('Too many active document exports');
+      const loaded = actor.runtime.model.getLoadedDoc(p.docId);
+      const bytes = loaded ? Y.encodeStateAsUpdate(loaded) : Y.mergeUpdates(await actor.store.load(p.docId));
+      const id = crypto.randomUUID();
+      this.exportDocs.set(id, { attachment: p.attachment, bytes, at: Date.now() });
+      return { id, size: bytes.length };
+    });
+    handle('project.exportDocRead', async (p) => {
+      await this.actor(p.attachment);
+      const value = this.exportDocs.get(p.id);
+      if (!value || value.attachment !== p.attachment || !Number.isSafeInteger(p.offset) || p.offset < 0) throw new Error('Invalid export read');
+      const bytes = value.bytes.slice(p.offset, p.offset + 1024 * 1024);
+      if (p.offset + bytes.length >= value.bytes.length) this.exportDocs.delete(p.id);
+      return bytes;
+    });
     handle("project.metaSet", async (p) => {
-      if (!["mirrorBase"].includes(p.key)) throw new Error("metadata key not allowed");
+      if (!["mirrorBase"].includes(p.key) && !/^recovery:(record|content|index):[a-z0-9:-]+$/.test(p.key) && !/^restore:pending:[a-zA-Z0-9-]{1,100}$/.test(p.key)) throw new Error("metadata key not allowed");
       await (await this.actor(p.attachment)).store.setMeta(p.key, p.value);
     });
     handle("project.merge", async (p) =>
@@ -403,16 +494,15 @@ export class WorkerProjects {
     );
     handle("mesh.app", async (p) => {
       const r = (await this.actor(p.attachment)).runtime;
-      if (!["cap", "beat", "compiled", "compile-request", "gh-cap"].includes(p.topic))
+      if (!["gh-cap"].includes(p.topic))
         throw new Error("application topic not allowed");
-      if (["cap", "beat", "compiled"].includes(p.topic) && (r.role === "viewer" || r.revoked))
-        throw new Error("denied");
       if (p.deviceId) await r.mesh.sendApp(p.deviceId, p.topic, p.body);
       else r.mesh.broadcastApp(p.topic, p.body);
     });
     handle("mesh.reconcile", async (p) =>
       (await this.actor(p.attachment)).runtime.mesh.awaitComplete(p.options ?? {}),
     );
+    handle('mesh.reconcileDoc', async (p) => (await this.actor(p.attachment)).runtime.mesh.reconcile(p.docId, { timeoutMs: p.timeoutMs ?? 8000 }));
     handle("mesh.openDoc", async (p) =>
       (await this.actor(p.attachment)).runtime.mesh.openDoc(p.docId),
     );

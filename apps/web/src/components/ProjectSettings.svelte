@@ -12,7 +12,6 @@
   let confirmDelete = $state(false);
   let engine = $state(String(session.model.settings.get('engine') ?? 'pdflatex'));
   let main = $state(String(session.model.settings.get('main') ?? 'main.tex'));
-  let compileForOthers = $state(localStorage.getItem('hivetex.compileForOthers') !== '0');
   onMount(() => void admin.load());
 
   async function del() {
@@ -20,9 +19,9 @@
   }
 
   function saveBuild() {
+    if (!session.canWrite) return;
     session.model.settings.set('engine', engine);
     session.model.settings.set('main', main);
-    session.setCompileForOthers(compileForOthers);
     admin.info = 'Saved';
   }
   const texFiles = $derived(session.files.filter((f) => f.kind === 'text' && f.path.endsWith('.tex')));
@@ -47,8 +46,8 @@
         <option value="lualatex">LuaLaTeX (desktop)</option>
       </select>
     </div>
-    <label class="check"><input type="checkbox" bind:checked={compileForOthers} disabled={!session.engine} /> Let this device compile for the others when it is the best available</label>
-    <div><button type="button" onclick={saveBuild}>Save build settings</button></div>
+    <p class="muted">Each device builds its own PDF locally.</p>
+    <div><button type="button" onclick={saveBuild} disabled={!session.canWrite}>Save build settings</button></div>
     <p class="muted note">GitHub backup has its own panel: the cloud icon in the left rail.</p>
   </section>
 

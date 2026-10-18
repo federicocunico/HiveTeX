@@ -2,10 +2,63 @@
 
 ## Transport
 
+### Data safety format v2
+
+Updated peers negotiate `safety-caps {v:2, authored:true, tombstones:'map'}` over the authenticated sync channel. A peer
+announcing anything else (0.8.0 announces nothing; an unreleased v1 development build announces `v:1`) is a previous
+release for everything below: it receives plain `UPDATE` frames.
+
+`AUTHORED` (`0x14`) carries an immutable device-signed operation (envelope `v:2`): ID, project, document, author
+UID/device, origin, timestamp, causal dependencies, update hash, exact Yjs update and membership certificate. It carries
+**no preimage**: the size of an envelope follows the change, never the document. Each receiver derives the state before
+the change from its own replica when it applies the operation. Forwarders keep the original envelope and signature.
+Admission verifies the current connection, current certificate expiry/epoch/role, project, signature and hash; a historic
+timestamp never grants present write permission. Envelopes of the unreleased `v:1` layout (which also signed a full
+`before` state) are still verified and read from stores that hold them, never written.
+
+Live operations are signed and sent at once, on a per-connection live queue. Storing the signed envelope locally runs
+apart, in order, with retry: a failure shows as a save warning and never delays sending; `flush()` waits for the first
+storage attempt only. A forwarder sends an operation it relays as `AUTHORED` to updated peers and as a plain `UPDATE` to
+previous releases, which drop `0x14` frames. Relayed edits are forwarded before anything is stored.
+
+Retained history uses `history-list`/`history-page` (32 IDs/page), one requested record at a time, and `history-part`
+(128 KiB chunks; one assembly per connection, 96 MiB/768 parts/120 s limits). IDs deduplicate reconnects. Historic
+certificates prove authorship at issuance; these records only populate history, **never** apply their updates to the
+live project. Their display shows what the update itself contains (inserted text, created and tombstoned entries); no
+removed text or full before/after copy is invented. Retained history yields to live traffic: each part waits until the
+connection's queued live frames are out. A record that fails verification or storage, or is not answered within 30 s
+(`historyWantTimeoutMs`), is skipped and listed in `historySkipped` with its reason; paging continues, and the status
+settles as `incomplete` instead of receiving forever. Chunked live operations pass the ordinary live admission checks.
+Source completeness and retained-history progress are separate UI states. All content and evidence travel between
+authenticated peers, never as plaintext control-plane messages.
+
+Deleting a file moves its entry, under the same id, from the root `files` map to the root `tombstones` map:
+`{v:1, entry, deletion}`, where `entry` is every field of the removed entry (binary versions included) and `deletion`
+holds the deletion token, author, path and content frontier (including the Yjs delete set). A previous release (0.8.0)
+sees an ordinary deletion: the file leaves its tree and its folder, and it does not write it back. Later/concurrent edits
+of the document (same id) remain recoverable and produce a conflict. A rename concurrent with the deletion is lost; the
+content stays in the tombstone and the document. Restore puts the entry back in `files` and removes the tombstone;
+"keep deleted" replaces the deletion token. A live entry wins over a stale tombstone of the same id. Binary replacement
+branches retain all hashes; a late branch reopens a previously resolved conflict. Restore and resolution require fresh
+tokens/revisions and current write permission. No tombstoned document or historical blob is pruned here. Development
+stores of the unreleased v1 format (tombstones as a `deleted` field inside `files`) are converted at open, once.
+
+Legacy state exchange has unknown original authorship. A root update that physically removes entries this replica holds
+without a tombstone (a 0.8.0 deletion, or one made before the upgrade) is applied. First each removed entry and its last
+local content is retained in the private Recovery vault as `removed` by the delivering device, once per content. The rest
+of the update is never withheld, and later updates from that peer apply normally. Only a tombstone or deletion of an
+unknown (future) format is held: the payload is saved in the private vault, the peer is quarantined for the root, Changes
+asks to update the app, and the hold cannot count as a successful reconciliation receipt.
+
+Local-only edits without a membership certificate still enter the durable private journal and remain buildable.
+Their local account/device attribution is declared metadata, not a verified peer signature. A later authenticated
+state exchange may transfer them; archived evidence is only labelled verified when a valid original signature exists.
+Bootstrap copies and legacy imports are never attributed to their forwarding peer as though it authored the text.
+
 Each pair of devices talks over WebRTC with two reliable, ordered data channels:
 
-* `sync` – handshake, CRDT updates, awareness, control and compile messages;
-* `bulk` – binary blobs (images, PDFs).
+* `sync` – handshake, CRDT updates, awareness and history/control messages;
+* `bulk` – project input assets (images, uploaded PDFs).
 
 Messages larger than 16 KiB are fragmented (1 byte header: single / first / middle / last) and sends honor
 `bufferedAmount` back-pressure (1 MiB high-water mark). Signaling messages (SDP/ICE) are end-to-end encrypted between the
@@ -201,6 +254,7 @@ never for blobs). Document frames use `[docIdLen: u16 BE][docId utf8][data]`.
 | 0x11 | STEP2 | doc frame: Yjs update for what the requester is missing |
 | 0x12 | UPDATE | doc frame: incremental Yjs update |
 | 0x13 | AWARENESS | y-protocols awareness update (presence, cursors) |
+| 0x14 | AUTHORED | signed original operation: update and membership evidence, no preimage (updated peers only) |
 | 0x20 | EPOCH | JSON `{epoch, ticket?}` – highest membership epoch seen, with the verified ticket that proves it (see below) |
 | 0x21 | TICKET | JSON `{ticket}` – refreshed membership ticket |
 | 0x30 | BLOB_HAVE | JSON `{hashes}` |
@@ -208,7 +262,7 @@ never for blobs). Document frames use `[docIdLen: u16 BE][docId utf8][data]`.
 | 0x32 | BLOB_CHUNK | `[hashLen u8][hash][index u32][total u32][bytes]` |
 | 0x33 | BLOB_NONE | JSON `{hash}` |
 | 0x40 | PEERS | JSON `{devices}` – peer exchange |
-| 0x60 | APP | JSON `{topic, body}` – election, compile requests/results, GitHub backup coordination |
+| 0x60 | APP | JSON `{topic, body}` – sync receipts, history exchange, GitHub backup coordination |
 
 Types a `viewer` connection may send (everything else is dropped): `HELLO`, `AUTH`, `STEP1`, `AWARENESS`, `EPOCH`,
 `TICKET`, `BLOB_WANT`, `BLOB_NONE`, `PEERS`, `APP`.
@@ -223,8 +277,9 @@ Types a `viewer` connection may send (everything else is dropped): `HELLO`, `AUT
 * A receiver remembers each device's newest verified (epoch, issued-at) for the session, across connection replacement; a
   reconnect presenting an older ticket is refused (`stale device ticket`).
 * Document frames that waited for the sync gate or a document load are applied only if the connection is still the device's
-  active one and the sender is still not a viewer when they are applied. `APP` topics that are privileged (election `cap`/`beat`,
-  `compiled`) are registered `editorOnly`, so the sender's role is checked when the message is dispatched.
+  active one and the sender is still not a viewer when they are applied. Authored live operations also verify the original
+  writer's current ticket and membership epoch. Distributed compilation handlers and worker IPC topics were removed;
+  legacy compile messages cannot schedule builds or replace a preview.
 
 ## Authentication handshake
 
