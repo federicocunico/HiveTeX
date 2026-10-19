@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NativeEngine } from '../src/index.js';
 
 const input = { files: [{ path: 'main.tex', kind: 'text' as const, text: 'x' }], main: 'main.tex', engine: 'pdflatex' as const, stateHash: 'h' };
@@ -23,7 +23,8 @@ describe('native build cancellation', () => {
     const engine = new NativeEngine(b.invoke, 'proj');
     const a = new AbortController();
     const build = engine.compile(input, { timeoutMs: 120_000, signal: a.signal });
-    await new Promise((r) => setTimeout(r, 0));
+    // inputs are hashed (crypto.subtle) before the request: wait for it, not for one tick
+    await vi.waitFor(() => expect(b.calls).toHaveLength(1));
     const id = b.calls[0]?.args?.build;
     expect(typeof id).toBe('string');
     a.abort();
@@ -34,7 +35,7 @@ describe('native build cancellation', () => {
     expect(b.calls[1]?.args).toEqual({ build: id });
     // the next build is a different one: an old cancel cannot stop it
     const next = engine.compile(input, { timeoutMs: 120_000 });
-    await new Promise((r) => setTimeout(r, 0));
+    await vi.waitFor(() => expect(b.calls).toHaveLength(3));
     expect(b.calls[2]?.args?.build).not.toBe(id);
     b.running.get(String(b.calls[2]?.args?.build))?.();
     await next;
@@ -49,9 +50,8 @@ describe('native build cancellation', () => {
     expect(b.calls).toEqual([]);
     const c = new AbortController();
     const build = engine.compile(input, { timeoutMs: 1000, signal: c.signal });
-    await new Promise((r) => setTimeout(r, 0));
     // the first round asked for content; the second (with content) runs until cancelled
-    expect(b.calls.filter((x) => x.cmd === 'tex_compile')).toHaveLength(2);
+    await vi.waitFor(() => expect(b.calls.filter((x) => x.cmd === 'tex_compile')).toHaveLength(2));
     c.abort();
     expect((await build).ok).toBe(false);
   });
