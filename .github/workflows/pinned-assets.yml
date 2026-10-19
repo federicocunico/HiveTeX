@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
-        with: { node-version: 22 }
+        with: { node-version: 22, package-manager-cache: false } # no pnpm here: the script uses only node built-ins
       - run: node scripts/check-pinned-assets.mjs
         env:
           GITHUB_TOKEN: ${{ github.token }}
