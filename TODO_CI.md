@@ -21,6 +21,14 @@ through the Deploy workflow after CI passes (docs/deployment.md section 3). The 
 
 - [ ] Make `CI / browser-diagnostics` blocking once it has stayed green for a while.
 - [ ] `e2e/full-flow.spec.ts` may still need a retry on a 2-vCPU runner (WebRTC set-up between three browsers).
+- [ ] `server/test/application-relay-e2e.test.ts` "12 relay peers converge" is retried (failed once on CI at the
+      initial "start" convergence). Cause, reproduced locally by delaying each relay delivery by 5-15 ms: the start-up
+      burst overflows the router's per-recipient queue (256 messages), the relay transport retransmits on a fixed
+      1.5 s timer with no congestion control (retransmits outnumber first sends), and the overflowing recipient gets
+      `relay_backpressure` with `retryAfterMs: 30_000`, which pauses the retransmissions of all its own relay
+      transports although only the senders can repair the loss. Removing that pause alone makes the retransmission
+      storm worse. Needs congestion control in `packages/sync/src/relay-transport.ts` (adaptive RTO, fewer duplicate
+      retransmits) and a recipient-side drop signal that is not a forwarding limit; then drop the retry.
 - [ ] The two-machine sync checks are manual, not in CI: `make sandbox-sync` (this PC plus Windows Sandbox, fault
       injection `FAULT=deaf|deaf-silent|no-udp`, `MATRIX=...`) and `make rtc-lab` (browser and native WebRTC per ICE
       scenario; `HOLD_S=330 SCENARIOS=relay-udp PEERS=native` guards the TURN refresh patch). They need Windows Sandbox
