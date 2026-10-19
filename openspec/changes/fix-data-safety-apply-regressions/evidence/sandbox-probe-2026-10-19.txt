@@ -1,0 +1,104 @@
+﻿probe 2026-10-19T09:00:18.8727590+02:00 user=dc1a9ca9-8f8d-4\wdagutilityaccount
+== OS
+24H2 build 10.0.26100.0 LCU 10.0.26100.9711
+== WebView2 registration (pv, location)
+HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5} -> pv=154.0.4258.53 location=C:\Program Files (x86)\Microsoft\EdgeWebView\Application
+HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5} -> pv= location=
+HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5} -> pv= location=
+== WebView2 policies
+== Runtime folders
+-- C:\Program Files (x86)\Microsoft\EdgeWebView\Application
+   155.0.4283.62  10/18/2026 15:14:17
+   SetupMetrics  10/19/2026 08:37:46
+-- C:\Program Files (x86)\Microsoft\Edge\Application
+   154.0.4258.53  10/03/2026 21:46:26
+   154.0.4258.62  10/07/2026 15:45:55
+   155.0.4283.45  10/10/2026 14:51:24
+   155.0.4283.62  10/18/2026 15:13:54
+   PlatformExperiencesHelper  10/18/2026 15:13:54
+   SetupMetrics  10/18/2026 15:14:15
+   AppxSignature.p7x  10/15/2026 20:49:34
+   msedge.exe  10/16/2026 04:06:23
+   msedge.VisualElementsManifest.xml  10/18/2026 15:13:53
+   msedge_proxy.exe  10/16/2026 04:06:23
+   pwahelper.exe  10/16/2026 04:06:49
+-- C:\hx-webview
+   AdSelectionAttestationsPreloaded  10/18/2026 15:14:17
+   BHO  10/18/2026 15:14:17
+   EBWebView  10/18/2026 15:14:17
+   edge_feedback  10/18/2026 15:14:17
+   edge_game_assist  10/18/2026 15:14:17
+   Extensions  10/18/2026 15:14:17
+   identity_proxy  10/18/2026 15:14:17
+   Installer  10/18/2026 15:14:17
+   Locales  10/18/2026 15:14:17
+   MEIPreload  10/18/2026 15:14:17
+   PdfPreview  10/18/2026 15:14:17
+   ResiliencyLinks  10/18/2026 15:14:17
+   Trust Protection Lists  10/18/2026 15:14:17
+   VisualElements  10/18/2026 15:14:17
+   WidevineCdm  10/18/2026 15:14:17
+   155.0.4283.62.manifest  10/16/2026 01:05:27
+   concrt140.dll  10/16/2026 04:04:40
+   cookie_exporter.exe  10/16/2026 04:05:48
+   Copilot.dat  10/16/2026 01:05:27
+   copilot_overlay_images_100_percent.pak  10/16/2026 01:05:27
+   copilot_overlay_images_200_percent.pak  10/16/2026 01:05:27
+   copilot_overlay_unscaled_images.pak  10/16/2026 01:05:27
+   d3dcompiler_47.dll  10/16/2026 04:04:41
+   dual_engine_adapter_x64.dll  10/16/2026 04:06:23
+   dxcompiler.dll  10/16/2026 04:06:26
+   Edge.dat  10/16/2026 01:05:27
+   EdgeWebView.dat  10/16/2026 01:05:27
+   elevated_tracing_service.exe  10/16/2026 04:05:20
+   elevation_service.exe  10/16/2026 04:06:23
+   eventlog_provider.dll  10/16/2026 04:06:37
+   ffmpeg.dll  10/16/2026 04:05:49
+   icudtl.dat  10/16/2026 01:05:27
+   identity_helper.exe  10/16/2026 04:05:49
+   learning_tools.dll  10/16/2026 04:06:02
+   microsoft_shell_integration.dll  10/16/2026 04:05:34
+   mip_core_gn.dll  10/16/2026 04:05:49
+   msedge.dll  10/16/2026 04:06:09
+   msedge.dll.sig  10/16/2026 04:10:29
+   msedge.exe.sig  10/16/2026 04:10:27
+   msedgewebview2.exe  10/16/2026 04:05:34
+   msedgewebview2.exe.sig  10/16/2026 04:10:28
+   msedge_100_percent.pak  10/16/2026 01:05:27
+   msedge_200_percent.pak  10/16/2026 01:05:27
+   msedge_elf.dll  10/16/2026 04:06:23
+   msedge_proxy.exe  10/16/2026 04:06:23
+   msedge_wer.dll  10/16/2026 04:06:37
+   mspdf.dll  10/16/2026 04:05:01
+   msvcp140.dll  10/16/2026 04:04:44
+   msvcp140_codecvt_ids.dll  10/16/2026 04:04:40
+   notification_helper.exe  10/16/2026 04:05:34
+   oneauth.dll  10/16/2026 04:06:37
+   oneds.dll  10/16/2026 04:06:37
+   onnxruntime.dll  10/16/2026 04:05:34
+   onramp.dll  10/16/2026 04:05:34
+   platform_experiences_helper.exe  10/16/2026 04:06:02
+   prefs_enclave_x64.dll  10/16/2026 04:04:40
+   resources.pak  10/16/2026 01:05:27
+   show_third_party_software_licenses.bat  10/16/2026 01:05:27
+   telclient.dll  10/16/2026 04:06:49
+   textInputMethod.sccd  10/16/2026 01:05:27
+   v8_context_snapshot.bin  10/16/2026 01:05:27
+   vccorlib140.dll  10/16/2026 04:04:40
+   vcruntime140.dll  10/16/2026 04:04:40
+   vcruntime140_1.dll  10/16/2026 04:04:40
+   vk_swiftshader.dll  10/16/2026 04:05:34
+   vk_swiftshader_icd.json  10/16/2026 01:05:27
+   vulkan-1.dll  10/16/2026 04:05:34
+   wdag.dll  10/16/2026 04:05:34
+   webview2_integration.dll  10/16/2026 04:06:22
+msedgewebview2: C:\Program Files (x86)\Microsoft\EdgeWebView\Application\155.0.4283.62\msedgewebview2.exe size=4897136 version=155.0.4283.62
+signature: Valid Signature verified.
+EmbeddedBrowserWebView.dll x64 exists=True
+--version exit=13 out=
+== App launches (8 s each)
+default : env= alive=False exit= webview2procs=0
+   thread 'main' (9072) panicked at C:\Users\feder\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tauri-2.12.2\src\app.rs:1444:11: | Failed to setup app: runtime error: Could not find the webview runtime, make sure it is installed
+ownFolder : env=WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=C:\Program Files (x86)\Microsoft\EdgeWebView\Application\155.0.4283.62 alive=True exit= webview2procs=6
+hostFolder : env=WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=C:\hx-webview alive=True exit= webview2procs=7
+done

@@ -168,6 +168,10 @@ make sandbox-firewall
 ```
 
 or answer the firewall prompts for the app and `node.exe`. Inside the sandbox the firewall is turned off by the run.
+The sandbox scripts use `netsh`, .NET and the service manager, not CIM/WMI cmdlets: since the October 2026 Windows
+updates, WMI in Windows Sandbox refuses every caller. When the sandbox's WebView2 registration names a version whose
+folder is missing (the host's runtime was updated after the sandbox image), `launch.ps1` points the app at the newest
+runtime folder with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` and records the choice in `sandbox/webview.txt`.
 
 **Results.** `<SANDBOX_OUT>/<run>/summary.json` (`PASS`, `FAIL` or `INTERRUPTED`, with `diagnosis` for an environment
 stop) is written also when build or staging fails or the run is interrupted; `timeline.txt` merges both apps' traces

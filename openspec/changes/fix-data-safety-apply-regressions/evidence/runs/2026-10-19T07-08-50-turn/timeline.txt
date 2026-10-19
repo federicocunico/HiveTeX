@@ -1,0 +1,455 @@
+07:09:28.302 +      0 HOST    a3e5eb78 manager.start client=desktop 0.9.0 doorbell=true zeroIdle=true
+07:09:28.312 +     10 HOST    a3e5eb78 socket.opening 
+07:09:28.314 +     12 SERVER  conn1 open ua=node addr=127.0.0.1
+07:09:28.315 +     13 SERVER  conn1 out type=challenge bytes=71
+07:09:28.317 +     15 HOST    a3e5eb78 socket.opened 
+07:09:28.319 +     17 HOST    a3e5eb78 socket.challenge 
+07:09:28.353 +     51 SERVER  conn1 in type=auth bytes=736
+07:09:28.384 +     82 SERVER  conn1 out type=ready others=0 bytes=40
+07:09:28.386 +     84 HOST    a3e5eb78 server.ready others=0 session=n/a relayCapable=false
+07:09:31.250 +   2948 SANDBOX 4d007cef manager.start client=desktop 0.9.0 doorbell=true zeroIdle=true
+07:09:31.261 +   2959 SANDBOX 4d007cef socket.opening 
+07:09:31.265 +   2963 SANDBOX 4d007cef socket.opened 
+07:09:31.266 +   2964 SANDBOX 4d007cef socket.challenge 
+07:09:31.269 +   2967 SERVER  conn2 open ua=node addr=172.21.130.33
+07:09:31.270 +   2968 SERVER  conn2 out type=challenge bytes=71
+07:09:31.306 +   3004 SERVER  conn2 in type=auth bytes=734
+07:09:31.311 +   3009 SANDBOX 4d007cef server.ready others=1 session=n/a relayCapable=false
+07:09:31.315 +   3013 SERVER  conn1 out type=join dev=4d007cef bytes=665
+07:09:31.316 +   3014 SERVER  conn2 out type=ready others=1 bytes=672
+07:09:31.317 +   3015 SANDBOX 4d007cef -> a3e5eb78 device.learned via=server role=offerer validForS=897 memberRole=owner
+07:09:31.317 +   3015 SANDBOX 4d007cef -> a3e5eb78 attempt.start role=offerer attempt=1
+07:09:31.317 +   3015 SANDBOX 4d007cef ice.request 
+07:09:31.318 +   3016 HOST    a3e5eb78 -> 4d007cef device.learned via=server role=answerer validForS=900 memberRole=editor
+07:09:31.318 +   3016 HOST    a3e5eb78 -> 4d007cef attempt.wait role=answerer note=the other device sends the offer
+07:09:31.319 +   3017 HOST    a3e5eb78 -> 4d007cef peer.join 
+07:09:31.324 +   3022 SANDBOX 4d007cef ice.ok servers=2 relay=available:ok
+07:09:31.325 +   3023 SANDBOX 4d007cef -> a3e5eb78 link.created role=offerer
+07:09:31.331 +   3029 SANDBOX 4d007cef -> a3e5eb78 link.offer.sent 
+07:09:31.335 +   3033 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=host
+07:09:31.338 +   3036 SANDBOX 4d007cef -> a3e5eb78 sig.send k=offer via=server targetSeenOnServer=true ack=offer-kj933unf
+07:09:31.338 +   3036 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.342 +   3040 SANDBOX 4d007cef -> a3e5eb78 sig.delivered k=offer ack=offer-kj933unf
+07:09:31.342 +   3040 SANDBOX 4d007cef -> a3e5eb78 sig.server-ack k=offer ack=offer-kj933unf targetOnline=true
+07:09:31.345 +   3043 SERVER  conn2 in type=sig to=a3e5eb78 ack=offer-kj933u bytes=755
+07:09:31.346 +   3044 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 ack=offer-kj933u bytes=1388
+07:09:31.347 +   3045 SERVER  conn2 out type=sig-delivered ack=offer-kj933u bytes=44
+07:09:31.348 +   3046 SERVER  conn2 out type=sig-ack ack=offer-kj933u online=true bytes=52
+07:09:31.349 +   3047 SERVER  conn2 in type=sig to=a3e5eb78 bytes=312
+07:09:31.349 +   3047 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=945
+07:09:31.358 +   3056 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:09:31.361 +   3059 HOST    a3e5eb78 -> 4d007cef sig.recv k=offer
+07:09:31.361 +   3059 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.362 +   3060 HOST    a3e5eb78 ice.request 
+07:09:31.363 +   3061 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:31.363 +   3061 HOST    a3e5eb78 -> 4d007cef sig.held k=ice held=1
+07:09:31.367 +   3065 HOST    a3e5eb78 ice.ok servers=2 relay=available:ok
+07:09:31.367 +   3065 HOST    a3e5eb78 -> 4d007cef link.created role=answerer
+07:09:31.367 +   3065 HOST    a3e5eb78 -> 4d007cef link.offer.received 
+07:09:31.369 +   3067 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:09:31.369 +   3067 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:09:31.374 +   3072 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:31.375 +   3073 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:09:31.375 +   3073 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:09:31.378 +   3076 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.378 +   3076 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:09:31.380 +   3078 HOST    a3e5eb78 -> 4d007cef link.ice-state state=checking
+07:09:31.380 +   3078 HOST    a3e5eb78 -> 4d007cef link.state connection=connecting ice=checking
+07:09:31.381 +   3079 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:09:31.383 +   3081 HOST    a3e5eb78 -> 4d007cef link.answer.sent 
+07:09:31.383 +   3081 HOST    a3e5eb78 -> 4d007cef sig.applied-held count=1
+07:09:31.383 +   3081 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=host applied=true
+07:09:31.383 +   3081 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.383 +   3081 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.384 +   3082 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.386 +   3084 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.388 +   3086 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.390 +   3088 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.392 +   3090 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.393 +   3091 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.395 +   3093 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.397 +   3095 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.399 +   3097 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.401 +   3099 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.403 +   3101 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:31.405 +   3103 HOST    a3e5eb78 -> 4d007cef sig.send k=answer via=server targetSeenOnServer=true ack=answer-2mfggpqj
+07:09:31.406 +   3104 SERVER  conn1 in type=sig to=4d007cef ack=answer-2mfgg bytes=756
+07:09:31.406 +   3104 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef ack=answer-2mfgg bytes=1391
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.407 +   3105 SERVER  conn1 out type=sig-delivered ack=answer-2mfgg bytes=45
+07:09:31.407 +   3105 SERVER  conn1 out type=sig-ack ack=answer-2mfgg online=true bytes=53
+07:09:31.408 +   3106 HOST    a3e5eb78 -> 4d007cef sig.delivered k=answer ack=answer-2mfggpqj
+07:09:31.408 +   3106 HOST    a3e5eb78 -> 4d007cef sig.server-ack k=answer ack=answer-2mfggpqj targetOnline=true
+07:09:31.408 +   3106 SERVER  conn1 in type=sig to=4d007cef bytes=308
+07:09:31.408 +   3106 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:31.408 +   3106 SERVER  conn1 in type=sig to=4d007cef bytes=316
+07:09:31.409 +   3107 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:31.409 +   3107 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:31.409 +   3107 SERVER  conn1 in type=sig to=4d007cef bytes=308
+07:09:31.410 +   3108 SERVER  conn1 in type=sig to=4d007cef bytes=304
+07:09:31.410 +   3108 SERVER  conn1 in type=sig to=4d007cef bytes=308
+07:09:31.410 +   3108 SERVER  conn1 in type=sig to=4d007cef bytes=316
+07:09:31.410 +   3108 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:31.410 +   3108 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:31.411 +   3109 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=943
+07:09:31.411 +   3109 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:31.412 +   3110 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=951
+07:09:31.412 +   3110 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:31.413 +   3111 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=answer
+07:09:31.413 +   3111 SANDBOX 4d007cef -> a3e5eb78 link.answer.received 
+07:09:31.413 +   3111 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:31.413 +   3111 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=943
+07:09:31.413 +   3111 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=939
+07:09:31.414 +   3112 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=943
+07:09:31.414 +   3112 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=951
+07:09:31.414 +   3112 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:31.415 +   3113 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:31.415 +   3113 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:09:31.415 +   3113 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:09:31.416 +   3114 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:09:31.416 +   3114 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:09:31.416 +   3114 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:09:31.417 +   3115 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:09:31.427 +   3125 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:31.429 +   3127 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:31.433 +   3131 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:31.433 +   3131 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:09:31.434 +   3132 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:31.434 +   3132 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:09:31.434 +   3132 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:31.434 +   3132 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:09:31.434 +   3132 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.434 +   3132 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.434 +   3132 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:31.435 +   3133 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:31.436 +   3134 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:31.436 +   3134 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:31.438 +   3136 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=relay
+07:09:31.439 +   3137 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:31.440 +   3138 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=checking
+07:09:31.440 +   3138 SANDBOX 4d007cef -> a3e5eb78 link.state connection=connecting ice=checking
+07:09:31.443 +   3141 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:31.446 +   3144 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.446 +   3144 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.446 +   3144 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:31.447 +   3145 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:31.448 +   3146 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:31.449 +   3147 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.453 +   3151 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.454 +   3152 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=true
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=true
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.456 +   3154 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=true
+07:09:31.461 +   3159 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:09:31.462 +   3160 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.462 +   3160 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=true
+07:09:31.462 +   3160 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.462 +   3160 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=true
+07:09:31.462 +   3160 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:09:31.468 +   3166 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:31.468 +   3166 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=relay applied=true
+07:09:31.473 +   3171 HOST    a3e5eb78 -> 4d007cef link.ice.local type=relay
+07:09:31.476 +   3174 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:31.476 +   3174 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:31.476 +   3174 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=relay applied=true
+07:09:31.476 +   3174 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:31.477 +   3175 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:32.570 +   4268 HOST    a3e5eb78 -> 4d007cef link.ice-state state=connected
+07:09:32.570 +   4268 HOST    a3e5eb78 -> 4d007cef link.pair local=host remote=prflx protocol=udp
+07:09:56.452 +  28150 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=failed
+07:09:56.453 +  28151 SANDBOX 4d007cef -> a3e5eb78 link.state connection=failed ice=failed
+07:09:56.453 +  28151 SANDBOX 4d007cef -> a3e5eb78 link.failed why=connection failed cause=checks-failed
+07:09:56.453 +  28151 SANDBOX 4d007cef -> a3e5eb78 retry.scheduled attempt=1 inMs=1000 viaRelay=false
+07:09:57.454 +  29152 SANDBOX 4d007cef -> a3e5eb78 attempt.start role=offerer attempt=2
+07:09:57.454 +  29152 SANDBOX 4d007cef ice.cached servers=2 expiresInS=3574
+07:09:57.455 +  29153 SANDBOX 4d007cef -> a3e5eb78 link.policy policy=relay after=checks-failed
+07:09:57.455 +  29153 SANDBOX 4d007cef -> a3e5eb78 link.created role=offerer
+07:09:57.464 +  29162 SANDBOX 4d007cef -> a3e5eb78 link.offer.sent 
+07:09:57.467 +  29165 SANDBOX 4d007cef -> a3e5eb78 sig.send k=offer via=server targetSeenOnServer=true ack=offer-tffvy6y1
+07:09:57.470 +  29168 SANDBOX 4d007cef -> a3e5eb78 sig.delivered k=offer ack=offer-tffvy6y1
+07:09:57.470 +  29168 SANDBOX 4d007cef -> a3e5eb78 sig.server-ack k=offer ack=offer-tffvy6y1 targetOnline=true
+07:09:57.476 +  29174 SERVER  conn2 in type=sig to=a3e5eb78 ack=offer-tffvy6 bytes=755
+07:09:57.477 +  29175 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 ack=offer-tffvy6 bytes=1388
+07:09:57.477 +  29175 SERVER  conn2 out type=sig-delivered ack=offer-tffvy6 bytes=44
+07:09:57.477 +  29175 SERVER  conn2 out type=sig-ack ack=offer-tffvy6 online=true bytes=52
+07:09:57.480 +  29178 HOST    a3e5eb78 -> 4d007cef sig.recv k=offer
+07:09:57.480 +  29178 HOST    a3e5eb78 -> 4d007cef link.offer.received 
+07:09:57.482 +  29180 HOST    a3e5eb78 -> 4d007cef link.ice-state state=checking
+07:09:57.483 +  29181 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.485 +  29183 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.487 +  29185 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.488 +  29186 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.490 +  29188 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.492 +  29190 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.494 +  29192 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.496 +  29194 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.498 +  29196 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.499 +  29197 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.501 +  29199 HOST    a3e5eb78 -> 4d007cef link.ice.local type=host
+07:09:57.504 +  29202 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:57.506 +  29204 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.508 +  29206 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.509 +  29207 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.509 +  29207 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.510 +  29208 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:57.510 +  29208 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:57.511 +  29209 HOST    a3e5eb78 -> 4d007cef link.answer.sent 
+07:09:57.511 +  29209 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.511 +  29209 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.511 +  29209 HOST    a3e5eb78 -> 4d007cef sig.send k=answer via=server targetSeenOnServer=true ack=answer-0u8f40xy
+07:09:57.511 +  29209 SERVER  conn1 in type=sig to=4d007cef bytes=316
+07:09:57.511 +  29209 SERVER  conn1 in type=sig to=4d007cef bytes=308
+07:09:57.511 +  29209 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:57.511 +  29209 SERVER  conn1 in type=sig to=4d007cef bytes=316
+07:09:57.512 +  29210 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:57.512 +  29210 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:57.512 +  29210 SERVER  conn1 in type=sig to=4d007cef bytes=312
+07:09:57.513 +  29211 SERVER  conn1 in type=sig to=4d007cef bytes=308
+07:09:57.513 +  29211 SERVER  conn1 in type=sig to=4d007cef bytes=308
+07:09:57.513 +  29211 SERVER  conn1 in type=sig to=4d007cef bytes=304
+07:09:57.513 +  29211 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=951
+07:09:57.514 +  29212 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=943
+07:09:57.514 +  29212 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:57.514 +  29212 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=951
+07:09:57.515 +  29213 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:57.515 +  29213 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:57.515 +  29213 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=947
+07:09:57.516 +  29214 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=943
+07:09:57.516 +  29214 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=943
+07:09:57.517 +  29215 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=939
+07:09:57.517 +  29215 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:57.517 +  29215 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:57.518 +  29216 SERVER  conn1 in type=sig to=4d007cef ack=answer-0u8f4 bytes=1340
+07:09:57.518 +  29216 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:57.518 +  29216 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:57.519 +  29217 HOST    a3e5eb78 -> 4d007cef sig.delivered k=answer ack=answer-0u8f40xy
+07:09:57.519 +  29217 HOST    a3e5eb78 -> 4d007cef sig.server-ack k=answer ack=answer-0u8f40xy targetOnline=true
+07:09:57.519 +  29217 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef ack=answer-0u8f4 bytes=1975
+07:09:57.519 +  29217 SERVER  conn1 out type=sig-delivered ack=answer-0u8f4 bytes=45
+07:09:57.520 +  29218 SERVER  conn1 out type=sig-ack ack=answer-0u8f4 online=true bytes=53
+07:09:57.523 +  29221 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:57.526 +  29224 HOST    a3e5eb78 -> 4d007cef link.ice.local type=srflx
+07:09:57.528 +  29226 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.528 +  29226 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.529 +  29227 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.529 +  29227 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.530 +  29228 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:57.531 +  29229 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:57.531 +  29229 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:57.532 +  29230 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:57.547 +  29245 HOST    a3e5eb78 -> 4d007cef link.ice.local type=relay
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.549 +  29247 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=relay
+07:09:57.550 +  29248 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.551 +  29249 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:09:57.552 +  29250 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.552 +  29250 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.552 +  29250 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:09:57.553 +  29251 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.553 +  29251 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.553 +  29251 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.553 +  29251 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.553 +  29251 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=answer
+07:09:57.553 +  29251 SANDBOX 4d007cef -> a3e5eb78 link.answer.received 
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=host applied=false
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=false
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=false
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=false
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=srflx applied=false
+07:09:57.554 +  29252 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:09:57.557 +  29255 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=checking
+07:09:57.557 +  29255 SANDBOX 4d007cef -> a3e5eb78 link.state connection=connecting ice=checking
+07:09:57.557 +  29255 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:09:57.557 +  29255 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=relay applied=true
+07:09:57.562 +  29260 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:09:57.563 +  29261 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:09:57.567 +  29265 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:09:57.567 +  29265 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=relay applied=true
+07:09:59.949 +  31647 HOST    a3e5eb78 -> 4d007cef link.ice-state state=connected
+07:09:59.949 +  31647 HOST    a3e5eb78 -> 4d007cef link.pair local=host remote=relay protocol=udp
+07:09:59.987 +  31685 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=connected
+07:09:59.987 +  31685 SANDBOX 4d007cef -> a3e5eb78 link.pair local=relay remote=prflx protocol=udp
+07:10:00.117 +  31815 SANDBOX 4d007cef -> a3e5eb78 link.state connection=connected ice=connected
+07:10:00.153 +  31851 HOST    a3e5eb78 -> 4d007cef link.state connection=failed ice=connected
+07:10:00.153 +  31851 HOST    a3e5eb78 -> 4d007cef link.failed why=connection failed cause=checks-failed
+07:10:00.154 +  31852 HOST    a3e5eb78 -> 4d007cef retry.scheduled attempt=1 inMs=1000 viaRelay=false
+07:10:05.315 +  37013 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=disconnected
+07:10:05.315 +  37013 SANDBOX 4d007cef -> a3e5eb78 link.state connection=disconnected ice=disconnected
+07:10:05.316 +  37014 SANDBOX 4d007cef -> a3e5eb78 link.failed why=connection disconnected cause=checks-failed
+07:10:05.317 +  37015 SANDBOX 4d007cef -> a3e5eb78 retry.scheduled attempt=2 inMs=2000 viaRelay=false
+07:10:07.325 +  39023 SANDBOX 4d007cef -> a3e5eb78 attempt.start role=offerer attempt=3
+07:10:07.325 +  39023 SANDBOX 4d007cef ice.cached servers=2 expiresInS=3564
+07:10:07.325 +  39023 SANDBOX 4d007cef -> a3e5eb78 link.created role=offerer
+07:10:07.334 +  39032 SANDBOX 4d007cef -> a3e5eb78 link.offer.sent 
+07:10:07.340 +  39038 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=host
+07:10:07.343 +  39041 SANDBOX 4d007cef -> a3e5eb78 sig.send k=offer via=server targetSeenOnServer=true ack=offer-1k5046x2
+07:10:07.343 +  39041 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.345 +  39043 SANDBOX 4d007cef -> a3e5eb78 sig.delivered k=offer ack=offer-1k5046x2
+07:10:07.346 +  39044 SANDBOX 4d007cef -> a3e5eb78 sig.server-ack k=offer ack=offer-1k5046x2 targetOnline=true
+07:10:07.350 +  39048 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:10:07.351 +  39049 SERVER  conn2 in type=sig to=a3e5eb78 ack=offer-1k5046 bytes=755
+07:10:07.352 +  39050 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:10:07.352 +  39050 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 ack=offer-1k5046 bytes=1388
+07:10:07.352 +  39050 SERVER  conn2 out type=sig-delivered ack=offer-1k5046 bytes=44
+07:10:07.353 +  39051 SERVER  conn2 out type=sig-ack ack=offer-1k5046 online=true bytes=52
+07:10:07.354 +  39052 SERVER  conn2 in type=sig to=a3e5eb78 bytes=312
+07:10:07.354 +  39052 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=945
+07:10:07.355 +  39053 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.355 +  39053 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.359 +  39057 HOST    a3e5eb78 -> 4d007cef sig.recv k=offer
+07:10:07.359 +  39057 HOST    a3e5eb78 ice.cached servers=2 expiresInS=3564
+07:10:07.359 +  39057 HOST    a3e5eb78 -> 4d007cef link.policy policy=relay after=checks-failed
+07:10:07.359 +  39057 HOST    a3e5eb78 -> 4d007cef link.created role=answerer
+07:10:07.359 +  39057 HOST    a3e5eb78 -> 4d007cef link.offer.received 
+07:10:07.359 +  39057 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:10:07.359 +  39057 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=host applied=false
+07:10:07.364 +  39062 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:10:07.364 +  39062 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:10:07.367 +  39065 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:10:07.367 +  39065 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:10:07.370 +  39068 HOST    a3e5eb78 -> 4d007cef link.ice-state state=checking
+07:10:07.371 +  39069 HOST    a3e5eb78 -> 4d007cef link.state connection=connecting ice=checking
+07:10:07.372 +  39070 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:10:07.373 +  39071 HOST    a3e5eb78 -> 4d007cef link.answer.sent 
+07:10:07.373 +  39071 HOST    a3e5eb78 -> 4d007cef sig.send k=answer via=server targetSeenOnServer=true ack=answer-48sj5cko
+07:10:07.374 +  39072 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=srflx
+07:10:07.375 +  39073 SERVER  conn1 in type=sig to=4d007cef ack=answer-48sj5 bytes=756
+07:10:07.376 +  39074 HOST    a3e5eb78 -> 4d007cef sig.delivered k=answer ack=answer-48sj5cko
+07:10:07.376 +  39074 HOST    a3e5eb78 -> 4d007cef sig.server-ack k=answer ack=answer-48sj5cko targetOnline=true
+07:10:07.376 +  39074 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef ack=answer-48sj5 bytes=1391
+07:10:07.376 +  39074 SERVER  conn1 out type=sig-delivered ack=answer-48sj5 bytes=45
+07:10:07.377 +  39075 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=answer
+07:10:07.377 +  39075 SANDBOX 4d007cef -> a3e5eb78 link.answer.received 
+07:10:07.377 +  39075 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.377 +  39075 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.377 +  39075 SERVER  conn1 out type=sig-ack ack=answer-48sj5 online=true bytes=53
+07:10:07.377 +  39075 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:10:07.377 +  39075 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:10:07.378 +  39076 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=checking
+07:10:07.378 +  39076 SANDBOX 4d007cef -> a3e5eb78 link.state connection=connecting ice=checking
+07:10:07.381 +  39079 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:10:07.381 +  39079 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:10:07.402 +  39100 SANDBOX 4d007cef -> a3e5eb78 link.ice.local type=relay
+07:10:07.404 +  39102 SANDBOX 4d007cef -> a3e5eb78 sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.427 +  39125 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:10:07.429 +  39127 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:10:07.429 +  39127 SERVER  conn2 in type=sig to=a3e5eb78 bytes=348
+07:10:07.429 +  39127 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:10:07.430 +  39128 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:10:07.430 +  39128 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 bytes=981
+07:10:07.441 +  39139 HOST    a3e5eb78 -> 4d007cef link.ice.local type=relay
+07:10:07.443 +  39141 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=ice
+07:10:07.443 +  39141 SANDBOX 4d007cef -> a3e5eb78 link.ice.remote type=relay applied=true
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=srflx applied=true
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef sig.recv k=ice
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef link.ice.remote type=relay applied=true
+07:10:07.444 +  39142 HOST    a3e5eb78 -> 4d007cef sig.send k=ice via=server targetSeenOnServer=true
+07:10:07.446 +  39144 SERVER  conn1 in type=sig to=4d007cef bytes=348
+07:10:07.446 +  39144 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef bytes=983
+07:10:09.590 +  41288 HOST    a3e5eb78 -> 4d007cef link.ice-state state=connected
+07:10:09.590 +  41288 HOST    a3e5eb78 -> 4d007cef link.pair local=relay remote=srflx protocol=udp
+07:10:09.614 +  41312 SANDBOX 4d007cef -> a3e5eb78 link.ice-state state=connected
+07:10:09.614 +  41312 SANDBOX 4d007cef -> a3e5eb78 link.pair local=srflx remote=relay protocol=udp
+07:10:09.745 +  41443 SANDBOX 4d007cef -> a3e5eb78 link.state connection=connected ice=connected
+07:10:09.780 +  41478 HOST    a3e5eb78 -> 4d007cef link.state connection=connected ice=connected
+07:10:09.863 +  41561 SANDBOX 4d007cef -> a3e5eb78 link.channels.open 
+07:10:09.863 +  41561 SANDBOX 4d007cef -> a3e5eb78 link.up 
+07:10:09.864 +  41562 SANDBOX 4d007cef -> a3e5eb78 link.route local=srflx remote=relay
+07:10:09.903 +  41601 HOST    a3e5eb78 -> 4d007cef link.channels.open 
+07:10:09.903 +  41601 HOST    a3e5eb78 -> 4d007cef link.up 
+07:10:09.904 +  41602 HOST    a3e5eb78 -> 4d007cef link.route local=relay remote=srflx
+07:10:09.964 +  41662 SANDBOX 4d007cef -> a3e5eb78 mesh.auth-ok route=turn
+07:10:10.014 +  41712 HOST    a3e5eb78 -> 4d007cef mesh.auth-ok route=turn
+07:10:11.581 +  43279 SANDBOX 4d007cef -> a3e5eb78 probe.start role=offerer known=true onServer=true connectedBefore=true socketOpen=true
+07:10:11.584 +  43282 SANDBOX 4d007cef -> a3e5eb78 sig.send k=probe via=server targetSeenOnServer=true ack=probe-asfrbbsi
+07:10:11.587 +  43285 HOST    a3e5eb78 -> 4d007cef probe.start role=answerer known=true onServer=true connectedBefore=true socketOpen=true
+07:10:11.587 +  43285 SANDBOX 4d007cef -> a3e5eb78 sig.delivered k=probe ack=probe-asfrbbsi
+07:10:11.587 +  43285 SANDBOX 4d007cef -> a3e5eb78 sig.server-ack k=probe ack=probe-asfrbbsi targetOnline=true
+07:10:11.587 +  43285 SANDBOX 4d007cef -> a3e5eb78 sig.recv k=probe
+07:10:11.587 +  43285 SANDBOX 4d007cef -> a3e5eb78 probe.received retry=false
+07:10:11.589 +  43287 HOST    a3e5eb78 -> 4d007cef sig.send k=probe via=server targetSeenOnServer=true ack=probe-x9v2y3im
+07:10:11.591 +  43289 HOST    a3e5eb78 -> 4d007cef sig.delivered k=probe ack=probe-x9v2y3im
+07:10:11.591 +  43289 HOST    a3e5eb78 -> 4d007cef sig.server-ack k=probe ack=probe-x9v2y3im targetOnline=true
+07:10:11.591 +  43289 SANDBOX 4d007cef -> a3e5eb78 sig.send k=probe-reply via=server targetSeenOnServer=true ack=probe-reply-pp8xw0i9
+07:10:11.591 +  43289 SANDBOX 4d007cef -> a3e5eb78 probe.replied via=server
+07:10:11.591 +  43289 SERVER  conn1 in type=sig to=4d007cef ack=probe-x9v2y3 bytes=183
+07:10:11.591 +  43289 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef ack=probe-x9v2y3 bytes=818
+07:10:11.592 +  43290 SERVER  conn1 out type=sig-delivered ack=probe-x9v2y3 bytes=44
+07:10:11.592 +  43290 SERVER  conn1 out type=sig-ack ack=probe-x9v2y3 online=true bytes=52
+07:10:11.593 +  43291 SERVER  conn2 in type=sig to=a3e5eb78 ack=probe-asfrbb bytes=183
+07:10:11.593 +  43291 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 ack=probe-asfrbb bytes=816
+07:10:11.593 +  43291 SERVER  conn2 out type=sig-delivered ack=probe-asfrbb bytes=44
+07:10:11.593 +  43291 SERVER  conn2 out type=sig-ack ack=probe-asfrbb online=true bytes=52
+07:10:11.595 +  43293 HOST    a3e5eb78 -> 4d007cef sig.recv k=probe
+07:10:11.595 +  43293 HOST    a3e5eb78 -> 4d007cef probe.received retry=false
+07:10:11.598 +  43296 HOST    a3e5eb78 -> 4d007cef sig.send k=probe-reply via=server targetSeenOnServer=true ack=probe-reply-wgwt17w7
+07:10:11.598 +  43296 HOST    a3e5eb78 -> 4d007cef probe.replied via=server
+07:10:11.599 +  43297 SERVER  conn1 in type=sig to=4d007cef ack=probe-reply- bytes=577
+07:10:11.600 +  43298 HOST    a3e5eb78 -> 4d007cef sig.delivered k=probe-reply ack=probe-reply-wgwt17w7
+07:10:11.600 +  43298 HOST    a3e5eb78 -> 4d007cef sig.server-ack k=probe-reply ack=probe-reply-wgwt17w7 targetOnline=true
+07:10:11.600 +  43298 SERVER  conn2 out type=sig from=a3e5eb78 to=4d007cef ack=probe-reply- bytes=1212
+07:10:11.601 +  43299 SERVER  conn1 out type=sig-delivered ack=probe-reply- bytes=50
+07:10:11.601 +  43299 SERVER  conn1 out type=sig-ack ack=probe-reply- online=true bytes=58
+07:10:11.602 +  43300 SERVER  conn2 in type=sig to=a3e5eb78 ack=probe-reply- bytes=577
+07:10:11.602 +  43300 SERVER  conn1 out type=sig from=4d007cef to=a3e5eb78 ack=probe-reply- bytes=1210
+07:10:11.603 +  43301 SERVER  conn2 out type=sig-delivered ack=probe-reply- bytes=50
+07:10:11.603 +  43301 SERVER  conn2 out type=sig-ack ack=probe-reply- online=true bytes=58

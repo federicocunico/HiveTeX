@@ -1,0 +1,1 @@
+﻿webview: registered=True folder= own=C:\Program Files (x86)\Microsoft\EdgeWebView\Application\155.0.4283.62\msedgewebview2.exe

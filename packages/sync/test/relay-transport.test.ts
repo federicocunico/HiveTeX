@@ -49,10 +49,10 @@ async function pair(o: Partial<RelayTransportOptions> = {}, ab: Path = {}, ba: P
   b.onMessage((c, d) => got[c].push(new TextDecoder().decode(d)));
   return { a, b, got, counters, ab, ba };
 }
-const until = async (cond: () => boolean, ms = 4000) => {
+const until = async (cond: () => boolean, ms = 4000, state?: () => string) => {
   const end = Date.now() + ms;
   while (!cond()) {
-    if (Date.now() > end) throw new Error('condition not reached');
+    if (Date.now() > end) throw new Error(`condition not reached${state ? `: ${state()}` : ''}`);
     await new Promise(r => setTimeout(r, 5));
   }
 };
@@ -78,7 +78,7 @@ describe('application relay transport (3.2)', () => {
       delayMs: n => (n % 5) * 7,
     }, { drop: (_e, n) => n % 3 === 0 });
     for (let n = 0; n < 30; n++) void f.a.send('sync', text('e' + n));
-    await until(() => f.got.sync.length === 30, 8000);
+    await until(() => f.got.sync.length === 30, 8000, () => `received ${f.got.sync.length}/30, a ${JSON.stringify(f.a.stats)}, b ${JSON.stringify(f.b.stats)}`);
     expect(f.got.sync).toEqual(Array.from({ length: 30 }, (_, n) => 'e' + n));
     expect(f.a.stats.retransmits).toBeGreaterThan(0);
     expect(f.b.stats.duplicateFragments).toBeGreaterThan(0);

@@ -1,0 +1,370 @@
+07:11:51.347 +      0 HOST    6ab919b3 manager.start client=desktop 0.9.0 doorbell=true zeroIdle=true
+07:11:51.358 +     11 HOST    6ab919b3 socket.opening 
+07:11:51.360 +     13 SERVER  conn1 open ua=node addr=127.0.0.1
+07:11:51.361 +     14 HOST    6ab919b3 socket.opened 
+07:11:51.362 +     15 SERVER  conn1 out type=challenge bytes=71
+07:11:51.364 +     17 HOST    6ab919b3 socket.challenge 
+07:11:51.402 +     55 SERVER  conn1 in type=auth bytes=736
+07:11:51.446 +     99 SERVER  conn1 out type=ready others=0 bytes=108
+07:11:51.447 +    100 HOST    6ab919b3 server.ready others=0 session=r1_LcK_kip37 relayCapable=true
+07:11:54.188 +   2841 SANDBOX 9eb95f1b manager.start client=desktop 0.9.0 doorbell=true zeroIdle=true
+07:11:54.200 +   2853 SANDBOX 9eb95f1b socket.opening 
+07:11:54.204 +   2857 SANDBOX 9eb95f1b socket.opened 
+07:11:54.205 +   2858 SANDBOX 9eb95f1b socket.challenge 
+07:11:54.206 +   2859 SERVER  conn2 open ua=node addr=172.21.131.6
+07:11:54.207 +   2860 SERVER  conn2 out type=challenge bytes=71
+07:11:54.242 +   2895 SERVER  conn2 in type=auth bytes=734
+07:11:54.248 +   2901 SANDBOX 9eb95f1b server.ready others=1 session=r1_uM-xhex6u relayCapable=true
+07:11:54.249 +   2902 SERVER  conn1 out type=join dev=9eb95f1b bytes=708
+07:11:54.250 +   2903 SERVER  conn2 out type=ready others=1 bytes=743
+07:11:54.251 +   2904 HOST    6ab919b3 -> 9eb95f1b device.learned via=server role=offerer validForS=900 memberRole=editor
+07:11:54.251 +   2904 HOST    6ab919b3 -> 9eb95f1b attempt.start role=offerer attempt=1
+07:11:54.252 +   2905 HOST    6ab919b3 ice.request 
+07:11:54.252 +   2905 HOST    6ab919b3 -> 9eb95f1b peer.join 
+07:11:54.252 +   2905 SANDBOX 9eb95f1b -> 6ab919b3 device.learned via=server role=answerer validForS=897 memberRole=owner
+07:11:54.253 +   2906 HOST    6ab919b3 -> 9eb95f1b relay.start 
+07:11:54.253 +   2906 SANDBOX 9eb95f1b -> 6ab919b3 attempt.wait role=answerer note=the other device sends the offer
+07:11:54.261 +   2914 HOST    6ab919b3 ice.ok servers=1 relay=unavailable:not_configured
+07:11:54.261 +   2914 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=1229
+07:11:54.262 +   2915 HOST    6ab919b3 -> 9eb95f1b link.created role=offerer
+07:11:54.264 +   2917 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=1303
+07:11:54.276 +   2929 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1355
+07:11:54.277 +   2930 HOST    6ab919b3 -> 9eb95f1b link.offer.sent 
+07:11:54.279 +   2932 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1429
+07:11:54.283 +   2936 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.286 +   2939 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.288 +   2941 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.290 +   2943 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.292 +   2945 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.295 +   2948 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.297 +   2950 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.299 +   2952 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.301 +   2954 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.304 +   2957 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.306 +   2959 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=host
+07:11:54.312 +   2965 HOST    6ab919b3 -> 9eb95f1b sig.send k=offer via=server targetSeenOnServer=true ack=offer-wlhp8s1p
+07:11:54.313 +   2966 SERVER  conn1 in type=sig to=9eb95f1b ack=offer-wlhp8s bytes=755
+07:11:54.313 +   2966 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b ack=offer-wlhp8s bytes=1390
+07:11:54.314 +   2967 SERVER  conn1 out type=sig-delivered ack=offer-wlhp8s bytes=44
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.315 +   2968 SERVER  conn1 out type=sig-ack ack=offer-wlhp8s online=true bytes=52
+07:11:54.316 +   2969 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=srflx
+07:11:54.316 +   2969 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=offer
+07:11:54.317 +   2970 SANDBOX 9eb95f1b ice.request 
+07:11:54.317 +   2970 SERVER  conn1 in type=sig to=9eb95f1b bytes=312
+07:11:54.317 +   2970 SERVER  conn1 in type=sig to=9eb95f1b bytes=312
+07:11:54.318 +   2971 HOST    6ab919b3 -> 9eb95f1b link.ice.local type=srflx
+07:11:54.318 +   2971 SERVER  conn1 in type=sig to=9eb95f1b bytes=316
+07:11:54.319 +   2972 SERVER  conn1 in type=sig to=9eb95f1b bytes=308
+07:11:54.320 +   2973 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.320 +   2973 SERVER  conn1 in type=sig to=9eb95f1b bytes=304
+07:11:54.320 +   2973 SERVER  conn1 in type=sig to=9eb95f1b bytes=312
+07:11:54.321 +   2974 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.321 +   2974 SERVER  conn1 in type=sig to=9eb95f1b bytes=308
+07:11:54.321 +   2974 SERVER  conn1 in type=sig to=9eb95f1b bytes=316
+07:11:54.322 +   2975 SERVER  conn1 in type=sig to=9eb95f1b bytes=312
+07:11:54.322 +   2975 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=947
+07:11:54.323 +   2976 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=947
+07:11:54.324 +   2977 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=951
+07:11:54.325 +   2978 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=943
+07:11:54.326 +   2979 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=939
+07:11:54.326 +   2979 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=947
+07:11:54.327 +   2980 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=943
+07:11:54.328 +   2981 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=951
+07:11:54.328 +   2981 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=947
+07:11:54.329 +   2982 SERVER  conn1 in type=sig to=9eb95f1b bytes=312
+07:11:54.330 +   2983 SERVER  conn1 in type=sig to=9eb95f1b bytes=308
+07:11:54.330 +   2983 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=947
+07:11:54.331 +   2984 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=943
+07:11:54.346 +   2999 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.346 +   2999 SANDBOX 9eb95f1b -> 6ab919b3 sig.held k=ice held=1
+07:11:54.346 +   2999 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.346 +   2999 SANDBOX 9eb95f1b -> 6ab919b3 sig.held k=ice held=2
+07:11:54.348 +   3001 SANDBOX 9eb95f1b ice.ok servers=1 relay=unavailable:not_configured
+07:11:54.348 +   3001 SANDBOX 9eb95f1b -> 6ab919b3 link.created role=answerer
+07:11:54.348 +   3001 SANDBOX 9eb95f1b -> 6ab919b3 link.offer.received 
+07:11:54.349 +   3002 HOST    6ab919b3 -> 9eb95f1b sig.delivered k=offer ack=offer-wlhp8s1p
+07:11:54.349 +   3002 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.349 +   3002 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.349 +   3002 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.349 +   3002 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.350 +   3003 HOST    6ab919b3 -> 9eb95f1b sig.server-ack k=offer ack=offer-wlhp8s1p targetOnline=true
+07:11:54.350 +   3003 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.350 +   3003 HOST    6ab919b3 -> 9eb95f1b sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.350 +   3003 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=367
+07:11:54.352 +   3005 SERVER  conn1 in type=sig to=9eb95f1b bytes=348
+07:11:54.353 +   3006 SERVER  conn1 in type=sig to=9eb95f1b bytes=348
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.354 +   3007 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=false
+07:11:54.354 +   3007 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=983
+07:11:54.354 +   3007 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b bytes=983
+07:11:54.355 +   3008 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=441
+07:11:54.375 +   3028 SANDBOX 9eb95f1b -> 6ab919b3 link.ice-state state=checking
+07:11:54.375 +   3028 SANDBOX 9eb95f1b -> 6ab919b3 link.state connection=connecting ice=checking
+07:11:54.375 +   3028 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.375 +   3028 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=true
+07:11:54.375 +   3028 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.375 +   3028 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=true
+07:11:54.385 +   3038 SANDBOX 9eb95f1b -> 6ab919b3 link.answer.sent 
+07:11:54.386 +   3039 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.386 +   3039 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=srflx applied=true
+07:11:54.386 +   3039 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=ice
+07:11:54.386 +   3039 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=srflx applied=true
+07:11:54.386 +   3039 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=238
+07:11:54.387 +   3040 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.local type=host
+07:11:54.388 +   3041 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=312
+07:11:54.389 +   3042 SANDBOX 9eb95f1b -> 6ab919b3 sig.send k=answer via=server targetSeenOnServer=true ack=answer-qng2tojr
+07:11:54.391 +   3044 SANDBOX 9eb95f1b -> 6ab919b3 sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.391 +   3044 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=1147
+07:11:54.393 +   3046 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=1221
+07:11:54.394 +   3047 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1144
+07:11:54.395 +   3048 SANDBOX 9eb95f1b -> 6ab919b3 sig.applied-held count=2
+07:11:54.395 +   3048 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=true
+07:11:54.395 +   3048 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.remote type=host applied=true
+07:11:54.396 +   3049 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1218
+07:11:54.399 +   3052 SANDBOX 9eb95f1b -> 6ab919b3 sig.delivered k=answer ack=answer-qng2tojr
+07:11:54.399 +   3052 SANDBOX 9eb95f1b -> 6ab919b3 sig.server-ack k=answer ack=answer-qng2tojr targetOnline=true
+07:11:54.399 +   3052 SERVER  conn2 in type=sig to=6ab919b3 ack=answer-qng2t bytes=756
+07:11:54.399 +   3052 SERVER  conn2 in type=sig to=6ab919b3 bytes=308
+07:11:54.400 +   3053 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=444
+07:11:54.400 +   3053 SERVER  conn1 out type=sig from=9eb95f1b to=6ab919b3 ack=answer-qng2t bytes=1389
+07:11:54.401 +   3054 SERVER  conn1 out type=sig from=9eb95f1b to=6ab919b3 bytes=941
+07:11:54.402 +   3055 SERVER  conn2 out type=sig-delivered ack=answer-qng2t bytes=45
+07:11:54.403 +   3056 SERVER  conn2 out type=sig-ack ack=answer-qng2t online=true bytes=53
+07:11:54.404 +   3057 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=444
+07:11:54.405 +   3058 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=518
+07:11:54.406 +   3059 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=518
+07:11:54.408 +   3061 HOST    6ab919b3 -> 9eb95f1b sig.recv k=answer
+07:11:54.408 +   3061 HOST    6ab919b3 -> 9eb95f1b link.answer.received 
+07:11:54.408 +   3061 HOST    6ab919b3 -> 9eb95f1b sig.recv k=ice
+07:11:54.408 +   3061 HOST    6ab919b3 -> 9eb95f1b link.ice.remote type=host applied=false
+07:11:54.412 +   3065 HOST    6ab919b3 -> 9eb95f1b link.ice-state state=checking
+07:11:54.412 +   3065 HOST    6ab919b3 -> 9eb95f1b link.state connection=connecting ice=checking
+07:11:54.413 +   3066 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=1113
+07:11:54.415 +   3068 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=369
+07:11:54.417 +   3070 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=413
+07:11:54.419 +   3072 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=385
+07:11:54.422 +   3075 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=325
+07:11:54.423 +   3076 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=329
+07:11:54.424 +   3077 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.local type=srflx
+07:11:54.425 +   3078 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=481
+07:11:54.426 +   3079 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=327
+07:11:54.427 +   3080 SANDBOX 9eb95f1b -> 6ab919b3 link.ice.local type=srflx
+07:11:54.429 +   3082 SANDBOX 9eb95f1b -> 6ab919b3 sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.429 +   3082 SANDBOX 9eb95f1b -> 6ab919b3 sig.send k=ice via=server targetSeenOnServer=true
+07:11:54.437 +   3090 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1116
+07:11:54.437 +   3090 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1116
+07:11:54.438 +   3091 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=369
+07:11:54.439 +   3092 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=413
+07:11:54.439 +   3092 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=327
+07:11:54.440 +   3093 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=385
+07:11:54.440 +   3093 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=325
+07:11:54.441 +   3094 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=329
+07:11:54.441 +   3094 SERVER  conn2 in type=sig to=6ab919b3 bytes=348
+07:11:54.442 +   3095 SERVER  conn2 in type=sig to=6ab919b3 bytes=348
+07:11:54.443 +   3096 SERVER  conn1 out type=sig from=9eb95f1b to=6ab919b3 bytes=981
+07:11:54.444 +   3097 SERVER  conn1 out type=sig from=9eb95f1b to=6ab919b3 bytes=981
+07:11:54.445 +   3098 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=1187
+07:11:54.446 +   3099 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=487
+07:11:54.447 +   3100 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=443
+07:11:54.447 +   3100 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=459
+07:11:54.448 +   3101 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=399
+07:11:54.449 +   3102 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=403
+07:11:54.450 +   3103 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=555
+07:11:54.451 +   3104 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=401
+07:11:54.452 +   3105 HOST    6ab919b3 -> 9eb95f1b sig.recv k=ice
+07:11:54.452 +   3105 HOST    6ab919b3 -> 9eb95f1b link.ice.remote type=srflx applied=true
+07:11:54.452 +   3105 HOST    6ab919b3 -> 9eb95f1b sig.recv k=ice
+07:11:54.452 +   3105 HOST    6ab919b3 -> 9eb95f1b link.ice.remote type=srflx applied=true
+07:11:54.454 +   3107 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1190
+07:11:54.456 +   3109 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1190
+07:11:54.456 +   3109 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=443
+07:11:54.457 +   3110 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=487
+07:11:54.458 +   3111 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=401
+07:11:54.460 +   3113 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=459
+07:11:54.461 +   3114 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=399
+07:11:54.462 +   3115 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=403
+07:11:54.463 +   3116 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=377
+07:11:54.465 +   3118 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=390
+07:11:54.467 +   3120 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=329
+07:11:54.470 +   3123 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1102
+07:11:54.472 +   3125 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=377
+07:11:54.473 +   3126 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=414
+07:11:54.474 +   3127 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=390
+07:11:54.475 +   3128 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=329
+07:11:54.477 +   3130 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=451
+07:11:54.478 +   3131 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=464
+07:11:54.479 +   3132 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=403
+07:11:54.480 +   3133 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1176
+07:11:54.481 +   3134 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=451
+07:11:54.482 +   3135 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=488
+07:11:54.483 +   3136 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=464
+07:11:54.484 +   3137 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=403
+07:11:54.487 +   3140 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=343
+07:11:54.488 +   3141 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=417
+07:11:54.489 +   3142 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=390
+07:11:54.490 +   3143 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=414
+07:11:54.490 +   3143 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=343
+07:11:54.491 +   3144 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=390
+07:11:54.491 +   3144 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=415
+07:11:54.493 +   3146 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=417
+07:11:54.494 +   3147 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=491
+07:11:54.494 +   3147 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=464
+07:11:54.495 +   3148 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=488
+07:11:54.496 +   3149 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=417
+07:11:54.497 +   3150 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=464
+07:11:54.498 +   3151 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=489
+07:11:54.500 +   3153 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=352
+07:11:54.503 +   3156 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=426
+07:11:54.504 +   3157 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=348
+07:11:54.506 +   3159 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=422
+07:11:56.255 +   4908 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=367
+07:11:56.258 +   4911 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=482
+07:11:56.259 +   4912 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=441
+07:11:56.261 +   4914 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=556
+07:11:56.282 +   4935 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=328
+07:11:56.284 +   4937 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=402
+07:11:56.285 +   4938 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:56.287 +   4940 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:56.491 +   5144 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=1445
+07:11:56.492 +   5145 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=1519
+07:11:56.508 +   5161 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=357
+07:11:56.509 +   5162 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=411
+07:11:56.511 +   5164 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=431
+07:11:56.514 +   5167 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=485
+07:11:56.515 +   5168 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=328
+07:11:56.517 +   5170 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=402
+07:11:56.518 +   5171 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=433
+07:11:56.520 +   5173 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=507
+07:11:56.540 +   5193 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=332
+07:11:56.543 +   5196 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=406
+07:11:56.545 +   5198 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:56.547 +   5200 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:56.770 +   5423 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=349
+07:11:56.772 +   5425 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=423
+07:11:56.776 +   5429 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=439
+07:11:56.777 +   5430 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=513
+07:11:56.779 +   5432 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=411
+07:11:56.781 +   5434 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=485
+07:11:56.785 +   5438 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=438
+07:11:56.787 +   5440 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=512
+07:11:56.800 +   5453 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=332
+07:11:56.801 +   5454 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=406
+07:11:56.804 +   5457 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=332
+07:11:56.805 +   5458 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=406
+07:11:56.911 +   5564 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1453
+07:11:56.914 +   5567 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1527
+07:11:56.936 +   5589 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:56.940 +   5593 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:57.037 +   5690 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=357
+07:11:57.039 +   5692 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=431
+07:11:57.042 +   5695 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=350
+07:11:57.044 +   5697 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=349
+07:11:57.047 +   5700 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=424
+07:11:57.048 +   5701 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=423
+07:11:57.049 +   5702 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=411
+07:11:57.050 +   5703 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=409
+07:11:57.052 +   5705 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=485
+07:11:57.053 +   5706 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=483
+07:11:57.054 +   5707 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=437
+07:11:57.055 +   5708 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=511
+07:11:57.062 +   5715 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=336
+07:11:57.064 +   5717 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=410
+07:11:57.074 +   5727 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=336
+07:11:57.076 +   5729 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=410
+07:11:57.184 +   5837 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=357
+07:11:57.185 +   5838 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=411
+07:11:57.186 +   5839 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=431
+07:11:57.189 +   5842 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=485
+07:11:57.191 +   5844 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=350
+07:11:57.192 +   5845 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=424
+07:11:57.217 +   5870 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:57.220 +   5873 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:57.222 +   5875 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=438
+07:11:57.224 +   5877 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=332
+07:11:57.226 +   5879 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=512
+07:11:57.226 +   5879 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=406
+07:11:57.247 +   5900 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:57.249 +   5902 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:57.323 +   5976 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1430
+07:11:57.324 +   5977 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1504
+07:11:57.348 +   6001 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:57.349 +   6002 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:57.380 +   6033 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1451
+07:11:57.382 +   6035 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1525
+07:11:57.387 +   6040 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=1454
+07:11:57.389 +   6042 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=1528
+07:11:57.405 +   6058 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:57.407 +   6060 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:57.419 +   6072 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=328
+07:11:57.421 +   6074 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=402
+07:11:57.440 +   6093 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=1442
+07:11:57.442 +   6095 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=1516
+07:11:57.471 +   6124 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=328
+07:11:57.472 +   6125 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=402
+07:11:57.525 +   6178 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=1439
+07:11:57.527 +   6180 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=1513
+07:11:57.551 +   6204 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=328
+07:11:57.552 +   6205 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=402
+07:11:57.573 +   6226 SANDBOX 9eb95f1b -> 6ab919b3 probe.start role=answerer known=true onServer=true connectedBefore=true socketOpen=true
+07:11:57.576 +   6229 HOST    6ab919b3 -> 9eb95f1b probe.start role=offerer known=true onServer=true connectedBefore=true socketOpen=true
+07:11:57.576 +   6229 SANDBOX 9eb95f1b -> 6ab919b3 sig.send k=probe via=server targetSeenOnServer=true ack=probe-poagjdma
+07:11:57.580 +   6233 HOST    6ab919b3 -> 9eb95f1b sig.send k=probe via=server targetSeenOnServer=true ack=probe-i36xu0kt
+07:11:57.580 +   6233 SERVER  conn1 in type=sig to=9eb95f1b ack=probe-i36xu0 bytes=183
+07:11:57.581 +   6234 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b ack=probe-i36xu0 bytes=818
+07:11:57.583 +   6236 SANDBOX 9eb95f1b -> 6ab919b3 sig.delivered k=probe ack=probe-poagjdma
+07:11:57.583 +   6236 SANDBOX 9eb95f1b -> 6ab919b3 sig.recv k=probe
+07:11:57.583 +   6236 SERVER  conn1 out type=sig-delivered ack=probe-i36xu0 bytes=44
+07:11:57.584 +   6237 HOST    6ab919b3 -> 9eb95f1b sig.delivered k=probe ack=probe-i36xu0kt
+07:11:57.584 +   6237 SANDBOX 9eb95f1b -> 6ab919b3 probe.received retry=false
+07:11:57.584 +   6237 SERVER  conn1 out type=sig-ack ack=probe-i36xu0 online=true bytes=52
+07:11:57.585 +   6238 HOST    6ab919b3 -> 9eb95f1b sig.server-ack k=probe ack=probe-i36xu0kt targetOnline=true
+07:11:57.585 +   6238 SERVER  conn2 in type=sig to=6ab919b3 ack=probe-poagjd bytes=183
+07:11:57.585 +   6238 SERVER  conn1 out type=sig from=9eb95f1b to=6ab919b3 ack=probe-poagjd bytes=816
+07:11:57.586 +   6239 SANDBOX 9eb95f1b -> 6ab919b3 sig.server-ack k=probe ack=probe-poagjdma targetOnline=true
+07:11:57.586 +   6239 SERVER  conn2 out type=sig-delivered ack=probe-poagjd bytes=44
+07:11:57.587 +   6240 SERVER  conn2 out type=sig-ack ack=probe-poagjd online=true bytes=52
+07:11:57.589 +   6242 SANDBOX 9eb95f1b -> 6ab919b3 sig.send k=probe-reply via=server targetSeenOnServer=true ack=probe-reply-17vlwjkx
+07:11:57.589 +   6242 SANDBOX 9eb95f1b -> 6ab919b3 probe.replied via=server
+07:11:57.591 +   6244 HOST    6ab919b3 -> 9eb95f1b sig.recv k=probe
+07:11:57.591 +   6244 HOST    6ab919b3 -> 9eb95f1b probe.received retry=false
+07:11:57.593 +   6246 SANDBOX 9eb95f1b -> 6ab919b3 sig.delivered k=probe-reply ack=probe-reply-17vlwjkx
+07:11:57.594 +   6247 SANDBOX 9eb95f1b -> 6ab919b3 sig.server-ack k=probe-reply ack=probe-reply-17vlwjkx targetOnline=true
+07:11:57.594 +   6247 SERVER  conn2 in type=sig to=6ab919b3 ack=probe-reply- bytes=909
+07:11:57.595 +   6248 SERVER  conn1 out type=sig from=9eb95f1b to=6ab919b3 ack=probe-reply- bytes=1542
+07:11:57.596 +   6249 HOST    6ab919b3 -> 9eb95f1b sig.send k=probe-reply via=server targetSeenOnServer=true ack=probe-reply-7c8yv5p9
+07:11:57.596 +   6249 SERVER  conn2 out type=sig-delivered ack=probe-reply- bytes=50
+07:11:57.597 +   6250 HOST    6ab919b3 -> 9eb95f1b probe.replied via=server
+07:11:57.597 +   6250 SERVER  conn2 out type=sig-ack ack=probe-reply- online=true bytes=58
+07:11:57.598 +   6251 SERVER  conn1 in type=sig to=9eb95f1b ack=probe-reply- bytes=905
+07:11:57.599 +   6252 SERVER  conn2 out type=sig from=6ab919b3 to=9eb95f1b ack=probe-reply- bytes=1540
+07:11:57.600 +   6253 SERVER  conn1 out type=sig-delivered ack=probe-reply- bytes=50
+07:11:57.601 +   6254 SERVER  conn1 out type=sig-ack ack=probe-reply- online=true bytes=58
+07:11:57.604 +   6257 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=381
+07:11:57.606 +   6259 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=455
+07:11:57.607 +   6260 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=381
+07:11:57.609 +   6262 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=381
+07:11:57.610 +   6263 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=455
+07:11:57.611 +   6264 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=455
+07:11:57.612 +   6265 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=381
+07:11:57.613 +   6266 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=455
+07:11:57.636 +   6289 SERVER  conn1 in type=app-relay to=9eb95f1b bytes=332
+07:11:57.638 +   6291 SERVER  conn2 out type=app-relay from=6ab919b3 to=9eb95f1b bytes=406
+07:11:57.640 +   6293 SERVER  conn2 in type=app-relay to=6ab919b3 bytes=332
+07:11:57.642 +   6295 SERVER  conn1 out type=app-relay from=9eb95f1b to=6ab919b3 bytes=406

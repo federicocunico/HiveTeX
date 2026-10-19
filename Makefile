@@ -95,6 +95,9 @@ installer: require-pnpm require-cargo require-node ## Build the installer like t
 sandbox-sync: require-pnpm require-cargo require-node ## Two-machine sync test: this PC + Windows Sandbox (Windows 11), results and merged trace under SANDBOX_OUT (default src-tauri/target/e2e/sandbox-sync), see docs/testing.md
 	node apps/desktop/e2e/sandbox-sync.mjs
 
+sandbox-firewall: require-node ## Elevated shell: inbound allow rules for the exact app, node.exe and browser sandbox-sync uses (same SANDBOX_OUT/E2E_TARGET_DIR)
+	node apps/desktop/e2e/sandbox-sync.mjs --firewall-rules
+
 rtc-lab: require-node ## WebRTC lab: this PC + Windows Sandbox, browser and/or native peers, no HiveTeX code between them (PEERS, SCENARIOS, HOLD_S)
 	node apps/desktop/e2e/rtclab/run.mjs
 

@@ -1,0 +1,439 @@
+07:12:45.225 +      0 HOST    0656ec7f manager.start client=desktop 0.9.0 doorbell=true zeroIdle=true
+07:12:45.238 +     13 HOST    0656ec7f socket.opening 
+07:12:45.241 +     16 SERVER  conn1 open ua=node addr=127.0.0.1
+07:12:45.243 +     18 SERVER  conn1 out type=challenge bytes=71
+07:12:45.244 +     19 HOST    0656ec7f socket.opened 
+07:12:45.245 +     20 HOST    0656ec7f socket.challenge 
+07:12:45.286 +     61 SERVER  conn1 in type=auth bytes=736
+07:12:45.332 +    107 SERVER  conn1 out type=ready others=0 bytes=108
+07:12:45.333 +    108 HOST    0656ec7f server.ready others=0 session=r1_fLyJ4-y7C relayCapable=true
+07:12:47.364 +   2139 SERVER  conn1 out type=err code=subscription_lost bytes=38
+07:12:47.365 +   2140 HOST    0656ec7f server.err code=subscription_lost
+07:12:47.365 +   2140 SERVER  conn1 server-close code=1012 reason=subscription lost
+07:12:47.371 +   2146 SERVER  conn1 closed code=1012
+07:12:47.372 +   2147 HOST    0656ec7f socket.closed code=1012 reason=subscription lost backoffMs=1000 reopen=true
+07:12:48.025 +   2800 SANDBOX 2c25dddb manager.start client=desktop 0.9.0 doorbell=true zeroIdle=true
+07:12:48.036 +   2811 SANDBOX 2c25dddb socket.opening 
+07:12:48.040 +   2815 SANDBOX 2c25dddb socket.opened 
+07:12:48.041 +   2816 SANDBOX 2c25dddb socket.challenge 
+07:12:48.044 +   2819 SERVER  conn2 open ua=node addr=172.21.129.188
+07:12:48.046 +   2821 SERVER  conn2 out type=challenge bytes=71
+07:12:48.081 +   2856 SERVER  conn2 in type=auth bytes=734
+07:12:48.092 +   2867 SANDBOX 2c25dddb server.ready others=0 session=r1_DOb1cnkOo relayCapable=true
+07:12:48.096 +   2871 SERVER  conn2 out type=ready others=0 bytes=108
+07:12:48.373 +   3148 HOST    0656ec7f socket.opening 
+07:12:48.376 +   3151 SERVER  conn3 open ua=node addr=127.0.0.1
+07:12:48.377 +   3152 HOST    0656ec7f socket.opened 
+07:12:48.377 +   3152 SERVER  conn3 out type=challenge bytes=71
+07:12:48.379 +   3154 HOST    0656ec7f socket.challenge 
+07:12:48.380 +   3155 SANDBOX 2c25dddb -> 0656ec7f device.learned via=server role=answerer validForS=899 memberRole=owner
+07:12:48.380 +   3155 SANDBOX 2c25dddb -> 0656ec7f attempt.wait role=answerer note=the other device sends the offer
+07:12:48.380 +   3155 SANDBOX 2c25dddb -> 0656ec7f peer.join 
+07:12:48.380 +   3155 SERVER  conn3 in type=auth bytes=736
+07:12:48.384 +   3159 SERVER  conn2 out type=join dev=0656ec7f bytes=710
+07:12:48.385 +   3160 SERVER  conn3 out type=ready others=1 bytes=741
+07:12:48.386 +   3161 HOST    0656ec7f server.ready others=1 session=r1_h5WLM0kq8 relayCapable=true
+07:12:48.387 +   3162 HOST    0656ec7f -> 2c25dddb device.learned via=server role=offerer validForS=900 memberRole=editor
+07:12:48.387 +   3162 HOST    0656ec7f -> 2c25dddb attempt.start role=offerer attempt=1
+07:12:48.387 +   3162 HOST    0656ec7f ice.request 
+07:12:48.388 +   3163 HOST    0656ec7f -> 2c25dddb relay.start 
+07:12:48.392 +   3167 SERVER  conn3 in type=app-relay to=2c25dddb bytes=1229
+07:12:48.407 +   3182 HOST    0656ec7f ice.ok servers=2 relay=available:ok
+07:12:48.407 +   3182 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=1303
+07:12:48.408 +   3183 HOST    0656ec7f -> 2c25dddb link.created role=offerer
+07:12:48.428 +   3203 HOST    0656ec7f -> 2c25dddb link.offer.sent 
+07:12:48.428 +   3203 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1355
+07:12:48.431 +   3206 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1429
+07:12:48.433 +   3208 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.436 +   3211 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.439 +   3214 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.442 +   3217 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.445 +   3220 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.449 +   3224 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.452 +   3227 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.454 +   3229 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.456 +   3231 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.459 +   3234 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.462 +   3237 HOST    0656ec7f -> 2c25dddb link.ice.local type=host
+07:12:48.470 +   3245 HOST    0656ec7f -> 2c25dddb sig.send k=offer via=server targetSeenOnServer=true ack=offer-amhf4y47
+07:12:48.470 +   3245 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.470 +   3245 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.470 +   3245 SERVER  conn3 in type=sig to=2c25dddb ack=offer-amhf4y bytes=755
+07:12:48.471 +   3246 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.471 +   3246 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.471 +   3246 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.471 +   3246 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.471 +   3246 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb ack=offer-amhf4y bytes=1390
+07:12:48.472 +   3247 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.472 +   3247 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.472 +   3247 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.472 +   3247 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.472 +   3247 SERVER  conn3 out type=sig-delivered ack=offer-amhf4y bytes=44
+07:12:48.473 +   3248 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.473 +   3248 SERVER  conn3 out type=sig-ack ack=offer-amhf4y online=true bytes=52
+07:12:48.475 +   3250 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=offer
+07:12:48.475 +   3250 SERVER  conn3 in type=sig to=2c25dddb bytes=304
+07:12:48.475 +   3250 SERVER  conn3 in type=sig to=2c25dddb bytes=312
+07:12:48.476 +   3251 SANDBOX 2c25dddb ice.request 
+07:12:48.476 +   3251 SERVER  conn3 in type=sig to=2c25dddb bytes=312
+07:12:48.477 +   3252 SERVER  conn3 in type=sig to=2c25dddb bytes=308
+07:12:48.478 +   3253 SERVER  conn3 in type=sig to=2c25dddb bytes=308
+07:12:48.478 +   3253 SERVER  conn3 in type=sig to=2c25dddb bytes=312
+07:12:48.479 +   3254 HOST    0656ec7f -> 2c25dddb sig.delivered k=offer ack=offer-amhf4y47
+07:12:48.479 +   3254 HOST    0656ec7f -> 2c25dddb sig.server-ack k=offer ack=offer-amhf4y47 targetOnline=true
+07:12:48.479 +   3254 SERVER  conn3 in type=sig to=2c25dddb bytes=316
+07:12:48.480 +   3255 SERVER  conn3 in type=sig to=2c25dddb bytes=316
+07:12:48.480 +   3255 SERVER  conn3 in type=sig to=2c25dddb bytes=308
+07:12:48.481 +   3256 SERVER  conn3 in type=sig to=2c25dddb bytes=312
+07:12:48.481 +   3256 SERVER  conn3 in type=sig to=2c25dddb bytes=312
+07:12:48.482 +   3257 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=939
+07:12:48.483 +   3258 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=947
+07:12:48.484 +   3259 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=947
+07:12:48.484 +   3259 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=943
+07:12:48.485 +   3260 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=943
+07:12:48.486 +   3261 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=947
+07:12:48.487 +   3262 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=951
+07:12:48.488 +   3263 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=951
+07:12:48.489 +   3264 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=943
+07:12:48.489 +   3264 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=947
+07:12:48.490 +   3265 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=947
+07:12:48.509 +   3284 HOST    0656ec7f -> 2c25dddb link.ice.local type=srflx
+07:12:48.509 +   3284 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.509 +   3284 SANDBOX 2c25dddb -> 0656ec7f sig.held k=ice held=1
+07:12:48.509 +   3284 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.509 +   3284 SANDBOX 2c25dddb -> 0656ec7f sig.held k=ice held=2
+07:12:48.511 +   3286 SANDBOX 2c25dddb ice.ok servers=2 relay=available:ok
+07:12:48.511 +   3286 SANDBOX 2c25dddb -> 0656ec7f link.created role=answerer
+07:12:48.511 +   3286 SANDBOX 2c25dddb -> 0656ec7f link.offer.received 
+07:12:48.512 +   3287 HOST    0656ec7f -> 2c25dddb link.ice.local type=srflx
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.512 +   3287 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=false
+07:12:48.514 +   3289 HOST    0656ec7f -> 2c25dddb link.ice.local type=srflx
+07:12:48.516 +   3291 HOST    0656ec7f -> 2c25dddb link.ice.local type=srflx
+07:12:48.518 +   3293 SANDBOX 2c25dddb -> 0656ec7f link.ice-state state=checking
+07:12:48.518 +   3293 SANDBOX 2c25dddb -> 0656ec7f link.state connection=connecting ice=checking
+07:12:48.520 +   3295 SERVER  conn3 in type=app-relay to=2c25dddb bytes=367
+07:12:48.521 +   3296 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.521 +   3296 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.521 +   3296 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.521 +   3296 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.521 +   3296 SANDBOX 2c25dddb -> 0656ec7f link.answer.sent 
+07:12:48.522 +   3297 SERVER  conn3 in type=sig to=2c25dddb bytes=348
+07:12:48.523 +   3298 SANDBOX 2c25dddb -> 0656ec7f link.ice.local type=host
+07:12:48.523 +   3298 SERVER  conn3 in type=sig to=2c25dddb bytes=348
+07:12:48.523 +   3298 SERVER  conn3 in type=sig to=2c25dddb bytes=348
+07:12:48.524 +   3299 SERVER  conn3 in type=sig to=2c25dddb bytes=348
+07:12:48.525 +   3300 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=983
+07:12:48.526 +   3301 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=983
+07:12:48.527 +   3302 HOST    0656ec7f -> 2c25dddb link.ice.local type=relay
+07:12:48.527 +   3302 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=983
+07:12:48.528 +   3303 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=983
+07:12:48.529 +   3304 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=441
+07:12:48.531 +   3306 HOST    0656ec7f -> 2c25dddb sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.531 +   3306 SERVER  conn3 in type=sig to=2c25dddb bytes=348
+07:12:48.531 +   3306 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb bytes=983
+07:12:48.556 +   3331 SANDBOX 2c25dddb -> 0656ec7f sig.send k=answer via=server targetSeenOnServer=true ack=answer-m132n852
+07:12:48.557 +   3332 SANDBOX 2c25dddb -> 0656ec7f sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=srflx applied=true
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=srflx applied=true
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=srflx applied=true
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.560 +   3335 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=srflx applied=true
+07:12:48.563 +   3338 SANDBOX 2c25dddb -> 0656ec7f link.ice.local type=srflx
+07:12:48.563 +   3338 SERVER  conn2 in type=sig to=0656ec7f ack=answer-m132n bytes=756
+07:12:48.564 +   3339 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f ack=answer-m132n bytes=1389
+07:12:48.565 +   3340 SERVER  conn2 out type=sig-delivered ack=answer-m132n bytes=45
+07:12:48.566 +   3341 SANDBOX 2c25dddb -> 0656ec7f link.ice.local type=srflx
+07:12:48.566 +   3341 SERVER  conn2 out type=sig-ack ack=answer-m132n online=true bytes=53
+07:12:48.567 +   3342 SERVER  conn2 in type=sig to=0656ec7f bytes=312
+07:12:48.568 +   3343 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f bytes=945
+07:12:48.569 +   3344 SANDBOX 2c25dddb -> 0656ec7f sig.delivered k=answer ack=answer-m132n852
+07:12:48.569 +   3344 SANDBOX 2c25dddb -> 0656ec7f sig.server-ack k=answer ack=answer-m132n852 targetOnline=true
+07:12:48.569 +   3344 SERVER  conn2 in type=app-relay to=0656ec7f bytes=238
+07:12:48.570 +   3345 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=ice
+07:12:48.570 +   3345 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=312
+07:12:48.571 +   3346 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=relay applied=true
+07:12:48.571 +   3346 SANDBOX 2c25dddb -> 0656ec7f sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.571 +   3346 SANDBOX 2c25dddb -> 0656ec7f sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.577 +   3352 SANDBOX 2c25dddb -> 0656ec7f link.ice.local type=srflx
+07:12:48.578 +   3353 HOST    0656ec7f -> 2c25dddb sig.recv k=answer
+07:12:48.578 +   3353 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1144
+07:12:48.579 +   3354 HOST    0656ec7f -> 2c25dddb link.answer.received 
+07:12:48.579 +   3354 SERVER  conn2 in type=sig to=0656ec7f bytes=348
+07:12:48.580 +   3355 SANDBOX 2c25dddb -> 0656ec7f sig.applied-held count=2
+07:12:48.580 +   3355 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=true
+07:12:48.580 +   3355 SANDBOX 2c25dddb -> 0656ec7f link.ice.local type=srflx
+07:12:48.581 +   3356 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f bytes=981
+07:12:48.582 +   3357 HOST    0656ec7f -> 2c25dddb link.ice-state state=checking
+07:12:48.582 +   3357 HOST    0656ec7f -> 2c25dddb link.state connection=connecting ice=checking
+07:12:48.582 +   3357 HOST    0656ec7f -> 2c25dddb sig.recv k=ice
+07:12:48.582 +   3357 HOST    0656ec7f -> 2c25dddb link.ice.remote type=host applied=true
+07:12:48.583 +   3358 SANDBOX 2c25dddb -> 0656ec7f sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.584 +   3359 SERVER  conn2 in type=sig to=0656ec7f bytes=348
+07:12:48.585 +   3360 SANDBOX 2c25dddb -> 0656ec7f link.ice.remote type=host applied=true
+07:12:48.585 +   3360 SANDBOX 2c25dddb -> 0656ec7f sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.585 +   3360 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f bytes=981
+07:12:48.587 +   3362 SERVER  conn3 in type=app-relay to=2c25dddb bytes=1147
+07:12:48.589 +   3364 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1218
+07:12:48.592 +   3367 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=1221
+07:12:48.594 +   3369 HOST    0656ec7f -> 2c25dddb sig.recv k=ice
+07:12:48.594 +   3369 HOST    0656ec7f -> 2c25dddb link.ice.remote type=srflx applied=true
+07:12:48.594 +   3369 SERVER  conn2 in type=sig to=0656ec7f bytes=348
+07:12:48.595 +   3370 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f bytes=981
+07:12:48.597 +   3372 HOST    0656ec7f -> 2c25dddb sig.recv k=ice
+07:12:48.597 +   3372 HOST    0656ec7f -> 2c25dddb link.ice.remote type=srflx applied=true
+07:12:48.597 +   3372 SERVER  conn2 in type=sig to=0656ec7f bytes=348
+07:12:48.598 +   3373 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f bytes=981
+07:12:48.604 +   3379 SANDBOX 2c25dddb -> 0656ec7f link.ice.local type=relay
+07:12:48.608 +   3383 SANDBOX 2c25dddb -> 0656ec7f sig.send k=ice via=server targetSeenOnServer=true
+07:12:48.613 +   3388 SERVER  conn3 in type=app-relay to=2c25dddb bytes=444
+07:12:48.614 +   3389 HOST    0656ec7f -> 2c25dddb sig.recv k=ice
+07:12:48.614 +   3389 HOST    0656ec7f -> 2c25dddb link.ice.remote type=srflx applied=true
+07:12:48.614 +   3389 HOST    0656ec7f -> 2c25dddb sig.recv k=ice
+07:12:48.614 +   3389 HOST    0656ec7f -> 2c25dddb link.ice.remote type=srflx applied=true
+07:12:48.616 +   3391 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=518
+07:12:48.617 +   3392 SERVER  conn2 in type=app-relay to=0656ec7f bytes=444
+07:12:48.618 +   3393 SERVER  conn2 in type=sig to=0656ec7f bytes=344
+07:12:48.619 +   3394 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f bytes=977
+07:12:48.620 +   3395 SERVER  conn3 in type=app-relay to=2c25dddb bytes=325
+07:12:48.621 +   3396 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=518
+07:12:48.622 +   3397 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=399
+07:12:48.635 +   3410 HOST    0656ec7f -> 2c25dddb sig.recv k=ice
+07:12:48.635 +   3410 HOST    0656ec7f -> 2c25dddb link.ice.remote type=relay applied=true
+07:12:48.643 +   3418 SERVER  conn2 in type=app-relay to=0656ec7f bytes=325
+07:12:48.645 +   3420 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1116
+07:12:48.646 +   3421 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1116
+07:12:48.647 +   3422 SERVER  conn2 in type=app-relay to=0656ec7f bytes=369
+07:12:48.649 +   3424 SERVER  conn2 in type=app-relay to=0656ec7f bytes=413
+07:12:48.652 +   3427 SERVER  conn3 in type=app-relay to=2c25dddb bytes=1113
+07:12:48.653 +   3428 SERVER  conn3 in type=app-relay to=2c25dddb bytes=369
+07:12:48.654 +   3429 SERVER  conn3 in type=app-relay to=2c25dddb bytes=413
+07:12:48.654 +   3429 SERVER  conn3 in type=app-relay to=2c25dddb bytes=385
+07:12:48.655 +   3430 SERVER  conn3 in type=app-relay to=2c25dddb bytes=325
+07:12:48.657 +   3432 SERVER  conn3 in type=app-relay to=2c25dddb bytes=329
+07:12:48.658 +   3433 SERVER  conn3 in type=app-relay to=2c25dddb bytes=325
+07:12:48.658 +   3433 SERVER  conn3 in type=app-relay to=2c25dddb bytes=482
+07:12:48.662 +   3437 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=399
+07:12:48.664 +   3439 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1190
+07:12:48.665 +   3440 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1190
+07:12:48.666 +   3441 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=443
+07:12:48.668 +   3443 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=487
+07:12:48.669 +   3444 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=1187
+07:12:48.670 +   3445 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=443
+07:12:48.672 +   3447 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=487
+07:12:48.673 +   3448 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=399
+07:12:48.674 +   3449 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=459
+07:12:48.676 +   3451 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=403
+07:12:48.677 +   3452 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=399
+07:12:48.679 +   3454 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=556
+07:12:48.680 +   3455 SERVER  conn2 in type=app-relay to=0656ec7f bytes=385
+07:12:48.681 +   3456 SERVER  conn2 in type=app-relay to=0656ec7f bytes=325
+07:12:48.681 +   3456 SERVER  conn2 in type=app-relay to=0656ec7f bytes=329
+07:12:48.682 +   3457 SERVER  conn2 in type=app-relay to=0656ec7f bytes=327
+07:12:48.683 +   3458 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1101
+07:12:48.683 +   3458 SERVER  conn2 in type=app-relay to=0656ec7f bytes=414
+07:12:48.685 +   3460 SERVER  conn3 in type=app-relay to=2c25dddb bytes=377
+07:12:48.686 +   3461 SERVER  conn2 in type=app-relay to=0656ec7f bytes=378
+07:12:48.690 +   3465 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=459
+07:12:48.692 +   3467 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=399
+07:12:48.693 +   3468 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=403
+07:12:48.694 +   3469 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=401
+07:12:48.695 +   3470 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1175
+07:12:48.696 +   3471 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=488
+07:12:48.697 +   3472 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=451
+07:12:48.697 +   3472 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=452
+07:12:48.700 +   3475 SERVER  conn3 in type=app-relay to=2c25dddb bytes=414
+07:12:48.701 +   3476 SERVER  conn3 in type=app-relay to=2c25dddb bytes=335
+07:12:48.701 +   3476 SERVER  conn3 in type=app-relay to=2c25dddb bytes=390
+07:12:48.702 +   3477 SERVER  conn3 in type=app-relay to=2c25dddb bytes=327
+07:12:48.702 +   3477 SERVER  conn3 in type=app-relay to=2c25dddb bytes=390
+07:12:48.703 +   3478 SERVER  conn3 in type=app-relay to=2c25dddb bytes=329
+07:12:48.704 +   3479 SERVER  conn2 in type=app-relay to=0656ec7f bytes=390
+07:12:48.705 +   3480 SERVER  conn2 in type=app-relay to=0656ec7f bytes=329
+07:12:48.705 +   3480 SERVER  conn2 in type=app-relay to=0656ec7f bytes=344
+07:12:48.707 +   3482 SERVER  conn3 in type=app-relay to=2c25dddb bytes=390
+07:12:48.708 +   3483 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=488
+07:12:48.709 +   3484 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=409
+07:12:48.710 +   3485 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=464
+07:12:48.711 +   3486 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=401
+07:12:48.711 +   3486 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=464
+07:12:48.712 +   3487 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=403
+07:12:48.713 +   3488 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=464
+07:12:48.714 +   3489 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=403
+07:12:48.714 +   3489 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=418
+07:12:48.715 +   3490 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=464
+07:12:48.716 +   3491 SERVER  conn2 in type=app-relay to=0656ec7f bytes=390
+07:12:48.717 +   3492 SERVER  conn2 in type=app-relay to=0656ec7f bytes=415
+07:12:48.717 +   3492 SERVER  conn2 in type=app-relay to=0656ec7f bytes=329
+07:12:48.718 +   3493 SERVER  conn2 in type=app-relay to=0656ec7f bytes=415
+07:12:48.719 +   3494 SERVER  conn2 in type=app-relay to=0656ec7f bytes=352
+07:12:48.720 +   3495 SERVER  conn3 in type=app-relay to=2c25dddb bytes=344
+07:12:48.721 +   3496 SERVER  conn3 in type=app-relay to=2c25dddb bytes=417
+07:12:48.722 +   3497 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=464
+07:12:48.723 +   3498 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=489
+07:12:48.725 +   3500 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=403
+07:12:48.726 +   3501 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=489
+07:12:48.727 +   3502 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=426
+07:12:48.728 +   3503 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=418
+07:12:48.729 +   3504 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=491
+07:12:48.738 +   3513 SERVER  conn3 in type=app-relay to=2c25dddb bytes=348
+07:12:48.740 +   3515 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=422
+07:12:48.766 +   3541 SERVER  conn2 in type=app-relay to=0656ec7f bytes=328
+07:12:48.767 +   3542 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=402
+07:12:50.140 +   4915 SERVER  conn3 in type=app-relay to=2c25dddb bytes=367
+07:12:50.142 +   4917 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=441
+07:12:50.171 +   4946 SERVER  conn2 in type=app-relay to=0656ec7f bytes=328
+07:12:50.172 +   4947 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=402
+07:12:50.836 +   5611 SERVER  conn2 in type=app-relay to=0656ec7f bytes=482
+07:12:50.840 +   5615 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=556
+07:12:50.873 +   5648 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:50.875 +   5650 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:50.901 +   5676 SERVER  conn3 in type=app-relay to=2c25dddb bytes=1446
+07:12:50.903 +   5678 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=1520
+07:12:50.926 +   5701 SERVER  conn2 in type=app-relay to=0656ec7f bytes=328
+07:12:50.927 +   5702 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=402
+07:12:51.143 +   5918 SERVER  conn3 in type=app-relay to=2c25dddb bytes=357
+07:12:51.144 +   5919 SERVER  conn3 in type=app-relay to=2c25dddb bytes=411
+07:12:51.146 +   5921 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=431
+07:12:51.147 +   5922 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=485
+07:12:51.151 +   5926 SERVER  conn2 in type=app-relay to=0656ec7f bytes=350
+07:12:51.152 +   5927 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=424
+07:12:51.174 +   5949 SERVER  conn2 in type=app-relay to=0656ec7f bytes=349
+07:12:51.176 +   5951 SERVER  conn2 in type=app-relay to=0656ec7f bytes=437
+07:12:51.177 +   5952 SERVER  conn2 in type=app-relay to=0656ec7f bytes=332
+07:12:51.178 +   5953 SERVER  conn2 in type=app-relay to=0656ec7f bytes=349
+07:12:51.179 +   5954 SERVER  conn2 in type=app-relay to=0656ec7f bytes=411
+07:12:51.181 +   5956 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=423
+07:12:51.182 +   5957 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=511
+07:12:51.183 +   5958 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=406
+07:12:51.184 +   5959 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=423
+07:12:51.185 +   5960 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:51.186 +   5961 SERVER  conn3 in type=app-relay to=2c25dddb bytes=439
+07:12:51.187 +   5962 SERVER  conn3 in type=app-relay to=2c25dddb bytes=439
+07:12:51.188 +   5963 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=485
+07:12:51.189 +   5964 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:51.190 +   5965 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=513
+07:12:51.191 +   5966 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=513
+07:12:51.191 +   5966 SERVER  conn3 in type=app-relay to=2c25dddb bytes=438
+07:12:51.193 +   5968 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=512
+07:12:51.207 +   5982 SERVER  conn3 in type=app-relay to=2c25dddb bytes=340
+07:12:51.208 +   5983 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=414
+07:12:51.217 +   5992 SERVER  conn2 in type=app-relay to=0656ec7f bytes=336
+07:12:51.218 +   5993 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=410
+07:12:51.315 +   6090 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1458
+07:12:51.316 +   6091 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1532
+07:12:51.345 +   6120 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:51.347 +   6122 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:51.408 +   6183 SERVER  conn3 in type=app-relay to=2c25dddb bytes=349
+07:12:51.410 +   6185 SERVER  conn3 in type=app-relay to=2c25dddb bytes=411
+07:12:51.411 +   6186 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=423
+07:12:51.412 +   6187 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=485
+07:12:51.414 +   6189 SERVER  conn2 in type=app-relay to=0656ec7f bytes=409
+07:12:51.415 +   6190 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=483
+07:12:51.448 +   6223 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:51.450 +   6225 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:51.451 +   6226 SERVER  conn2 in type=app-relay to=0656ec7f bytes=357
+07:12:51.452 +   6227 SERVER  conn2 in type=app-relay to=0656ec7f bytes=438
+07:12:51.452 +   6227 SERVER  conn2 in type=app-relay to=0656ec7f bytes=332
+07:12:51.453 +   6228 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=431
+07:12:51.453 +   6228 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=512
+07:12:51.454 +   6229 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=406
+07:12:51.454 +   6229 SERVER  conn3 in type=app-relay to=2c25dddb bytes=350
+07:12:51.456 +   6231 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=424
+07:12:51.459 +   6234 SERVER  conn2 in type=app-relay to=0656ec7f bytes=357
+07:12:51.460 +   6235 SERVER  conn2 in type=app-relay to=0656ec7f bytes=411
+07:12:51.461 +   6236 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=431
+07:12:51.461 +   6236 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=485
+07:12:51.462 +   6237 SERVER  conn3 in type=app-relay to=2c25dddb bytes=350
+07:12:51.462 +   6237 SERVER  conn3 in type=app-relay to=2c25dddb bytes=438
+07:12:51.463 +   6238 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=424
+07:12:51.463 +   6238 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=512
+07:12:51.475 +   6250 SERVER  conn3 in type=app-relay to=2c25dddb bytes=340
+07:12:51.477 +   6252 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=414
+07:12:51.481 +   6256 SERVER  conn2 in type=app-relay to=0656ec7f bytes=336
+07:12:51.486 +   6261 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=410
+07:12:51.679 +   6454 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1433
+07:12:51.683 +   6458 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1507
+07:12:51.714 +   6489 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:51.716 +   6491 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:51.783 +   6558 SERVER  conn3 in type=app-relay to=2c25dddb bytes=1451
+07:12:51.784 +   6559 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1453
+07:12:51.785 +   6560 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=1525
+07:12:51.786 +   6561 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1527
+07:12:51.808 +   6583 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:51.810 +   6585 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:51.811 +   6586 SERVER  conn2 in type=app-relay to=0656ec7f bytes=328
+07:12:51.813 +   6588 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=402
+07:12:51.837 +   6612 SERVER  conn3 in type=app-relay to=2c25dddb bytes=1449
+07:12:51.839 +   6614 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=1523
+07:12:51.877 +   6652 SERVER  conn2 in type=app-relay to=0656ec7f bytes=328
+07:12:51.879 +   6654 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=402
+07:12:51.904 +   6679 SERVER  conn2 in type=app-relay to=0656ec7f bytes=1453
+07:12:51.906 +   6681 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=1527
+07:12:51.940 +   6715 SERVER  conn3 in type=app-relay to=2c25dddb bytes=328
+07:12:51.942 +   6717 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=402
+07:12:51.944 +   6719 SANDBOX 2c25dddb -> 0656ec7f probe.start role=answerer known=true onServer=true connectedBefore=true socketOpen=true
+07:12:51.946 +   6721 SANDBOX 2c25dddb -> 0656ec7f sig.send k=probe via=server targetSeenOnServer=true ack=probe-3bkc2rqr
+07:12:51.949 +   6724 HOST    0656ec7f -> 2c25dddb probe.start role=offerer known=true onServer=true connectedBefore=true socketOpen=true
+07:12:51.951 +   6726 SERVER  conn3 in type=sig to=2c25dddb ack=probe-geaylg bytes=183
+07:12:51.952 +   6727 HOST    0656ec7f -> 2c25dddb sig.send k=probe via=server targetSeenOnServer=true ack=probe-geaylg6i
+07:12:51.952 +   6727 SANDBOX 2c25dddb -> 0656ec7f sig.recv k=probe
+07:12:51.952 +   6727 SANDBOX 2c25dddb -> 0656ec7f probe.received retry=false
+07:12:51.953 +   6728 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb ack=probe-geaylg bytes=818
+07:12:51.954 +   6729 SERVER  conn3 out type=sig-delivered ack=probe-geaylg bytes=44
+07:12:51.955 +   6730 SANDBOX 2c25dddb -> 0656ec7f sig.delivered k=probe ack=probe-3bkc2rqr
+07:12:51.955 +   6730 SANDBOX 2c25dddb -> 0656ec7f sig.server-ack k=probe ack=probe-3bkc2rqr targetOnline=true
+07:12:51.956 +   6731 SANDBOX 2c25dddb -> 0656ec7f sig.send k=probe-reply via=server targetSeenOnServer=true ack=probe-reply-qtqpzcoo
+07:12:51.956 +   6731 SANDBOX 2c25dddb -> 0656ec7f probe.replied via=server
+07:12:51.956 +   6731 SERVER  conn3 out type=sig-ack ack=probe-geaylg online=true bytes=52
+07:12:51.957 +   6732 HOST    0656ec7f -> 2c25dddb sig.delivered k=probe ack=probe-geaylg6i
+07:12:51.958 +   6733 HOST    0656ec7f -> 2c25dddb sig.server-ack k=probe ack=probe-geaylg6i targetOnline=true
+07:12:51.958 +   6733 SERVER  conn2 in type=sig to=0656ec7f ack=probe-3bkc2r bytes=183
+07:12:51.959 +   6734 SANDBOX 2c25dddb -> 0656ec7f sig.delivered k=probe-reply ack=probe-reply-qtqpzcoo
+07:12:51.959 +   6734 SANDBOX 2c25dddb -> 0656ec7f sig.server-ack k=probe-reply ack=probe-reply-qtqpzcoo targetOnline=true
+07:12:51.959 +   6734 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f ack=probe-3bkc2r bytes=816
+07:12:51.959 +   6734 SERVER  conn2 out type=sig-delivered ack=probe-3bkc2r bytes=44
+07:12:51.960 +   6735 SERVER  conn2 out type=sig-ack ack=probe-3bkc2r online=true bytes=52
+07:12:51.962 +   6737 SERVER  conn2 in type=sig to=0656ec7f ack=probe-reply- bytes=957
+07:12:51.963 +   6738 HOST    0656ec7f -> 2c25dddb sig.recv k=probe
+07:12:51.963 +   6738 HOST    0656ec7f -> 2c25dddb probe.received retry=false
+07:12:51.963 +   6738 SERVER  conn3 out type=sig from=2c25dddb to=0656ec7f ack=probe-reply- bytes=1590
+07:12:51.964 +   6739 SERVER  conn2 out type=sig-delivered ack=probe-reply- bytes=50
+07:12:51.965 +   6740 SERVER  conn2 out type=sig-ack ack=probe-reply- online=true bytes=58
+07:12:51.966 +   6741 HOST    0656ec7f -> 2c25dddb sig.send k=probe-reply via=server targetSeenOnServer=true ack=probe-reply-7jrzu29w
+07:12:51.966 +   6741 HOST    0656ec7f -> 2c25dddb probe.replied via=server
+07:12:51.966 +   6741 SERVER  conn3 in type=sig to=2c25dddb ack=probe-reply- bytes=953
+07:12:51.966 +   6741 SERVER  conn2 out type=sig from=0656ec7f to=2c25dddb ack=probe-reply- bytes=1588
+07:12:51.967 +   6742 SERVER  conn3 out type=sig-delivered ack=probe-reply- bytes=50
+07:12:51.968 +   6743 SERVER  conn3 out type=sig-ack ack=probe-reply- online=true bytes=58
+07:12:51.970 +   6745 SERVER  conn3 in type=app-relay to=2c25dddb bytes=381
+07:12:51.972 +   6747 SERVER  conn2 in type=app-relay to=0656ec7f bytes=381
+07:12:51.974 +   6749 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=455
+07:12:51.975 +   6750 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=455
+07:12:51.976 +   6751 SERVER  conn2 in type=app-relay to=0656ec7f bytes=381
+07:12:51.978 +   6753 SERVER  conn3 in type=app-relay to=2c25dddb bytes=381
+07:12:51.979 +   6754 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=455
+07:12:51.980 +   6755 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=455
+07:12:52.004 +   6779 SERVER  conn3 in type=app-relay to=2c25dddb bytes=332
+07:12:52.005 +   6780 SERVER  conn2 out type=app-relay from=0656ec7f to=2c25dddb bytes=406
+07:12:52.007 +   6782 SERVER  conn2 in type=app-relay to=0656ec7f bytes=332
+07:12:52.009 +   6784 SERVER  conn3 out type=app-relay from=2c25dddb to=0656ec7f bytes=406

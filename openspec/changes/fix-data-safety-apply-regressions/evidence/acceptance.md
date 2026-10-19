@@ -105,3 +105,38 @@ working across a worker restart" con un vero processo worker ucciso e sostituito
 disattivato); e2e desktop "the sync worker dies with a project open" sull'app reale: il processo del worker viene
 ucciso, un edit fatto durante il riavvio e uno successivo arrivano entrambi sul disco, il primo una sola volta.
 Run completo dopo la correzione: 13/13 più lifecycle, nessun processo residuo ([desktop-e2e-reattach.log](desktop-e2e-reattach.log)).
+
+## Verifica con il firewall dell'host attivo (follow-up, 19 ottobre 2026)
+
+Firewall dell'host riattivato dall'utente (Domain, Private, Public). Con il firewall attivo e senza regola per l'app,
+`SCENARIOS=basic` si ferma al preflight con `firewall:` e nessun passo di sync
+([runs/2026-10-18T11-23-38-fw-on-norules](runs/2026-10-18T11-23-38-fw-on-norules/)). `make sandbox-firewall` non aveva
+una ricetta nel `Makefile` (target solo in `.PHONY`): aggiunta, poi eseguita elevata con il prompt UAC approvato
+dall'utente (regole per l'app del sandbox, `node.exe` e Chromium).
+
+Due cambi dell'ambiente rispetto al 18 ottobre hanno fermato lo harness, non il prodotto:
+
+- **WMI nel sandbox**: dopo gli aggiornamenti Windows del 19 ottobre (KB5127648, KB5127690; LCU 10.0.26100.9711) ogni
+  chiamata CIM nel sandbox risponde "Access is denied", anche a System; `setup.ps1` si fermava senza `setup.json`
+  ([…-fw-on-basic2](runs/2026-10-19T06-44-10-fw-on-basic2/)). Gli script del sandbox usano ora `netsh advfirewall`, .NET
+  (gateway, prova TCP) e il service manager; i JSON letti dall'host hanno la stessa forma.
+- **WebView2 nel sandbox**: il registro dell'immagine del sandbox indica WebView2 154.0.4258.53, ma su disco c'è solo
+  155.0.4283.62 (aggiornato sull'host il 18 alle 15:14); l'app si chiudeva con "Could not find the webview runtime"
+  ([…-fw-on-basic5](runs/2026-10-19T06-57-02-fw-on-basic5/)). `launch.ps1` passa la cartella del runtime con
+  `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` quando la versione registrata non esiste (scelta in `webview.txt`). Diagnosi su
+  un sandbox persistente: [sandbox-probe-2026-10-19.txt](sandbox-probe-2026-10-19.txt).
+
+| Verifica (firewall attivo) | Esito | Evidenza |
+| --- | --- | --- |
+| `SCENARIOS=basic` | **PASS**, 19/19 passi, edit in 81/50 ms | [runs/…-fw-on-basic6](runs/2026-10-19T07-01-43-fw-on-basic6/) |
+| Matrice | stun FAIL atteso; turn 125/55, relay 79/55, relay-stun 88/56, deaf 66/50, no-udp 65/61 ms **PASS** | `runs/2026-10-19T07-*` |
+| Tutti gli scenari | **PASS** (basic … mixed, inclusi offline e compile) | [runs/…-fw-on-all](runs/2026-10-19T07-13-52-fw-on-all/) |
+| 1.1 `cargo test --lib` | 0 endpoint fuori da loopback | [endpoints-cargo-fw.json](endpoints-cargo-fw.json) |
+| 1.2 suite sync | 531 pass, 0 endpoint fuori da loopback | [endpoints-sync-fw.json](endpoints-sync-fw.json) |
+| 1.2 browser | test verdi; fuori da loopback solo UDP WebRTC di Chromium, come prima | [endpoints-browser-fw.json](endpoints-browser-fw.json) |
+| Regole `hivetex*` nate dai test | nessuna (65 prima e dopo) | — |
+
+Durante il campionamento degli endpoint (netstat ogni 100 ms) `relay-transport.test.ts` "recovers lost, duplicated and
+reordered frames…" è fallito due volte per tempo (8 s) con i worker predefiniti; da solo 5/5, la suite con 2 worker
+(come in CI) e tre giri con i worker predefiniti tutti verdi, poi verde anche sotto campionamento. Il test ora riporta
+lo stato del trasporto quando la condizione non arriva.

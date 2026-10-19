@@ -1,0 +1,208 @@
+﻿{
+    "command":  "cargo test --locked --lib -- --test-threads=1",
+    "samples":  419,
+    "exit":  0,
+    "notLoopback":  0,
+    "endpoints":  [
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:47812",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:47812",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:47813",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:47813",
+                          "state":  "SYN_RECEIVED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:47814",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:52097",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:52106",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:52107",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:52114",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:52116",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:53749",
+                          "state":  "LISTENING",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:56408",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "tcp",
+                          "process":  "vctip.exe",
+                          "local":  "10.2.1.222:56394",
+                          "state":  "ESTABLISHED",
+                          "outgoing":  true,
+                          "loopback":  false
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:53617",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:53618",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:53619",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:53620",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57548",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57549",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57550",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57551",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57694",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57696",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:57697",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      },
+                      {
+                          "proto":  "udp",
+                          "process":  "hivetex_desktop_lib-7741949076caa881.exe",
+                          "local":  "127.0.0.1:64113",
+                          "state":  "",
+                          "outgoing":  false,
+                          "loopback":  true
+                      }
+                  ]
+}

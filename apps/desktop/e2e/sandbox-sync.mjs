@@ -65,6 +65,15 @@ const base = resolve(process.env.SANDBOX_OUT || join(targetDir, 'sandbox-sync'))
 const share = join(base, 'share'); // read-only in the sandbox: the app and the sandbox scripts
 const hostAppPath = join(share, 'app', 'hivetex-desktop.exe');
 const nodePath = process.execPath; // the local server runs on exactly this node.exe
+// The host's newest Evergreen WebView2 runtime folder (mapped into the sandbox for an image that cannot see it).
+const hostWebView = (() => {
+  const dir = 'C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application';
+  try {
+    const versions = readdirSync(dir).filter((v) => /^\d+(\.\d+){3}$/.test(v) && existsSync(join(dir, v, 'msedgewebview2.exe')));
+    const newest = versions.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1);
+    return newest ? join(dir, newest) : null;
+  } catch { return null; }
+})();
 const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + (process.env.OUT_TAG ? `-${process.env.OUT_TAG}` : '');
 const out = join(base, runId);
 const SCENARIO_NAMES = ['basic', 'assets', 'rename-delete', 'offline', 'crash', 'author', 'recovery', 'folder', 'compile', 'mixed'];
@@ -290,14 +299,25 @@ function firewallStop(fw) {
 // ---- sandbox scripts -------------------------------------------------------------------------------------------------
 function stageScripts() {
   const W = (name, lines) => writeFileSync(join(share, name), lines.join('\r\n'));
+  // No CIM/WMI in the sandbox scripts (NetSecurity, NetTCPIP, Test-NetConnection): since the October 2026 Windows
+  // updates WMI in Windows Sandbox answers "Access is denied" even to System. netsh, .NET and the service manager work.
+  const NET = [
+    String.raw`function N { param([string]$exe, [string[]]$a) $o = & $exe @a 2>&1 | Out-String; if ($LASTEXITCODE -ne 0) { throw "$exe $($a -join ' ') failed ($LASTEXITCODE): $($o.Trim())" } }`,
+    String.raw`function AddRule { param([string[]]$a) N netsh (@('advfirewall', 'firewall', 'add', 'rule') + $a) }`,
+    String.raw`function Gateway { [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' } | ForEach-Object { $_.GetIPProperties().GatewayAddresses } | Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' -and "$($_.Address)" -ne '0.0.0.0' } | Select-Object -First 1 | ForEach-Object { "$($_.Address)" } }`,
+    String.raw`function TcpOk { param([string]$h, [int]$p) $c = New-Object System.Net.Sockets.TcpClient; try { $c.ConnectAsync($h, $p).Wait(3000) -and $c.Connected } catch { $false } finally { $c.Dispose() } }`,
+    // Profiles as {name, enabled, inbound, outbound}; netsh speaks the sandbox image's language (English).
+    String.raw`function FwProfiles { $out = @(); $cur = $null; foreach ($l in (netsh advfirewall show allprofiles)) { if ($l -match '^(\w+) Profile Settings') { $cur = [ordered]@{ name = $Matches[1]; enabled = $false; inbound = ''; outbound = '' }; $out += $cur } elseif ($cur -and $l -match '^State\s+(\S+)') { $cur.enabled = $Matches[1] -eq 'ON' } elseif ($cur -and $l -match '^Firewall Policy\s+(\w+),(\w+)') { $cur.inbound = $Matches[1]; $cur.outbound = $Matches[2] } }; if (-not $out.Count) { throw 'netsh advfirewall show allprofiles: no profile found' }; $out }`,
+    String.raw`function FwRules { $out = @(); $cur = $null; foreach ($l in (netsh advfirewall firewall show rule name=all)) { if ($l -match '^Rule Name:\s+(.+)$') { $n = $Matches[1].Trim(); $cur = $null; if ($n -like 'hivetex*') { $cur = [ordered]@{ name = $n; enabled = ''; direction = ''; action = '' }; $out += $cur } } elseif ($cur -and $l -match '^Enabled:\s+(\S+)') { $cur.enabled = "$($Matches[1] -eq 'Yes')" } elseif ($cur -and $l -match '^Direction:\s+(\S+)') { $cur.direction = if ($Matches[1] -eq 'In') { 'Inbound' } else { 'Outbound' } } elseif ($cur -and $l -match '^Action:\s+(\S+)') { $cur.action = $Matches[1] } }; $out }`,
+  ];
   // Fail-fast, as System. The firewall state is verified and written to setup.json / setup.txt before anything else.
   W('setup.ps1', [
     '$ErrorActionPreference = "Stop"',
     `$fault = ${psq(FAULT)}`,
-    'function N { param([string]$exe, [string[]]$a) & $exe @a | Out-Null; if ($LASTEXITCODE -ne 0) { throw "$exe $($a -join \' \') failed ($LASTEXITCODE)" } }',
+    ...NET,
     '$state = [ordered]@{ fault = $fault; ok = $false }',
     'try {',
-    '  $gw = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4DefaultGateway.NextHop',
+    '  $gw = Gateway',
     '  if (-not $gw) { throw "no default gateway" }',
     '  $state.gateway = $gw',
     '  Start-Service iphlpsvc',
@@ -305,32 +325,31 @@ function stageScripts() {
     `  N reg @('add', 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments', '/v', 'hivetex-desktop.exe', '/t', 'REG_SZ', '/d', '--remote-debugging-port=${SB_CDP}', '/f')`,
     "  N netsh @('interface', 'portproxy', 'add', 'v4tov4', 'listenaddress=127.0.0.1', 'listenport=3000', \"connectaddress=$gw\", 'connectport=3000')",
     `  N netsh @('interface', 'portproxy', 'add', 'v4tov4', 'listenaddress=0.0.0.0', 'listenport=${SB_CDP_PUBLIC}', 'connectaddress=127.0.0.1', 'connectport=${SB_CDP}')`,
-    `  New-NetFirewallRule -DisplayName hivetex-cdp -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${SB_CDP_PUBLIC} | Out-Null`,
-    `  New-NetFirewallRule -DisplayName hivetex-echo -Direction Inbound -Action Allow -Protocol UDP -LocalPort ${ECHO_SB} | Out-Null`,
-    '  New-NetFirewallRule -DisplayName hivetex-app -Direction Inbound -Action Allow -Program C:\\hx-app\\hivetex-desktop.exe | Out-Null',
+    `  AddRule @('name=hivetex-cdp', 'dir=in', 'action=allow', 'protocol=TCP', 'localport=${SB_CDP_PUBLIC}')`,
+    `  AddRule @('name=hivetex-echo', 'dir=in', 'action=allow', 'protocol=UDP', 'localport=${ECHO_SB}')`,
+    "  AddRule @('name=hivetex-app', 'dir=in', 'action=allow', 'program=C:\\hx-app\\hivetex-desktop.exe')",
     '  Copy-Item -Recurse -Force C:\\hx-share\\app C:\\hx-app',
     '  New-Item -ItemType Directory -Force C:\\hx-folder | Out-Null',
     '  if ($fault -eq "no-udp") {',
     // No UDP for the app (no STUN, no TURN over UDP, no direct path), as on a network that blocks UDP.
-    '    Set-NetFirewallProfile -All -Enabled True',
-    '    New-NetFirewallRule -DisplayName hivetex-no-udp -Direction Outbound -Action Block -Protocol UDP -Program C:\\hx-app\\hivetex-desktop.exe | Out-Null',
-    '    $off = @(Get-NetFirewallProfile -PolicyStore ActiveStore | Where-Object { -not $_.Enabled })',
-    '    if ($off.Count) { throw "FAULT=no-udp: profiles still disabled: $($off.Name -join \', \')" }',
-    '    $rule = Get-NetFirewallRule -DisplayName hivetex-no-udp -PolicyStore ActiveStore',
-    '    if ("$($rule.Enabled)" -ne "True" -or "$($rule.Action)" -ne "Block") { throw "FAULT=no-udp: block rule not in effect" }',
+    "    N netsh @('advfirewall', 'set', 'allprofiles', 'state', 'on')",
+    "    AddRule @('name=hivetex-no-udp', 'dir=out', 'action=block', 'protocol=UDP', 'program=C:\\hx-app\\hivetex-desktop.exe')",
+    '    $off = @(FwProfiles | Where-Object { -not $_.enabled })',
+    '    if ($off.Count) { throw "FAULT=no-udp: profiles still disabled: $(($off | ForEach-Object { $_.name }) -join \', \')" }',
+    '    $rule = @(FwRules | Where-Object { $_.name -eq "hivetex-no-udp" })[0]',
+    '    if (-not $rule -or $rule.enabled -ne "True" -or $rule.action -ne "Block") { throw "FAULT=no-udp: block rule not in effect" }',
     '  } else {',
-    '    Set-NetFirewallProfile -All -Enabled False',
-    '    $on = @(Get-NetFirewallProfile -PolicyStore ActiveStore | Where-Object { $_.Enabled })',
-    '    if ($on.Count) { throw "sandbox firewall still enabled: $($on.Name -join \', \')" }',
+    "    N netsh @('advfirewall', 'set', 'allprofiles', 'state', 'off')",
+    '    $on = @(FwProfiles | Where-Object { $_.enabled })',
+    '    if ($on.Count) { throw "sandbox firewall still enabled: $(($on | ForEach-Object { $_.name }) -join \', \')" }',
     '  }',
     '  $state.ok = $true',
     '} catch { $state.error = "$_" }',
-    '$state.profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore | ForEach-Object { [ordered]@{ name = "$($_.Name)"; enabled = [bool]$_.Enabled; inbound = "$($_.DefaultInboundAction)"; outbound = "$($_.DefaultOutboundAction)" } })',
-    '$state.rules = @(Get-NetFirewallRule -DisplayName "hivetex*" -ErrorAction SilentlyContinue | ForEach-Object { [ordered]@{ name = $_.DisplayName; enabled = "$($_.Enabled)"; direction = "$($_.Direction)"; action = "$($_.Action)" } })',
+    'try { $state.profiles = @(FwProfiles); $state.rules = @(FwRules) } catch { $state.inspectError = "$_" }',
     '$state | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8 C:\\hx-logs\\setup.json',
     '"setup ok=$($state.ok) fault=$fault gateway=$($state.gateway) error=$($state.error)" | Out-File -Encoding utf8 C:\\hx-logs\\setup.txt',
-    'Get-NetFirewallProfile -PolicyStore ActiveStore | Format-Table Name, Enabled, DefaultInboundAction, DefaultOutboundAction | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
-    'Get-NetFirewallRule -DisplayName "hivetex*" -ErrorAction SilentlyContinue | Format-Table DisplayName, Enabled, Direction, Action | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
+    'netsh advfirewall show allprofiles | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
+    '$state.rules | ForEach-Object { "$($_.name) enabled=$($_.enabled) $($_.direction) $($_.action)" } | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
     'netsh interface portproxy show all | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
     'ipconfig /all | Out-File -Append -Encoding utf8 C:\\hx-logs\\setup.txt',
     'if (-not $state.ok) { exit 1 }',
@@ -340,10 +359,11 @@ function stageScripts() {
   W('reach.ps1', [
     'param([string]$Gw)',
     '$ErrorActionPreference = "Stop"',
+    ...NET,
     `Start-Process -FilePath C:\\hx-app\\node\\node.exe -ArgumentList 'C:\\hx-share\\echo.mjs', 'server', '${ECHO_SB}', '60' -WindowStyle Hidden`,
-    '$t = Test-NetConnection -ComputerName $Gw -Port 3000 -WarningAction SilentlyContinue',
+    '$t = TcpOk $Gw 3000',
     `& C:\\hx-app\\node\\node.exe C:\\hx-share\\echo.mjs client $Gw ${ECHO_HOST} C:\\hx-logs\\reach-udp.json`,
-    '[ordered]@{ tcp = [bool]$t.TcpTestSucceeded; gateway = $Gw } | ConvertTo-Json | Out-File -Encoding utf8 C:\\hx-logs\\reach-tcp.json',
+    '[ordered]@{ tcp = [bool]$t; gateway = $Gw } | ConvertTo-Json | Out-File -Encoding utf8 C:\\hx-logs\\reach-tcp.json',
   ]);
   writeFileSync(join(share, 'echo.mjs'), [
     "import dgram from 'node:dgram';",
@@ -363,25 +383,39 @@ function stageScripts() {
     '}',
   ].join('\n'));
   // A process of its own: one started from the exec'd console dies with it.
-  W('launch.ps1', ['Start-Process -FilePath C:\\hx-app\\hivetex-desktop.exe -ArgumentList "--ignore-system-tex", "--test-pick-dir", "C:\\hx-folder" -RedirectStandardError C:\\hx-logs\\app-stderr.txt -RedirectStandardOutput C:\\hx-logs\\app-stdout.txt']);
+  // The WebView2 loader opens the Evergreen runtime of the version its EdgeUpdate registration names. The sandbox's
+  // registry comes from its base image and can name a version whose folder the host's runtime update has replaced
+  // (seen: registered 154.0.4258.53, only 155.0.4283.62 on disk), and the app panics with "Could not find the webview
+  // runtime". The runtime folder is then given explicitly: the sandbox's newest copy, else the host's, mapped read-only.
+  W('launch.ps1', [
+    "$root = 'C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application'",
+    "$pv = (Get-ItemProperty 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue).pv",
+    "$own = Get-ChildItem \"$root\\*\\msedgewebview2.exe\" -ErrorAction SilentlyContinue | Sort-Object { [version]$_.Directory.Name } | Select-Object -Last 1",
+    "if (-not ($pv -and (Test-Path \"$root\\$pv\\msedgewebview2.exe\"))) { $env:WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = if ($own) { $own.DirectoryName } elseif (Test-Path C:\\hx-webview\\msedgewebview2.exe) { 'C:\\hx-webview' } else { '' } }",
+    '"webview: registered=$pv folder=$($env:WEBVIEW2_BROWSER_EXECUTABLE_FOLDER) own=$($own.FullName)" | Out-File -Encoding utf8 C:\\hx-logs\\webview.txt',
+    'Start-Process -FilePath C:\\hx-app\\hivetex-desktop.exe -ArgumentList "--ignore-system-tex", "--test-pick-dir", "C:\\hx-folder" -RedirectStandardError C:\\hx-logs\\app-stderr.txt -RedirectStandardOutput C:\\hx-logs\\app-stdout.txt']);
   W('kill.cmd', ['@echo off', 'taskkill /F /T /IM hivetex-desktop.exe']);
   // FAULT=offline: new connections out of the sandbox are blocked (DevTools stays reachable: inbound rule, loopback proxy).
   W('net-offline.ps1', [
     'param([string]$Gw)',
     '$ErrorActionPreference = "Stop"',
-    'Set-NetFirewallProfile -All -Enabled True -DefaultInboundAction Block -DefaultOutboundAction Block',
+    ...NET,
+    "N netsh @('advfirewall', 'set', 'allprofiles', 'state', 'on')",
+    "N netsh @('advfirewall', 'set', 'allprofiles', 'firewallpolicy', 'blockinbound,blockoutbound')",
     // The sandbox image allows all outbound traffic by rule ("Container: allow outbound"): only block rules win over it.
     // Loopback stays open for the DevTools proxy; connections the host opens (DevTools) are inbound and stay allowed.
-    "New-NetFirewallRule -DisplayName hivetex-offline -Direction Outbound -Action Block -RemoteAddress '0.0.0.0-126.255.255.255','128.0.0.0-255.255.255.255' | Out-Null",
-    "New-NetFirewallRule -DisplayName hivetex-offline6 -Direction Outbound -Action Block -RemoteAddress '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' | Out-Null",
-    '$t = Test-NetConnection -ComputerName $Gw -Port 3000 -WarningAction SilentlyContinue',
-    '[ordered]@{ enabled = @(Get-NetFirewallProfile -PolicyStore ActiveStore | Where-Object { $_.Enabled }).Count; hostReachable = [bool]$t.TcpTestSucceeded } | ConvertTo-Json | Out-File -Encoding utf8 C:\\hx-logs\\offline.json',
+    "AddRule @('name=hivetex-offline', 'dir=out', 'action=block', 'remoteip=0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255')",
+    "AddRule @('name=hivetex-offline6', 'dir=out', 'action=block', 'remoteip=::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')",
+    '$t = TcpOk $Gw 3000',
+    '[ordered]@{ enabled = @(FwProfiles | Where-Object { $_.enabled }).Count; hostReachable = [bool]$t } | ConvertTo-Json | Out-File -Encoding utf8 C:\\hx-logs\\offline.json',
   ]);
   W('net-online.ps1', [
     '$ErrorActionPreference = "Stop"',
-    'Remove-NetFirewallRule -DisplayName hivetex-offline, hivetex-offline6 -ErrorAction SilentlyContinue',
-    'Set-NetFirewallProfile -All -Enabled False -DefaultOutboundAction Allow',
-    '[ordered]@{ enabled = @(Get-NetFirewallProfile -PolicyStore ActiveStore | Where-Object { $_.Enabled }).Count } | ConvertTo-Json | Out-File -Encoding utf8 C:\\hx-logs\\online.json',
+    ...NET,
+    "foreach ($r in 'hivetex-offline', 'hivetex-offline6') { netsh advfirewall firewall delete rule name=$r | Out-Null }",
+    "N netsh @('advfirewall', 'set', 'allprofiles', 'firewallpolicy', 'blockinbound,allowoutbound')",
+    "N netsh @('advfirewall', 'set', 'allprofiles', 'state', 'off')",
+    '[ordered]@{ enabled = @(FwProfiles | Where-Object { $_.enabled }).Count } | ConvertTo-Json | Out-File -Encoding utf8 C:\\hx-logs\\online.json',
   ]);
   W('folder-hashes.ps1', [
     '$ErrorActionPreference = "Stop"',
@@ -392,7 +426,7 @@ function stageScripts() {
     '@echo off',
     `copy /y "C:\\Users\\WDAGUtilityAccount\\AppData\\Roaming\\${identifier}\\logs\\native.log" C:\\hx-logs\\native.log`,
     'netstat -ano -p udp > C:\\hx-logs\\netstat-udp.txt',
-    'powershell -NoProfile -Command "Get-NetFirewallProfile -PolicyStore ActiveStore | Format-Table Name, Enabled, DefaultOutboundAction" > C:\\hx-logs\\firewall-end.txt',
+    'netsh advfirewall show allprofiles > C:\\hx-logs\\firewall-end.txt',
   ]);
 }
 
@@ -1068,7 +1102,9 @@ async function main() {
     const config = `<Configuration><Networking>Enable</Networking><MappedFolders>`
       + `<MappedFolder><HostFolder>${share}</HostFolder><SandboxFolder>C:\\hx-share</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>`
       + `<MappedFolder><HostFolder>${sbLogs}</HostFolder><SandboxFolder>C:\\hx-logs</SandboxFolder><ReadOnly>false</ReadOnly></MappedFolder>`
+      + (hostWebView ? `<MappedFolder><HostFolder>${hostWebView}</HostFolder><SandboxFolder>C:\\hx-webview</SandboxFolder><ReadOnly>true</ReadOnly></MappedFolder>` : '')
       + `</MappedFolders></Configuration>`;
+    summary.sandboxWebView = hostWebView ?? 'sandbox image runtime only';
     sandboxId = wsbJson(['start', '--config', config])?.Id;
     if (!sandboxId) throw new Error('wsb start returned no id');
     sandboxIp = await until(() => wsbJson(['ip', '--id', sandboxId], { allowFail: true })?.Networks?.[0]?.IpV4Address, 'sandbox IP', 120_000, 1000);

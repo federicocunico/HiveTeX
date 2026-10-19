@@ -1,0 +1,92 @@
+﻿setup ok=True fault= gateway=172.21.128.1 error=
+
+Domain Profile Settings: 
+----------------------------------------------------------------------
+State                                 OFF
+Firewall Policy                       BlockInbound,AllowOutbound
+LocalFirewallRules                    N/A (GPO-store only)
+LocalConSecRules                      N/A (GPO-store only)
+InboundUserNotification               Enable
+RemoteManagement                      Disable
+UnicastResponseToMulticast            Enable
+
+Logging:
+LogAllowedConnections                 Disable
+LogDroppedConnections                 Disable
+FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+MaxFileSize                           4096
+
+
+Private Profile Settings: 
+----------------------------------------------------------------------
+State                                 OFF
+Firewall Policy                       BlockInbound,AllowOutbound
+LocalFirewallRules                    N/A (GPO-store only)
+LocalConSecRules                      N/A (GPO-store only)
+InboundUserNotification               Enable
+RemoteManagement                      Disable
+UnicastResponseToMulticast            Enable
+
+Logging:
+LogAllowedConnections                 Disable
+LogDroppedConnections                 Disable
+FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+MaxFileSize                           4096
+
+
+Public Profile Settings: 
+----------------------------------------------------------------------
+State                                 OFF
+Firewall Policy                       BlockInbound,AllowOutbound
+LocalFirewallRules                    N/A (GPO-store only)
+LocalConSecRules                      N/A (GPO-store only)
+InboundUserNotification               Enable
+RemoteManagement                      Disable
+UnicastResponseToMulticast            Enable
+
+Logging:
+LogAllowedConnections                 Disable
+LogDroppedConnections                 Disable
+FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+MaxFileSize                           4096
+
+Ok.
+
+hivetex-app enabled=True Inbound Allow
+hivetex-echo enabled=True Inbound Allow
+hivetex-cdp enabled=True Inbound Allow
+
+Listen on ipv4:             Connect to ipv4:
+
+Address         Port        Address         Port
+--------------- ----------  --------------- ----------
+127.0.0.1       3000        172.21.128.1    3000
+0.0.0.0         9303        127.0.0.1       9302
+
+
+Windows IP Configuration
+
+   Host Name . . . . . . . . . . . . : dc1a9ca9-8f8d-4213-af2b-0b462101e08e
+   Primary Dns Suffix  . . . . . . . : 
+   Node Type . . . . . . . . . . . . : Mixed
+   IP Routing Enabled. . . . . . . . : No
+   WINS Proxy Enabled. . . . . . . . : No
+
+Ethernet adapter Ethernet:
+
+   Connection-specific DNS Suffix  . : mshome.net
+   Description . . . . . . . . . . . : Microsoft Hyper-V Network Adapter
+   Physical Address. . . . . . . . . : 00-15-5D-CC-2E-2E
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration Enabled . . . . : Yes
+   Link-local IPv6 Address . . . . . : fe80::63dd:4e63:59e5:7d9e%205(Preferred) 
+   IPv4 Address. . . . . . . . . . . : 172.21.136.77(Preferred) 
+   Subnet Mask . . . . . . . . . . . : 255.255.240.0
+   Lease Obtained. . . . . . . . . . : Monday, October 19, 2026 8:57:12 AM
+   Lease Expires . . . . . . . . . . : Tuesday, October 20, 2026 8:57:10 AM
+   Default Gateway . . . . . . . . . : 172.21.128.1
+   DHCP Server . . . . . . . . . . . : 172.21.128.1
+   DHCPv6 IAID . . . . . . . . . . . : -855632547
+   DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-32-67-77-9F-00-15-5D-CC-2E-2E
+   DNS Servers . . . . . . . . . . . : 172.21.128.1
+   NetBIOS over Tcpip. . . . . . . . : Enabled
