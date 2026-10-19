@@ -173,6 +173,12 @@ updates, WMI in Windows Sandbox refuses every caller. When the sandbox's WebView
 folder is missing (the host's runtime was updated after the sandbox image), `launch.ps1` points the app at the newest
 runtime folder with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` and records the choice in `sandbox/webview.txt`.
 
+**Diagnosing the sandbox.** When the sandbox itself misbehaves (setup, app start), keep one sandbox running and probe
+it in seconds instead of repeating full runs: `apps/desktop/e2e/sandbox-probe/sandbox-probe.ps1 start` (then `probe`,
+`run '<command>'`, `run -System '<command>'`, `stop`). It uses the app staged by the last sandbox-sync run and reports
+WMI access, firewall state, the WebView2 registration and runtime folders, and the app started three ways (default,
+the sandbox's runtime folder, the host's). Output in `%TEMP%\hivetex-sandbox-probe`.
+
 **Results.** `<SANDBOX_OUT>/<run>/summary.json` (`PASS`, `FAIL` or `INTERRUPTED`, with `diagnosis` for an environment
 stop) is written also when build or staging fails or the run is interrupted; `timeline.txt` merges both apps' traces
 and the server's signaling log by time; `host/` and `sandbox/` hold diagnostics, logs and recovery exports. Ctrl+C
