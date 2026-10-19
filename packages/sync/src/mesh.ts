@@ -199,8 +199,10 @@ export class Mesh {
   /** The verified ticket that proves `maxEpoch`; relayed so peers can verify the epoch themselves. */
   private epochEvidence: { raw: string; claims: TicketClaims } | null = null;
   private lastHintRefreshAt = 0;
-  /** Newest verified (epoch, issued-at) seen per device in this session; survives connection replacement. */
-  private deviceMarks = new Map<string, { ep: number; iat: number }>();
+  /** Newest verified (epoch, issued-at) and newest ticket seen per device in this session; survives connection replacement. */
+  private deviceMarks = new Map<string, { ep: number; iat: number; newest: TicketClaims }>();
+  /** Signed operations whose device has not yet shown a ticket for the enforced epoch (see admitSigner). */
+  private held = new Map<string, Array<{ info: PeerInfo; payload: Uint8Array }>>();
   private epochCbs = new Set<(epoch: number) => void>();
   private policyTimer: ReturnType<typeof setInterval>;
   /** Document frames wait for this (see MeshOptions.beforeSync). */
@@ -402,6 +404,10 @@ export class Mesh {
     this.conns.delete(conn);
     this.safetyPeers.delete(conn); this.historyPending.delete(conn); this.historyParts.delete(conn); this.historyComplete.delete(conn);
     this.quarantined.delete(conn); this.admissions.delete(conn); this.liveSends.delete(conn); this.historySends.delete(conn);
+    for (const [dev, list] of this.held) {
+      const kept = list.filter((h) => h.info.conn !== conn);
+      if (kept.length) this.held.set(dev, kept); else this.held.delete(dev);
+    }
     this.historyIncomplete.delete(conn); clearTimeout(this.historyWant.get(conn)); this.historyWant.delete(conn);
     this.historyChanged();
     this.interest.delete(conn);
@@ -997,10 +1003,12 @@ export class Mesh {
   private async applyAuthored(info: PeerInfo, payload: Uint8Array) {
     const conn = info.conn;
     const { operation, claims, update } = await verifyOperation(parseJson(payload), this.o.projectId, this.o.trusted, { now: this.o.now?.() });
-    if (this.conns.get(conn) !== info || conn.role === 'viewer' || claims.ep < this.maxEpoch || this.authoredSeen.has(operation.id)) return;
+    if (this.conns.get(conn) !== info || conn.role === 'viewer' || this.authoredSeen.has(operation.id)) return;
+    if (!this.admitSigner(claims, info, payload)) return;
     if (!this.interest.get(conn)?.has(operation.docId) && !this.requested.get(conn)?.has(operation.docId)) return;
     const doc = await this.o.model.getDoc(operation.docId);
-    if (this.conns.get(conn) !== info || info.claims.role === 'viewer' || claims.ep < this.maxEpoch || claims.exp * 1000 + 30_000 < this.now()) return;
+    if (this.conns.get(conn) !== info || info.claims.role === 'viewer' || claims.exp * 1000 + 30_000 < this.now()) return;
+    if (!this.admitSigner(claims, info, payload)) return;
     if (!await this.admitRootUpdate(conn, operation.docId, doc, update, `${claims.uname} (device ${claims.dev})`)) return;
     // Different evidence under a known id is refused before anything is applied.
     const existing = await readAuthoredOperation(this.o.model.store, operation.id).catch(() => undefined);
@@ -1269,7 +1277,35 @@ export class Mesh {
 
   private noteDeviceTicket(c: TicketClaims) {
     const m = this.deviceMarks.get(c.dev);
-    this.deviceMarks.set(c.dev, { ep: Math.max(m?.ep ?? 0, c.ep), iat: Math.max(m?.iat ?? 0, c.iat) });
+    const newest = !m || c.ep > m.newest.ep || (c.ep === m.newest.ep && c.iat >= m.newest.iat) ? c : m.newest;
+    this.deviceMarks.set(c.dev, { ep: Math.max(m?.ep ?? 0, c.ep), iat: Math.max(m?.iat ?? 0, c.iat), newest });
+    if (newest.ep >= this.maxEpoch) this.releaseHeld(c.dev);
+  }
+
+  /**
+   * Whether a signed operation may be applied now. One signed with a ticket from before the enforced epoch is judged by
+   * its device's current ticket: applied if that device still edits, dropped if it was demoted. Until the device shows
+   * its current ticket (within the refresh grace period) the operation is held, not dropped: a dropped keystroke would
+   * leave every later one from that device waiting in Yjs for it.
+   */
+  private admitSigner(claims: TicketClaims, info: PeerInfo, payload: Uint8Array): boolean {
+    if (claims.ep >= this.maxEpoch) return true;
+    const current = this.deviceMarks.get(claims.dev)?.newest;
+    if (current && current.ep >= this.maxEpoch) return current.uid === claims.uid && current.role !== 'viewer';
+    if (this.now() - this.maxEpochSince <= (this.o.epochGraceMs ?? 60_000)) {
+      const list = this.held.get(claims.dev) ?? [];
+      if (list.length < 10_000) list.push({ info, payload });
+      this.held.set(claims.dev, list);
+    }
+    return false;
+  }
+
+  /** The device showed a current ticket: its held operations go through admission again, in arrival order. */
+  private releaseHeld(dev: string) {
+    const list = this.held.get(dev);
+    if (!list) return;
+    this.held.delete(dev);
+    for (const { info, payload } of list) if (this.conns.get(info.conn) === info) void this.onFrame(info.conn, MsgType.AUTHORED, payload);
   }
 
   /**
@@ -1309,6 +1345,8 @@ export class Mesh {
   enforcePolicy() {
     const now = this.now();
     const grace = this.o.epochGraceMs ?? 60_000;
+    // Devices that never showed a current ticket within the grace period: their held operations are refused.
+    if (now - this.maxEpochSince > grace) this.held.clear();
     for (const [conn, info] of this.conns) {
       const c = conn.claims ?? info.claims;
       info.claims = c;

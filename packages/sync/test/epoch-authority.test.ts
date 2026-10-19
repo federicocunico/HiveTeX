@@ -138,6 +138,55 @@ describe('current authorization for delayed work (F18)', () => {
   });
 });
 
+describe('typing across an epoch bump', () => {
+  // CI full-flow: the owner demotes someone else while an unaffected editor types. The editor's next keystrokes are
+  // still signed with its previous-epoch ticket until its own refresh lands; none of them may be lost.
+  it("an unaffected editor's keystrokes signed before its refresh still reach everyone", async () => {
+    net = await Net.create();
+    const held: { ticket?: string; node?: Node } = {};
+    const owner = await net.add('owen', 'owner');
+    const ed = await net.add('edd', 'editor', { meshOpts: { getTicket: () => held.ticket ?? held.node?.ticket ?? '' } });
+    held.node = ed;
+    const vic = await net.add('vic', 'editor');
+    await net.link(owner, ed);
+    await net.link(owner, vic);
+    await net.link(ed, vic);
+    const id = await owner.model.createTextNow('main.tex', 'owner line');
+    await converged([owner, ed, vic], id);
+    const typed = async (s: string) => { const t = await ed.model.openText(id); t.insert(t.length, s); };
+
+    await typed(' B-f');
+    await waitFor(async () => (await text(owner, id)).endsWith(' B-f') && (await text(vic, id)).endsWith(' B-f'));
+    // vic is demoted: the owner learns the new epoch first and relays the evidence
+    await owner.mesh.refreshOwnTicket(await mint(owner, 'owner', 2));
+    await waitFor(() => ed.mesh.epoch === 2 && vic.mesh.epoch === 2);
+    await typed('rom'); // still signed with edd's epoch-1 editor ticket
+    await settle();
+    held.ticket = await mint(ed, 'editor', 2);
+    await ed.mesh.refreshOwnTicket(held.ticket);
+    await typed('-editor');
+
+    for (const n of [owner, vic]) await expect.poll(async () => await text(n, id), { timeout: 5_000 }).toBe('owner line B-from-editor');
+  });
+
+  it('keystrokes the demoted member signed with the old editor ticket are held, then refused once its viewer ticket shows', async () => {
+    net = await Net.create();
+    const owner = await net.add('owen', 'owner');
+    const dee = await net.add('dee', 'editor');
+    await net.link(owner, dee);
+    const id = await owner.model.createTextNow('main.tex', 'base');
+    await converged([owner, dee], id);
+    await owner.mesh.refreshOwnTicket(await mint(owner, 'owner', 2)); // dee was demoted
+    await waitFor(() => dee.mesh.epoch === 2);
+    (await dee.model.openText(id)).insert(4, ' evil'); // signed with dee's epoch-1 editor ticket
+    await settle();
+    await dee.mesh.refreshOwnTicket(await mint(dee, 'viewer', 2, { iat: Math.floor(Date.now() / 1000) + 1 }));
+    await waitFor(() => owner.mesh.peers[0]?.claims.role === 'viewer');
+    await settle();
+    expect(await text(owner, id)).toBe('base');
+  });
+});
+
 describe('privileged application messages (3.3)', () => {
   it('drops editor-only topics from a peer that is a viewer when the message arrives', async () => {
     net = await Net.create();
