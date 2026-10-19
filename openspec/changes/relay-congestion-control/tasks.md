@@ -47,7 +47,7 @@
 
 - [x] 5.1 Remove `retry: 2` and its comment from the 12-peer test.
   - Verify that both the normal and the 15 ms variants pass 5 times in a row on 2 CPUs (`start /affinity 3`), and that the full server suite passes on 2 CPUs.
-- [ ] 5.2 Close the `TODO_CI.md` item about the 12-peer relay test.
+- [x] 5.2 Close the `TODO_CI.md` item about the 12-peer relay test.
   - Verify CI is green on the commit (the `checks`, `data-safety-browser` and `Desktop` workflows).
 
 ## Workflow follow-up

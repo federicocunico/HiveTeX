@@ -25,6 +25,9 @@ through the Deploy workflow after CI passes (docs/deployment.md section 3). The 
       overflowed the relay router's per-recipient queue and fixed-timer retransmissions made it worse. Fixed by the
       relay congestion control (adaptive timeout, frame window, `relay_inbound_dropped`); the test runs without a retry,
       also with every relay delivery delayed by 15 ms.
+- [ ] `apps/desktop/e2e/lifecycle.mjs` "worker started at login" timed out once (0e4d4ca, passed on rerun) with no app
+      process at all: probably the previous, force-killed instance still held the single-instance lock, so the
+      `--background` launch handed over to it and exited. Wait until no harness app is left before the login start.
 - [ ] The two-machine sync checks are manual, not in CI: `make sandbox-sync` (this PC plus Windows Sandbox, fault
       injection `FAULT=deaf|deaf-silent|no-udp`, `MATRIX=...`) and `make rtc-lab` (browser and native WebRTC per ICE
       scenario; `HOLD_S=330 SCENARIOS=relay-udp PEERS=native` guards the TURN refresh patch). They need Windows Sandbox
