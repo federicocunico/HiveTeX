@@ -1,6 +1,6 @@
 # To do (owner)
 
-## Sync transport (`openspec/changes/reliable-sync-transport`)
+## Sync transport (`openspec/changes/archive/2026-10-19-reliable-sync-transport`, archived with 6.1 and 8.1 open)
 
 In production since 2026-10-14: the application relay starts at once, a direct WebRTC link takes over only after 8 s of
 probation, and a link that goes silent hands back to the relay. Production runs with `APPLICATION_RELAY=1` and the

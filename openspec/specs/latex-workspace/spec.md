@@ -11,7 +11,7 @@ The workspace SHALL be available as a web app served from the public deployment 
 
 #### Scenario: Mixed clients
 - **WHEN** one member uses the web app and another uses the desktop app on the same project
-- **THEN** they edit together and see the same compiled PDF
+- **THEN** their sources synchronize and each device builds and previews its own PDF locally
 
 #### Scenario: Desktop signs in to the hosted control plane
 - **WHEN** a user signs in from the desktop app pointed at the public deployment
@@ -52,11 +52,11 @@ Editors SHALL create, upload, rename, move and delete files and folders; viewers
 - **THEN** only Open, Download and the folder actions are offered
 
 ### Requirement: PDF preview
-The workspace SHALL render the current PDF with zoom, page navigation and source/PDF jumps, and SHALL indicate whether the PDF is up to date with the latest edits and which device compiled it.
+The workspace SHALL render the current PDF with zoom, page navigation and source/PDF jumps, and SHALL indicate whether the PDF is up to date with the latest edits and which compiler on this machine produced it.
 
 #### Scenario: Stale indicator
 - **WHEN** edits exist that are newer than the displayed PDF
-- **THEN** the preview shows an "outdated" indicator until a newer PDF arrives
+- **THEN** the preview shows an "outdated" indicator until a successful local build of current inputs replaces it
 
 ### Requirement: Project export
 Any member SHALL be able to download the full project source as a zip archive and the latest PDF.

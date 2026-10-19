@@ -6,15 +6,27 @@ Makes every change to a project visible and reversible, especially changes made 
 ## Requirements
 
 ### Requirement: Change sets
-Each device SHALL record changes to the project as change sets: consecutive edits from the same source grouped until the source has been idle for a few seconds. A change set SHALL record its source (this device's folder, this device's editor, or a co-author by name), its time, and the files it changed.
+Each device SHALL record every project mutation as a durable operation with a stable identifier, original user and device identity, source, causal references, time and affected files. Consecutive operations from the same source SHALL be grouped into display change sets after a few idle seconds without mixing other sources' contributions or losing operation boundaries.
 
 #### Scenario: AI tool session
 - **WHEN** Claude Code edits three files in the bound folder within a few seconds
-- **THEN** one change set "Folder on this device" lists those three files with the time
+- **THEN** one change set "Folder on this device" lists those three files with the time and identifies the owning user and device, without claiming to identify the external process
 
 #### Scenario: Co-author edits
 - **WHEN** co-author Ada edits `intro.tex`
-- **THEN** a change set attributed to Ada appears on every other device
+- **THEN** a change set attributed to Ada appears on every other device, including when forwarded by a different co-author
+
+#### Scenario: First edit of a lazy document
+- **WHEN** a member opens a previously stored file after project startup and immediately edits it
+- **THEN** that edit is recorded against the persisted baseline, without treating it as initial loading
+
+#### Scenario: Interleaved sources
+- **WHEN** a folder edit and an editor edit affect the same file during the grouping interval
+- **THEN** each change set includes only its source's operations and undoing either preserves the other contribution unless an explicit conflict is resolved
+
+#### Scenario: Edit then rename
+- **WHEN** a member edits and renames a file within one grouping interval
+- **THEN** the change set retains both content and path changes and can reverse both
 
 ### Requirement: Changes view
 The workspace SHALL offer a Changes view listing recent change sets, newest first, with a per-file diff of what each change set did.
@@ -24,7 +36,7 @@ The workspace SHALL offer a Changes view listing recent change sets, newest firs
 - **THEN** each changed file shows its additions and removals; created, deleted and renamed files are labelled as such
 
 ### Requirement: Undo a change set
-A member with edit rights SHALL be able to undo a change set. The undo SHALL be applied as a normal collaborative edit that reverses only that change set, preserving later edits that do not overlap, and SHALL itself appear as a change set.
+A member with edit rights SHALL be able to undo a change set as a recorded collaborative edit. Undo SHALL reverse only that set's operations, preserve later non-overlapping edits and retain a recovery point. Unsafe inversions SHALL expose conflicts without partially applying destructive guesses. Repeating the same undo request SHALL NOT apply it twice.
 
 #### Scenario: Undo an AI edit after others typed
 - **WHEN** a member undoes the folder change set that rewrote a paragraph, after Ada edited another paragraph of the same file
@@ -34,6 +46,18 @@ A member with edit rights SHALL be able to undo a change set. The undo SHALL be 
 - **WHEN** a viewer opens the Changes view
 - **THEN** they can review change sets but no undo action is offered
 
+#### Scenario: Undo creation after later contribution
+- **WHEN** a member undoes creation of a file that another operation subsequently edited
+- **THEN** the later work remains recoverable and the action presents a conflict instead of silently deleting the file
+
+#### Scenario: Undo binary replacement after another replacement
+- **WHEN** a member undoes a binary change whose resulting content has since been replaced
+- **THEN** the subsequent asset is preserved and the incompatible inversion requires a visible choice
+
+#### Scenario: Overlapping inverse patch
+- **WHEN** an inverse text operation overlaps later edits
+- **THEN** the member reviews a conflict with both versions before any unsafe replacement is shared
+
 ### Requirement: No locks, no staging
 Edits from the folder SHALL sync automatically, like edits typed in the app. Files SHALL never be locked, and no confirmation SHALL be required before a change reaches co-authors.
 
@@ -42,8 +66,124 @@ Edits from the folder SHALL sync automatically, like edits typed in the app. Fil
 - **THEN** co-authors receive the change without any action in the app
 
 ### Requirement: Bounded local history
-Change sets SHALL be stored on the device only (not on the control plane), keeping at least the last 7 days or 500 change sets, whichever is larger. Older entries SHALL be pruned automatically.
+History SHALL be retained on member devices, never on the control plane, for at least 7 days or 500 change sets, whichever is larger. Authorized peers SHALL exchange retained operation history. Pruning SHALL preserve content needed by retained versions, deletions or unresolved recovery, and disclose the oldest recoverable point.
 
 #### Scenario: Pruning
 - **WHEN** a device has 600 change sets older than 7 days
-- **THEN** the oldest are removed until 500 remain
+- **THEN** the oldest are removed until 500 remain, while content referenced by retained history or pending recovery remains available
+
+#### Scenario: Retained binary version
+- **WHEN** an asset is replaced or deleted and its old content is referenced by retained history
+- **THEN** restoring that version still retrieves the original bytes after restart
+
+### Requirement: History persistence failures are recoverable
+Failure to save an operation or its recovery data SHALL retain pending information, expose a persistent warning and retry. Acknowledging durable project changes SHALL require their associated history to be durable. Idle grouping and app termination SHALL NOT discard already acknowledged operation history.
+
+#### Scenario: Disk full then recovery
+- **WHEN** saving history fails, further edits occur and storage becomes writable again
+- **THEN** all pending operations and recovery data are saved once, with their original attribution, and the warning clears only after success
+
+#### Scenario: Termination before idle grouping
+- **WHEN** the app terminates after a mutation is acknowledged durable but before the display change set closes
+- **THEN** reopening reconstructs the operation history and offers the corresponding recovery or undo
+
+### Requirement: Safe version restore
+Restoring a version SHALL include its file tree, source contents, referenced assets and compile settings. It SHALL preserve a durable pre-restore version, validate content availability and detect changes made after the restore preview. Restarting an interrupted restore SHALL expose its state and preserve both versions.
+
+#### Scenario: Missing asset in target version
+- **WHEN** a target version references an asset that no authorized source can provide
+- **THEN** restore reports the missing asset and preserves the current project instead of silently creating an incomplete replacement
+
+#### Scenario: Co-author edits during restore preview
+- **WHEN** a co-author changes a file after a member previews a version restore
+- **THEN** the restore detects the changed precondition and asks for an explicit resolution or a refreshed preview before overwriting that contribution
+
+#### Scenario: Restore completion interrupted
+- **WHEN** the app stops while applying a multi-file version restore
+- **THEN** reopening can resume or reverse that operation from its durable recovery point without losing the pre-restore content
+
+### Requirement: Honest historical identity
+History SHALL display the original authenticated account and device where evidence is available and retain attribution across renames, forwarding and restarts. Legacy records without that evidence SHALL remain labelled unverified or unknown; a forwarding peer or a local import SHALL NOT be presented as the original author.
+
+#### Scenario: Legacy snapshot import
+- **WHEN** a member imports a project snapshot containing text without original operation metadata
+- **THEN** history records who imported it and separately states that original text authorship is unknown
+
+### Requirement: Complete native recovery export across bounded transport
+Native full recovery export SHALL preserve all persisted tables in a coherent integrity-checked database snapshot and transfer it in bounded chunks. Its manifest SHALL hash the database and retained live document states. Aggregate history exceeding the single-message transport budget SHALL NOT silently truncate the archive. Missing reads and resource failures SHALL remain explicit without deleting retained data.
+
+#### Scenario: Retained history exceeds one IPC message
+- **WHEN** retained snapshots and history exceed the logical message budget
+- **THEN** export transfers a coherent database in bounded pieces, includes the live document states and can reopen the exported database without dropping history
+
+#### Scenario: Export interrupted or editor closed
+- **WHEN** an export is cancelled or its editor attachment is closed
+- **THEN** its temporary handle is released and no other project attachment can read its private snapshot
+
+### Requirement: Remote contributions stay out of local change sets
+A local change set SHALL contain only edits from its own origin and device. When a co-author's edit is applied to a
+document, any open local change set for that document SHALL be closed first, so undoing it cannot remove the
+co-author's edit.
+
+#### Scenario: Interleaved typing
+- **WHEN** Alice types "A", Bob's "B" arrives, then Alice types "C" in the same paragraph within the grouping window
+- **THEN** Alice's Changes list shows separate change sets for her edits and one for Bob's, and undoing Alice's latest change set removes "C" and leaves "B"
+
+### Requirement: Interrupted undo and restore are resumable
+An undo or restore that stops after its checkpoint SHALL leave a state the member can resume or abandon from the
+history view. A precondition that fails before any mutation SHALL NOT leave a pending checkpoint. A retry SHALL NOT
+fail only because an earlier attempt was interrupted.
+
+#### Scenario: Precondition fails between preview and restore
+- **WHEN** a co-author edits the project after a member previewed a version and then clicks restore
+- **THEN** the restore is refused with the reason, no pending restore remains in History, and a new preview can be restored
+
+#### Scenario: Undo interrupted mid-way
+- **WHEN** an undo of a multi-file change set fails after inverting some files
+- **THEN** History shows the undo as interrupted with the files already inverted, and the member can complete or reverse it
+
+### Requirement: Baselines are not reported as edits
+Loading, bootstrapping or first receiving a document SHALL NOT produce change sets after a restart. History SHALL NOT
+show an edit of the whole file by an unknown author for content that was only loaded.
+
+#### Scenario: Restart after first sync
+- **WHEN** a new member receives a project, closes the app before any edit, and reopens it
+- **THEN** the Changes view shows no change sets attributed to an unknown original author for the received files
+
+### Requirement: History views scale with retained history
+Opening History, Recovery or Changes, and receiving a co-author's edit, SHALL NOT require reading every retained
+history record. Retained history SHALL NOT make synchronization, quarantine or recovery capture fail because a listing
+exceeds a transport limit.
+
+#### Scenario: Large retained history
+- **WHEN** a project holds 500,000 retained operation records and the Recovery panel is open while a co-author types
+- **THEN** each remote edit is applied and the panel stays responsive without listing every record per edit
+
+### Requirement: Recovery export within bounded memory
+The full recovery export SHALL hold at most a bounded part of the store in memory beyond the archive being written. An
+export that would exceed the archive format's limits SHALL be refused with an explicit message before the work starts.
+
+#### Scenario: Large store export on desktop
+- **WHEN** a member exports the full recovery archive of a 1 GiB store
+- **THEN** peak memory stays below the store size plus a bounded overhead, and the archive verifies against its manifest
+
+#### Scenario: Archive beyond format limit
+- **WHEN** the export would produce an archive larger than the format supports
+- **THEN** the export is refused with a message before writing anything, and the store is unchanged
+
+### Requirement: Blocked store upgrade is reported
+When a local store upgrade cannot proceed because another tab or window still holds the previous version open, the app
+SHALL tell the member which action unblocks it. The app SHALL NOT wait without feedback. An open connection SHALL close
+when a newer version requests the upgrade.
+
+#### Scenario: Old tab still open
+- **WHEN** a member opens the upgraded web app while a tab of the same build is open on the same project
+- **THEN** the older tab closes its store connection or the new tab shows that the other tab must be closed, and neither waits silently
+
+### Requirement: Re-upgrade after rollback keeps later work
+On desktop, after a rollback to the previous release and further work, upgrading again SHALL NOT ignore content written
+to the legacy store in the meantime. It SHALL either merge that content or tell the member which store holds it.
+
+#### Scenario: Upgrade, rollback, offline work, upgrade
+- **WHEN** a member upgrades, rolls back to 0.8.0, edits offline, and upgrades again
+- **THEN** the edits made on 0.8.0 are present after the second upgrade, or a visible notice names the store that contains them and how to export it

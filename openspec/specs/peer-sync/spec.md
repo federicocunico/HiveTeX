@@ -52,7 +52,7 @@ Before exchanging any project data, both peers MUST verify each other's membersh
 - **THEN** the connection is closed without sending project data
 
 ### Requirement: NAT traversal fallback
-When a direct connection cannot be established, capable clients SHALL use configured TURN when it works and otherwise an end-to-end encrypted application relay on the existing server when the deployment enables it, it is reachable and within budget, without requiring a separately configured TURN provider. The application relay SHALL be a last resort and disabled unless the deployment enables it. Desktop automatic port mapping SHALL supplement direct connectivity without blocking either relay path.
+When a direct connection cannot be established, capable clients SHALL keep syncing through the end-to-end encrypted application relay on the existing server whenever the deployment enables it, it is reachable and within budget, without requiring a separately configured TURN provider. Configured TURN SHALL be used when it works and SHALL NOT be a prerequisite for synchronization. Desktop automatic port mapping SHALL supplement direct connectivity without blocking either relay path.
 
 #### Scenario: Symmetric NAT
 - **WHEN** two peers cannot connect directly
@@ -62,8 +62,12 @@ When a direct connection cannot be established, capable clients SHALL use config
 - **WHEN** automatic port mapping is unavailable, rejected or ineffective
 - **THEN** the peers can still establish an ordinary direct connection or use configured TURN or the application relay without manual port configuration
 
+#### Scenario: TURN gathered but unusable
+- **WHEN** both peers gather relay candidates from configured TURN but no candidate pair passes connectivity checks
+- **THEN** synchronization continues through the application relay and the failed WebRTC attempt is recorded with its cause
+
 ### Requirement: Conflict-free merging
-Concurrent edits made while devices are linked SHALL merge automatically and deterministically on every device without creating duplicate files, conflict copies or silent overwrites of other members' text. Edits made while a device had no peer linked are merged as described in *Offline editing*.
+Concurrent text edits made while devices are linked SHALL merge automatically and deterministically on every device without silent overwrites of other members' text. Concurrent structural changes SHALL preserve all competing content and expose unresolved choices. Edits made while a device had no peer linked are merged as described in *Offline editing*.
 
 #### Scenario: Concurrent edits in different paragraphs
 - **WHEN** two editors change different paragraphs of the same file at the same time
@@ -72,6 +76,10 @@ Concurrent edits made while devices are linked SHALL merge automatically and det
 #### Scenario: Concurrent edits in the same sentence
 - **WHEN** two editors type into the same sentence concurrently
 - **THEN** both insertions are preserved and all devices converge to identical text
+
+#### Scenario: Linked delete versus edit
+- **WHEN** one connected editor deletes a file while another changes its text, path or binary content without observing that deletion
+- **THEN** every replica preserves the deletion and competing version as a recoverable conflict, identifies their authors and offers an explicit resolution
 
 ### Requirement: Offline editing
 Editors SHALL be able to open and edit any project already present on their device without network access. Changes SHALL be persisted locally on every keystroke batch. Edits a device makes while no peer is linked (no network, *Work offline*, local mode, or nobody else online) SHALL be kept on that device until its next link, and then merged per file, three-way by lines, against the state both sides last shared:
@@ -175,11 +183,15 @@ A new member device SHALL receive the full current project state from an online 
 - **THEN** the UI explains that an owner/editor source is required and does not claim successful bootstrap
 
 ### Requirement: Local history
-Each device SHALL keep restorable snapshots of the project state so an editor can view and restore earlier versions; a restore SHALL sync as a normal edit.
+Each device SHALL keep restorable project versions and recoverable deletions. Restoring SHALL be a recorded collaborative edit, with a durable recovery point before destructive changes. Snapshot contents and settings SHALL describe one coherent project state; unavailable content SHALL be reported rather than replaced with empty data.
 
 #### Scenario: Restore
 - **WHEN** an editor restores a snapshot from yesterday
 - **THEN** the project returns to that content on all devices and the restore itself can be undone
+
+#### Scenario: Edit during snapshot acquisition
+- **WHEN** a member changes the tree or a file while a project version is being captured
+- **THEN** the saved version represents a coherent captured state, including main file and engine, or capture retries or fails explicitly
 
 ### Requirement: Real-time propagation at group scale
 With up to 12 connected member devices on a healthy connection, an edit SHALL reach every other device within 250 ms at the 95th percentile, and each edit SHALL be sent at most once over each peer connection in a fully connected mesh. When some devices cannot connect directly, edits SHALL still reach every device through the others.
@@ -488,30 +500,42 @@ Application relay delivery SHALL tolerate transient loss, duplication and reorde
 - **THEN** queues remain bounded, control traffic is protected and stalled sends terminate or remain explicitly pending
 
 ### Requirement: Safe transport selection
-Clients SHALL prefer a healthy direct connection, then configured TURN, and attempt the application relay when connection setup fails or exceeds a bounded deadline. UPnP and optional TURN configuration SHALL NOT be prerequisites for this fallback. A later transport switch SHALL preserve edits and current authorization with one authoritative peer connection generation.
+When two capable peers that both reach the server learn of each other, clients SHALL start the application relay without waiting for a WebRTC attempt to fail, and SHALL attempt direct WebRTC or configured TURN in parallel. A WebRTC link SHALL become the route only after it has authenticated and carried traffic; the relay SHALL stay available until then. UPnP and TURN SHALL NOT be prerequisites. A transport switch SHALL preserve edits and current authorization with one authoritative peer connection generation.
 
 #### Scenario: Direct and TURN unavailable
 - **WHEN** two capable peers can reach the application server but direct WebRTC and TURN are unavailable
-- **THEN** they attempt authenticated application relay setup within 10 seconds of learning each other's available relay capability
+- **THEN** they synchronize through the authenticated application relay within 5 seconds of learning each other's available relay capability, independently of WebRTC attempt timeouts
 
 #### Scenario: Direct connectivity recovers
 - **WHEN** a working direct path becomes available while peers use the application relay
 - **THEN** a coordinated authenticated handover resumes synchronization without lost edits, duplicate active ownership or stale callbacks
 
+#### Scenario: Direct link not yet proven
+- **WHEN** a WebRTC link has connected but has not yet carried authenticated traffic in both directions
+- **THEN** edits keep flowing through the application relay and the route shown is the relay
+
 #### Scenario: Relay unavailable too
 - **WHEN** direct, TURN and application relay paths cannot connect
 - **THEN** the app preserves local edits, reports unavailability and retries with bounded backoff rather than promising guaranteed connectivity
 
+#### Scenario: Server without relay capability
+- **WHEN** the server or the other peer does not offer the application relay
+- **THEN** clients keep the previous behaviour: direct WebRTC, then configured TURN, with bounded retries
+
 ### Requirement: Zero idle control-plane cost
-A device with no connected peer need and no introduction in progress SHALL hold no connection to the control plane and SHALL send no presence heartbeats, ticket renewals or polling requests. Signaling sockets SHALL exist only while an introduction is in progress or an application-relay session needs them, and SHALL close once the wanted links are authenticated or the introduction window ends. Connected peers SHALL keep exchanging edits without the control plane.
+A device with no connected peer need and no introduction in progress SHALL hold no connection to the control plane and SHALL send no presence heartbeats, ticket renewals or polling requests. Signaling sockets SHALL exist only while an introduction is in progress, a seen device is still being connected, or an application-relay link is a route; they SHALL close once every wanted link is a direct WebRTC route or the introduction window ends. Peers linked directly SHALL exchange edits without the control plane.
 
 #### Scenario: Idle seed overnight
 - **WHEN** a desktop seed has no peer and nobody rings its projects for hours
 - **THEN** it makes no request to the control plane and holds no signaling socket during that time
 
 #### Scenario: Editing with connected peers
-- **WHEN** members are connected to each other and edit
+- **WHEN** members are linked to each other over direct WebRTC or TURN and edit
 - **THEN** no device keeps a gatekeeper socket open and edits do not use the control plane
+
+#### Scenario: Editing over the application relay
+- **WHEN** two members can only reach each other through the application relay
+- **THEN** their signaling sockets stay open for the relay route, within the deployment's relay budget, and close when a direct route takes over or the members leave
 
 ### Requirement: Doorbell wake-up
 Members SHALL reach devices that are not connected by publishing a short-lived ring token, signed by the control plane after a membership check, to a per-project ring topic on a push channel the devices subscribe to. Ring topics SHALL change with the membership epoch and SHALL not reveal project or user identifiers. Ring requests SHALL be rate-limited.
@@ -585,3 +609,142 @@ Every failed or timed-out connection attempt SHALL record the stage reached and 
 #### Scenario: Timeout cause
 - **WHEN** an attempt times out after checks started with no working pair
 - **THEN** the recorded cause says connectivity checks failed rather than only "timed out"
+
+### Requirement: Recoverable deletions
+Removing a file from the active project SHALL retain its stable identity, path, author, causal context and recoverable content on member devices before acknowledging durable deletion. Synchronization SHALL NOT infer deletion from unavailable content. Recovery SHALL include text, binary assets and directory contents within the advertised retention window.
+
+#### Scenario: Deleted file not opened this session
+- **WHEN** a member deletes a previously stored text file without opening it
+- **THEN** its complete previous content remains recoverable after restart and can be restored from the deleted-files view
+
+#### Scenario: Storage refuses recovery data
+- **WHEN** recovery information for a destructive change cannot be stored
+- **THEN** the device preserves its current copy, reports the failure and does not acknowledge the destructive change as durably saved
+
+#### Scenario: Delayed peer after deletion
+- **WHEN** a device reconnects with an edit based on a version predating a retained deletion
+- **THEN** the edit is retained and exposed for resolution rather than silently discarded or used to resurrect the file
+
+### Requirement: Original provenance survives synchronization
+Peers SHALL exchange the original identity and integrity evidence of recorded operations along with the causal references needed to interpret them. Reforwarding or receiving an aggregate state SHALL NOT attribute all included changes to its sender. Unverifiable historical authorship SHALL be labelled unknown and SHALL NOT grant edit permission.
+
+#### Scenario: Three-peer chain
+- **WHEN** Alice's change reaches Carol only through Bob
+- **THEN** Carol's history attributes the change to Alice and can distinguish Bob as the forwarding device
+
+#### Scenario: New device receives existing history
+- **WHEN** an authorized device bootstraps from a complete peer
+- **THEN** it can inspect retained authorship, versions and deletions after synchronization, with unavailable older history explicitly identified
+
+#### Scenario: Legacy destructive update
+- **WHEN** an older peer sends a destructive change without the required recovery or provenance information
+- **THEN** the receiver retains its previous content, exposes the compatibility limitation and quarantines the unsafe change instead of silently applying an irreversible deletion
+
+### Requirement: Conservative recovery migration
+Upgrading a replica SHALL preserve existing documents, assets, snapshots and pending or denied edits. Retained documents absent from the active tree SHALL be available for explicit local recovery without automatically rejoining the shared project. Migration failures or unsupported formats SHALL preserve the original store.
+
+#### Scenario: Existing orphaned text
+- **WHEN** an upgraded store contains a text document whose file entry was previously deleted
+- **THEN** the member can export or inspect the recoverable content even if the original path or author is unknown
+
+#### Scenario: Recovery after membership removal
+- **WHEN** a removed member retains a local replica
+- **THEN** recovery remains local and does not restore network authorization or automatically publish retained changes
+
+### Requirement: Silent direct links hand back to the relay
+When a WebRTC route stops carrying traffic (its connection reports disconnected or failed, or acknowledgements stop), the client SHALL move synchronization to the application relay without waiting for the WebRTC stack to declare failure, and SHALL end the silent link so a fresh attempt can be made.
+
+#### Scenario: Path dies after connecting
+- **WHEN** a direct link goes disconnected seconds after connecting and does not recover
+- **THEN** edits continue through the application relay within 2 seconds of the disconnection, the dead link is ended, and a new direct attempt is scheduled with bounded backoff
+
+#### Scenario: Short interruption
+- **WHEN** a direct link reports disconnected and recovers before the grace period ends
+- **THEN** edits sent meanwhile through the relay are not applied twice in a way that changes the result, and the direct route resumes
+
+#### Scenario: Only one side notices, sockets closed
+- **WHEN** a WebRTC route stops carrying traffic, only one of the two devices reports it disconnected, and both have closed their signaling sockets
+- **THEN** that device brings the other one to the server (ringing in doorbell mode), the other accepts the relay although its own link still looks connected, whichever of the two has the lower device id, and edits continue within 4 seconds
+
+#### Scenario: Ended links release their connection
+- **WHEN** a WebRTC connection attempt fails or times out, or the other side closes the link
+- **THEN** the client releases the underlying connection at once, so it cannot keep using the shared UDP socket and take the packets of the next link to the same device
+
+#### Scenario: Ticket refreshed during probation
+- **WHEN** a direct link comes up while one device already routes through the relay and the other is still authenticating it, and a device refreshes its ticket over the relay meanwhile
+- **THEN** both devices hold the link on probation and authenticate it with their current tickets afterwards, so the handover is not refused as a stale ticket
+
+### Requirement: Connection attempts outlive the stack's own checks
+A WebRTC connection attempt SHALL NOT be abandoned by the client before the connection stack itself has had the time it is configured to take for connectivity checks, including relay candidates.
+
+#### Scenario: Relay pair needs the full check window
+- **WHEN** only relay candidate pairs can succeed and their checks complete after the direct pairs failed
+- **THEN** the attempt is still alive when they complete and the link connects through the relay
+
+### Requirement: Bounded provenance growth
+Recording and exchanging authored operations SHALL grow with the size of each change, not with the size of the document.
+A replica SHALL NOT store or send a full pre-change copy of a document per edit. Recovery preimages SHALL be captured
+only where recovery needs them, such as the start of a change group or a destructive change, and SHALL be stored once
+per distinct content.
+
+#### Scenario: Typing in a large document
+- **WHEN** a member types 1,000 single characters into a 100 KB text file that is synchronized with one co-author
+- **THEN** the history data added on each replica and the bytes sent for those edits stay within a fixed multiple of the typed content plus a bounded per-group overhead, independent of the 100 KB document size
+
+#### Scenario: Destructive change keeps its preimage
+- **WHEN** a member deletes most of a file in one edit
+- **THEN** the replaced content is retained once and can be recovered exactly
+
+### Requirement: Physical deletions never stall root synchronization
+A replica SHALL apply a root update that physically removes file entries it still holds. Before applying it, the replica
+SHALL retain each removed entry locally as a recoverable item. It SHALL NOT withhold the rest of the update, and SHALL NOT
+rely on a quarantine that only a later update can clear. The member SHALL see that files were removed by a co-author and
+can recover them.
+
+#### Scenario: Deletion made before the upgrade while a co-author was offline
+- **WHEN** Bob deleted `a.tex` on the previous release while Alice was offline, both upgrade, and Bob also created `b.tex` while Alice was away
+- **THEN** after reconnecting Alice receives `b.tex` and Bob's other root changes, `a.tex` is absent from her tree, and its last content is listed in Recovery as removed by Bob's device
+
+#### Scenario: Repeated reconnects
+- **WHEN** the same peer reconnects several times after sending a physical deletion
+- **THEN** the removed entry is retained only once and later root updates from that peer apply without a quarantine notice
+
+### Requirement: Deletions are compatible with previous clients
+A recoverable deletion made by this release SHALL appear to a client of the previous release (0.8.0) as an ordinary
+deletion. The file SHALL NOT remain visible, SHALL NOT be written back to that client's bound folder, and SHALL NOT come
+back to upgraded replicas through that client.
+
+#### Scenario: Mixed-version project
+- **WHEN** an upgraded member deletes `old.tex` while a 0.8.0 co-author is connected with a bound folder
+- **THEN** `old.tex` disappears from the co-author's tree and folder, stays recoverable on the upgraded replica, and does not reappear there after the co-author edits other files
+
+### Requirement: Live edits are not delayed by storage or history transfer
+Sending a local edit to connected co-authors SHALL NOT wait for a retry of local provenance storage, nor for retained
+history being sent to any peer. A storage failure SHALL stay visible and keep retrying while live edits keep flowing. A
+history transfer to one peer SHALL NOT delay live edits to other peers.
+
+#### Scenario: Provenance storage failing
+- **WHEN** storing authored-operation records fails repeatedly on Alice's replica while she keeps typing
+- **THEN** Bob keeps receiving her edits within the normal propagation time and Alice sees a persistent storage warning
+
+#### Scenario: History bootstrap of a new member
+- **WHEN** Carol joins and receives retained history from Alice while Alice and Bob keep editing
+- **THEN** edits between Alice and Bob keep arriving within the normal propagation time
+
+### Requirement: One bad history record does not stop history synchronization
+Paging retained history from a peer SHALL continue past a record that fails verification, cannot be stored, or is not
+answered within a bounded time. The skipped record SHALL be reported with its reason. History completeness SHALL be shown
+as incomplete rather than as receiving forever.
+
+#### Scenario: Record signed by an untrusted key
+- **WHEN** one history record from Bob fails signature verification
+- **THEN** the remaining records are received, the failed one is reported as skipped with its reason, and the history status settles as incomplete
+
+### Requirement: Forwarded edits reach previous clients
+An upgraded replica that forwards an authored operation SHALL send it to a peer of the previous release in that peer's
+supported format. Live edits SHALL reach every connected client within the normal propagation time, whatever the
+topology.
+
+#### Scenario: Relay through an upgraded peer
+- **WHEN** Alice (upgraded) is connected only to Bob (upgraded), and Bob is connected to Carol (0.8.0)
+- **THEN** Alice's edits reach Carol within the normal propagation time without a full resync

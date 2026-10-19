@@ -39,6 +39,7 @@
 ## 6. Production relay
 
 - [ ] 6.1 Measure baseline and relay command usage (`USAGE_LOG=1` in production, relay runs of `make sandbox-sync` against a preview) and compute `RELAY_PROVIDER_COMMANDS`, `RELAY_BASELINE_COMMANDS` and per-account limits; verify `relayLimitsFromEnv` accepts the profile and the numbers are recorded in `docs/deployment.md`
+  Known limit at archive (October 19, 2026): not run; it needs production usage logging and a preview deployment. The relay limits stay at the values documented in `docs/deployment.md` until this measurement is done.
 - [x] 6.2 Add the relay variables to `scripts/setup.mjs` prompts (values never printed) and deploy with a commit authored by the Vercel team member's address; verify `/api/health` and that a fresh session's `ready` advertises the relay capability
 - [x] 6.3 Document cost per relayed MiB and per relay hour, the rollback (unset `RELAY_PROVIDER_COMMANDS`) and the gates from `docs/application-relay-security.md`; verify the deployment doc lists each
 
@@ -48,7 +49,8 @@
 
 ## 8. Integration
 
-- [ ] 8.1 Run the `make sandbox-sync` matrix locally (STUN only, TURN, relay on, deaf session) with a 5-minute hold; verify every scenario passes, sync starts within 5 s and continues across a socket rotation. Evidence: `../fix-data-safety-apply-regressions/evidence/matrix.md` (Windows Sandbox and host on one PC, Hyper-V NAT, not real NATs; STUN-only fails with checks-failed on this setup, every relay/TURN scenario passes; open because STUN-only does not pass on this setup).
+- [ ] 8.1 Run the `make sandbox-sync` matrix locally (STUN only, TURN, relay on, deaf session) with a 5-minute hold; verify every scenario passes, sync starts within 5 s and continues across a socket rotation. Evidence: `../2026-10-19-fix-data-safety-apply-regressions/evidence/matrix.md` (Windows Sandbox and host on one PC, Hyper-V NAT, not real NATs; STUN-only fails with checks-failed on this setup, every relay/TURN scenario passes; open because STUN-only does not pass on this setup).
+  Known limit at archive (October 19, 2026): repeated with the host firewall on (`../2026-10-19-fix-data-safety-apply-regressions/evidence/acceptance.md`, October 19 section): STUN-only still fails here (no direct host↔sandbox link on Hyper-V NAT), TURN/relay/deaf/no-udp pass. No 5-minute hold in that repeat; the October 18 runs include it.
 - [x] 8.2 Run `make sandbox-sync` against production with a 5-minute hold; verify it passes and the timeline shows relay first and, when a direct link survives probation, the handover
 - [x] 8.3 Two-PC test with the new installer (`make installer`) on two different networks; verify both reports show sync within 5 s and the route used
 
