@@ -195,6 +195,10 @@ How the server handles relayed traffic:
 - **Fails closed.** When the budget is spent the sender gets `relay_limited`; when Redis accounting cannot be reached,
   `relay_accounting_unavailable`, both with a retry delay. Direct and TURN links are not affected and clients keep
   their edits pending.
+- **Bounded queues.** A socket with too much forwarding in progress gets `relay_backpressure` (retry after 1 s). A
+  recipient whose delivery queue is full (256 messages or 4 MiB) loses the overflow and gets `relay_inbound_dropped`,
+  at most once a second (metered as `relay.error.relay_inbound_dropped`): the senders retransmit and shrink their
+  congestion windows ([protocol.md](protocol.md#route-selection-and-the-application-relay)).
 - **Credits are charged up front and never refunded,** in small batches that expire within 5 s, so reconnecting,
   switching projects or crashing never yields a fresh allowance.
 - The relay cannot bootstrap a project when no member device holding it is online: there is no server copy.

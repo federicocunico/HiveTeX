@@ -207,10 +207,21 @@ to both tickets ([application-relay-security.md](application-relay-security.md))
 DTLS fingerprints in the usual peer authentication, so a relay connection proves device-key possession like a WebRTC one.
 
 **Delivery** (`packages/sync/src/relay-transport.ts`). Redis Pub/Sub delivers at most once, so a published frame counts
-for nothing: each data frame is acknowledged by the peer (authenticated, batched within 20 ms), at most 256 KiB stay
-unacknowledged per peer, a missing ACK triggers a retransmission of the identical ciphertext (1.5 s, doubling, six
-times), and then the connection closes and reconnects with new keys. The receiver reorders per channel and applies every
-frame once. An ACK only releases sending credit; it is not a save receipt and not reconciliation: the Sync panel's states
+for nothing: each data frame is acknowledged by the peer (authenticated, batched within 20 ms), at most 64 KiB stay
+unacknowledged per peer, a missing ACK triggers a retransmission of the identical ciphertext (doubling, six times), and
+then the connection closes and reconnects with new keys. The receiver reorders per channel and applies every frame once.
+
+**Congestion.** The retransmission timeout starts at 1.5 s and then follows the measured ACK round trip (RFC 6298:
+smoothed RTT plus four times its variation plus the ACK delay, at least 500 ms, at most 30 s). ACKs of retransmitted
+frames give no sample (Karn), and after a lost flight the timeout of new frames doubles until a clean sample, so a
+queue that only delays frames does not get them resent. Besides the byte limit, a congestion window bounds the frames
+in flight per peer: 16 at the start, one more per ACK up to a threshold, then about one more per window of ACKs, at most
+256. A loss halves it (at least 2), once per flight. Losses are timeouts, or drops the receiver reports: when the
+server's delivery queue for a device overflows (256 messages or 4 MiB), it drops the frames and sends that device
+`relay-error {code: 'relay_inbound_dropped'}` (at most once a second, no retry delay). The device cannot know whose
+frames were lost, so it sets `d: 1` on its next ACK batch (`{a: [counters], d: 1}`) to every relay peer, and each
+sender treats it as a loss. The notice is not a forwarding limit: the device keeps sending. Older peers ignore `d`, and
+older servers still send `relay_backpressure` with a 30 s retry for the overflow, which clients treat as before. An ACK only releases sending credit; it is not a save receipt and not reconciliation: the Sync panel's states
 and "All changes synced" still come from the peers' answers for each document and from stored blobs.
 
 **Socket lifetime.** Relay sessions belong to one signaling socket. When Vercel ends the socket (300 s) or an instance

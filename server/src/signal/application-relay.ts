@@ -29,7 +29,7 @@ export function createApplicationRelayRouter(o: RelayRouterOptions): NonNullable
     async attach(ctx) {
       const credit = await o.admission.acquire(ctx.claims, ctx.sid);
       if (!credit) throw new Error('relay admission unavailable');
-      let closed = false, queued = 0, queueCount = 0;
+      let closed = false, queued = 0, queueCount = 0, lastDropNote = 0;
       let unsub: (() => void) | undefined;
       let chain: Promise<unknown> = Promise.resolve();
       const live = () => !closed && ctx.active() && ctx.claims.exp * 1000 > o.deps.now().getTime();
@@ -42,7 +42,14 @@ export function createApplicationRelayRouter(o: RelayRouterOptions): NonNullable
           if (!live()) return;
           // Drop overflow for endpoint retransmission. Closing only this subscription leaves the authenticated
           // socket advertising a relay that can never receive again, so a transient burst would become a black hole.
-          if (size > MAX_RELAY_ENCODED_BYTES || queued + size > 4 * 1024 * 1024 || queueCount >= 256) { error('relay_backpressure'); return; }
+          // Only the senders can repair the loss (they retransmit). The note is not a forwarding limit: it carries no retry
+          // delay, and the recipient passes it on to its senders in its ACKs so they shrink their windows.
+          if (size > MAX_RELAY_ENCODED_BYTES || queued + size > 4 * 1024 * 1024 || queueCount >= 256) {
+            o.meter?.add('relay.error.relay_inbound_dropped');
+            const now = Date.now();
+            if (live() && now - lastDropNote >= 1000) { lastDropNote = now; ctx.send({ t: 'relay-error', code: 'relay_inbound_dropped' }); }
+            return;
+          }
           queued += size; queueCount++;
           chain = chain.then(async () => {
             if (!live()) return;

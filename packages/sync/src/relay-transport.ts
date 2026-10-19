@@ -39,8 +39,15 @@ export interface RelayTransportOptions {
   post(env: string): boolean;
   /** Unacknowledged plaintext allowed in flight towards the peer (D11). Default 64 KiB, including reserved control space. */
   windowBytes?: number;
-  /** First retransmission timeout; doubles per retry. Default 1.5 s. */
+  /**
+   * Retransmission timeout before the first round-trip sample; afterwards it follows the measured ACK round trip
+   * (RFC 6298, Karn's rule), doubling per retry of a fragment. Default 1.5 s.
+   */
   rtoMs?: number;
+  /** Lower bound of the measured timeout. Default min(500 ms, rtoMs). */
+  minRtoMs?: number;
+  /** Frames in flight at the start, before the congestion window adapts. Default 16. */
+  initialWindowFrames?: number;
   /** Retransmissions of one fragment before the generation fails. Default 6. */
   maxRetries?: number;
   /** Out-of-order data retained for reassembly beyond the next expected message. Default 4 MiB. */
@@ -61,6 +68,14 @@ export interface RelayTransportStats {
   /** The server refused forwarding (budget, accounting) and bulk traffic is deferred until this time (epoch ms). */
   limitedUntil: number;
   limitedReason: string | null;
+  /** Smoothed ACK round trip (ms), null before the first sample. */
+  srttMs: number | null;
+  /** Current retransmission timeout (ms) before backoff. */
+  rtoMs: number;
+  /** Congestion window: frames allowed in flight. */
+  cwnd: number;
+  /** Loss events (timeouts or reported inbound drops) that reduced the window. */
+  lossEvents: number;
 }
 
 interface Outgoing {
@@ -77,6 +92,7 @@ interface Inflight {
   bytes: number;
   tries: number;
   timer: ReturnType<typeof setTimeout> | null;
+  sentAt: number;
 }
 interface Assembly {
   parts: (Uint8Array | undefined)[];
@@ -86,6 +102,9 @@ interface Assembly {
 
 const MAX_FRAGMENTS = 4096;
 const MAX_MESSAGE_AHEAD = 1024;
+const MAX_RTO_MS = 30_000;
+const MIN_WINDOW_FRAMES = 2;
+const MAX_WINDOW_FRAMES = 256;
 
 /**
  * PeerTransport over the application relay: one confirmed RelaySession, fragments of at most 16 KiB plaintext, per-channel
@@ -116,7 +135,20 @@ export class RelayTransport implements PeerTransport {
   private limitedTimer: ReturnType<typeof setTimeout> | null = null;
   readonly stats: RelayTransportStats = {
     sentFragments: 0, retransmits: 0, ackedFragments: 0, duplicateFragments: 0, inflightBytes: 0, queuedBytes: 0, limitedUntil: 0, limitedReason: null,
+    srttMs: null, rtoMs: 0, cwnd: 0, lossEvents: 0,
   };
+  private rttvar = 0;
+  private curRto: number;
+  /** Timeout for first transmissions: doubled per lost flight until a clean sample (RFC 6298 5.5, Karn). */
+  private backoffRto: number;
+  private readonly minRto: number;
+  private cwnd: number;
+  private ssthresh = MAX_WINDOW_FRAMES;
+  /** Highest counter sent when the window was last reduced: losses of frames up to it belong to the same flight. */
+  private recoverPoint = -1;
+  private highestSent = -1;
+  /** The server dropped inbound frames for us: the next ACK batch tells the senders ("d"). */
+  private dropNote = false;
   private readonly window: number;
   private readonly rto: number;
   private readonly maxRetries: number;
@@ -127,6 +159,11 @@ export class RelayTransport implements PeerTransport {
   constructor(private o: RelayTransportOptions) {
     this.window = o.windowBytes ?? 64 * 1024;
     this.rto = o.rtoMs ?? 1500;
+    this.curRto = this.backoffRto = this.rto;
+    this.minRto = o.minRtoMs ?? Math.min(500, this.rto);
+    this.cwnd = Math.min(MAX_WINDOW_FRAMES, Math.max(MIN_WINDOW_FRAMES, o.initialWindowFrames ?? 16));
+    this.stats.rtoMs = this.curRto;
+    this.stats.cwnd = this.cwnd;
     this.maxRetries = o.maxRetries ?? 6;
     this.reorderMax = o.reorderBytes ?? 4 * 1024 * 1024;
     this.ackDelay = o.ackDelayMs ?? 20;
@@ -212,6 +249,7 @@ export class RelayTransport implements PeerTransport {
         // Bulk cannot occupy the entire window: a text edit must not wait for an asset's ACK/retry.
         const ceiling = out.channel === 'bulk' ? Math.max(FRAGMENT_SIZE, this.window - Math.min(FRAGMENT_SIZE, this.window / 4)) : this.window;
         if (this.inflight.size > 0 && this.inflightBytes + chunk.length > ceiling) return; // resumed by ACKs
+        if (this.inflight.size >= Math.floor(this.cwnd)) return; // congestion window, resumed by ACKs
         const ctx: RelayFrameContext = { kind: 'data', channel: out.channel, message: out.message, fragment: out.next, fragments: out.fragments };
         let envelope: RelayEnvelope;
         try {
@@ -222,8 +260,9 @@ export class RelayTransport implements PeerTransport {
         }
         if (this.closed) return;
         const env = encodeRelayFrame(envelope);
-        const f: Inflight = { env, bytes: chunk.length, tries: 0, timer: null };
+        const f: Inflight = { env, bytes: chunk.length, tries: 0, timer: null, sentAt: Date.now() };
         this.inflight.set(envelope.counter, f);
+        if (envelope.counter > this.highestSent) this.highestSent = envelope.counter;
         this.inflightBytes += chunk.length;
         this.stats.inflightBytes = this.inflightBytes;
         this.stats.sentFragments++;
@@ -244,12 +283,16 @@ export class RelayTransport implements PeerTransport {
   private transmit(counter: number, f: Inflight) {
     if (this.closed) return;
     this.o.post(f.env);
-    const wait = this.limited ? Math.max(this.stats.limitedUntil - Date.now(), this.rto) : this.rto * 2 ** f.tries;
+    const wait = this.limited
+      ? Math.max(this.stats.limitedUntil - Date.now(), this.curRto)
+      // A retransmission backs off on its own from the measured timeout, so the two backoffs do not compound.
+      : Math.min(MAX_RTO_MS, f.tries === 0 ? this.backoffRto : this.curRto * 2 ** f.tries);
     f.timer = setTimeout(() => {
       f.timer = null;
       if (this.closed || this.inflight.get(counter) !== f) return;
       // While the server refuses forwarding the retry waits for its window instead of exhausting the retry budget.
       if (!this.limited && ++f.tries > this.maxRetries) return this.fail(new Error('relay delivery stalled'));
+      if (!this.limited) this.onLoss(counter, true);
       this.stats.retransmits++;
       this.transmit(counter, f);
     }, wait);
@@ -270,14 +313,22 @@ export class RelayTransport implements PeerTransport {
     const { context: c, plaintext, duplicate } = opened;
     if (c.kind === 'ack') {
       if (duplicate) return;
-      let list: unknown;
+      let ack: { a?: unknown; d?: unknown };
       try {
-        list = (JSON.parse(fromUtf8(plaintext)) as { a?: unknown }).a;
+        ack = JSON.parse(fromUtf8(plaintext)) as { a?: unknown; d?: unknown };
       } catch {
         return;
       }
+      const list = ack.a;
       if (!Array.isArray(list)) return;
-      for (const n of list.slice(0, 1024)) this.acked(Number(n));
+      let highest = -1;
+      for (const n of list.slice(0, 1024)) {
+        const c = Number(n);
+        this.acked(c);
+        if (c > highest) highest = c;
+      }
+      // The peer's server dropped inbound frames: a loss for every sender towards it, once per flight.
+      if (ack.d === 1 && highest >= 0) this.onLoss(highest);
       void this.pump();
       return;
     }
@@ -307,6 +358,43 @@ export class RelayTransport implements PeerTransport {
     this.inflightBytes -= f.bytes;
     this.stats.inflightBytes = this.inflightBytes;
     this.stats.ackedFragments++;
+    // Karn: a retransmitted fragment's ACK cannot tell which copy it answers, so it gives no round-trip sample.
+    if (f.tries === 0) this.sampleRtt(Date.now() - f.sentAt);
+    // Slow start below the threshold, then about one frame more per window of ACKs.
+    this.cwnd = Math.min(MAX_WINDOW_FRAMES, this.cwnd < this.ssthresh ? this.cwnd + 1 : this.cwnd + 1 / this.cwnd);
+    this.stats.cwnd = this.cwnd;
+  }
+
+  /** RFC 6298 estimator; the receiver's ACK batching delay is part of every sample's budget. */
+  private sampleRtt(r: number) {
+    if (this.stats.srttMs === null) {
+      this.stats.srttMs = r;
+      this.rttvar = r / 2;
+    } else {
+      this.rttvar = 0.75 * this.rttvar + 0.25 * Math.abs(this.stats.srttMs - r);
+      this.stats.srttMs = 0.875 * this.stats.srttMs + 0.125 * r;
+    }
+    this.curRto = this.backoffRto = Math.min(MAX_RTO_MS, Math.max(this.minRto, this.stats.srttMs + 4 * this.rttvar + this.ackDelay));
+    this.stats.rtoMs = this.curRto;
+  }
+
+  /** A frame of the current flight was lost (timeout or reported drop): halve the window, once per flight. */
+  private onLoss(counter: number, timeout = false) {
+    if (counter <= this.recoverPoint) return;
+    // RFC 6298 5.5: back the timeout off until a clean sample, or delayed paths would never yield one (Karn).
+    if (timeout) {
+      this.backoffRto = Math.min(MAX_RTO_MS, this.backoffRto * 2);
+    }
+    this.recoverPoint = this.highestSent;
+    this.ssthresh = Math.max(MIN_WINDOW_FRAMES, Math.floor(this.cwnd / 2));
+    this.cwnd = this.ssthresh;
+    this.stats.cwnd = this.cwnd;
+    this.stats.lossEvents++;
+  }
+
+  /** The server dropped frames addressed to us because our delivery queue was full: tell the senders in the next ACKs. */
+  noteInboundDrop() {
+    if (!this.closed) this.dropNote = true;
   }
 
   private queueAck(counter: number) {
@@ -319,8 +407,10 @@ export class RelayTransport implements PeerTransport {
     this.ackTimer = null;
     const a = this.acks.splice(0);
     if (!a.length || this.closed) return;
+    const body = this.dropNote ? { a, d: 1 } : { a };
+    this.dropNote = false;
     try {
-      const env = await this.o.session.seal({ kind: 'ack', channel: 'sync', message: 0, fragment: 0, fragments: 1 }, utf8(JSON.stringify({ a })));
+      const env = await this.o.session.seal({ kind: 'ack', channel: 'sync', message: 0, fragment: 0, fragments: 1 }, utf8(JSON.stringify(body)));
       if (!this.closed) this.o.post(encodeRelayFrame(env));
     } catch (e) {
       this.fail(e instanceof Error ? e : new Error('relay ack failed'));

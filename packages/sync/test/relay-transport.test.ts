@@ -78,11 +78,13 @@ describe('application relay transport (3.2)', () => {
       delayMs: n => (n % 5) * 7,
     }, { drop: (_e, n) => n % 3 === 0 });
     for (let n = 0; n < 30; n++) void f.a.send('sync', text('e' + n));
-    await until(() => f.got.sync.length === 30, 8000, () => `received ${f.got.sync.length}/30, a ${JSON.stringify(f.a.stats)}, b ${JSON.stringify(f.b.stats)}`);
+    await until(() => f.got.sync.length === 30, 20_000, () => `received ${f.got.sync.length}/30, a ${JSON.stringify(f.a.stats)}, b ${JSON.stringify(f.b.stats)}`);
     expect(f.got.sync).toEqual(Array.from({ length: 30 }, (_, n) => 'e' + n));
     expect(f.a.stats.retransmits).toBeGreaterThan(0);
     expect(f.b.stats.duplicateFragments).toBeGreaterThan(0);
-    await until(() => f.a.stats.inflightBytes === 0);
+    // Under this loss rate the last ACKs are often lost too: the tail waits on per-fragment backoff from the measured
+    // timeout (fewer spurious resends than a fixed short timer, at the cost of a slower tail).
+    await until(() => f.a.stats.inflightBytes === 0, 20_000);
   });
 
   it('a published frame is not a delivery: a dead path keeps data in flight and then fails the generation', async () => {
@@ -163,6 +165,59 @@ describe('application relay transport (3.2)', () => {
     const got: string[] = [];
     b.onMessage((_c, d) => got.push(new TextDecoder().decode(d)));
     expect(got).toEqual(['hello early']);
+  });
+
+  it('retransmission timeout follows the measured round trip and ignores samples of retransmitted frames (Karn)', async () => {
+    // The path is slower than the initial timeout: only the very first frame is resent.
+    const f = await pair({ rtoMs: 100, minRtoMs: 20 }, { delayMs: () => 150 });
+    await f.a.send('sync', text('first'));
+    await until(() => f.got.sync.length === 1 && f.a.stats.inflightBytes === 0);
+    expect(f.a.stats.retransmits).toBe(1);
+    expect(f.a.stats.srttMs).toBeNull(); // the only ACK answered a retransmitted frame
+    for (let n = 0; n < 5; n++) {
+      await f.a.send('sync', text('m' + n));
+      await until(() => f.got.sync.length === n + 2 && f.a.stats.inflightBytes === 0);
+    }
+    expect(f.a.stats.retransmits).toBe(1);
+    expect(f.a.stats.srttMs).toBeGreaterThanOrEqual(140);
+    expect(f.a.stats.srttMs).toBeLessThan(400);
+    expect(f.a.stats.rtoMs).toBeGreaterThan(f.a.stats.srttMs as number);
+  });
+
+  it('caps the first flight by the congestion window and widens it as ACKs arrive', async () => {
+    const f = await pair({ rtoMs: 5000 }, { delayMs: () => 300 });
+    for (let n = 0; n < 40; n++) void f.a.send('sync', text('w' + n));
+    await until(() => f.a.stats.sentFragments >= 16);
+    await new Promise(r => setTimeout(r, 50)); // no ACK can arrive before 300 ms
+    expect(f.a.stats.sentFragments).toBe(16);
+    await until(() => f.got.sync.length === 40);
+    expect(f.a.stats.cwnd).toBeGreaterThan(16);
+    expect(f.a.stats.lossEvents).toBe(0);
+    expect(f.a.stats.retransmits).toBe(0);
+  });
+
+  it('halves the window once when several frames of one flight time out', async () => {
+    const f = await pair({ rtoMs: 50 }, { drop: (_e, n) => n < 16 });
+    for (let n = 0; n < 40; n++) void f.a.send('sync', text('l' + n));
+    await until(() => f.got.sync.length === 40, 6000);
+    expect(f.got.sync).toEqual(Array.from({ length: 40 }, (_, n) => 'l' + n));
+    expect(f.a.stats.lossEvents).toBe(1);
+    expect(f.a.stats.retransmits).toBeGreaterThanOrEqual(16);
+  });
+
+  it('an inbound-drop note reaches the sender through ACKs and shrinks its window without a forwarding limit', async () => {
+    const f = await pair({ rtoMs: 2000 });
+    for (let n = 0; n < 10; n++) await f.a.send('sync', text('d' + n));
+    await until(() => f.got.sync.length === 10 && f.a.stats.inflightBytes === 0);
+    const before = f.a.stats.cwnd;
+    expect(f.a.stats.lossEvents).toBe(0); // plain ACKs (as from older peers) are no loss
+    f.b.noteInboundDrop();
+    await f.a.send('sync', text('after drop'));
+    await until(() => f.a.stats.lossEvents === 1);
+    expect(f.a.stats.cwnd).toBeLessThanOrEqual(Math.max(2, Math.floor(before / 2)) + 1);
+    expect(f.a.limited).toBe(false);
+    expect(f.b.limited).toBe(false);
+    expect(f.b.stats.limitedUntil).toBe(0);
   });
 
   it('closing tells the peer, which closes without waiting for its retransmission budget', async () => {

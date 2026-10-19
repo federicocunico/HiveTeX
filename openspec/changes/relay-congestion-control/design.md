@@ -42,10 +42,15 @@ The retransmission timeout comes from the measured round trip:
 
 Parameters:
 - `rtoMs` stays as the initial RTO, before any sample;
-- minRto is 500 ms, so a fast, quiet path doesn't retransmit too eagerly;
+- minRto (`minRtoMs`) defaults to min(500 ms, `rtoMs`), so a fast, quiet path doesn't retransmit too eagerly. Tests and harnesses that configure a short `rtoMs` keep it;
 - maxRto is 30 s;
-- exponential backoff per fragment is kept on top of the RTO;
 - `maxRetries` is unchanged, so a dead relay still fails within bounded time.
+
+There are two backoffs, kept separate so they don't compound:
+- *First transmissions* use a backed-off RTO. It doubles once per lost flight (RFC 6298 §5.5) and returns to the measured RTO with the next clean sample. Without it, a path slower than the initial RTO would never yield a sample (Karn).
+- *Retransmissions* of a fragment wait the measured RTO × 2^tries.
+
+In the implementation the two first compounded: after a few lost flights a single retry could wait 30 s, and the loss test stalled. Splitting them fixed it.
 
 *Alternative:* only raise the fixed `rtoMs`. It would be simpler, but it slows recovery on healthy paths and fails again on slower hosts.
 
@@ -98,6 +103,7 @@ Then `retry: 2` is removed.
 
 - [A smaller window slows large single-peer transfers over the relay] → the window grows multiplicatively during slow start, and the byte window still bounds bulk. Check with the existing relay asset transfer tests.
 - [Spurious loss events from ACK batching on a busy event loop] → the RTO includes `ackDelay` and has a 500 ms floor, and there's at most one reduction per flight.
+- [Under heavy random loss in both directions (the unit test's 33%), the tail of a transfer recovers more slowly than with the old fixed 30 ms timer: the window shrinks and the last fragments back off from the measured timeout] → relay loss in practice comes from overload, where backing off is the point. The unit test's drain limits were raised from 4–8 s to 20 s.
 - [Mixed versions: a new sender towards an old receiver gets no `d` signal] → the sender still reacts to timeouts with D1 and D2, so it degrades to "adaptive but timeout-driven".
 - [The 15 ms CI scenario adds test time] → under 20 s, judging by the current runs, and it replaces a retry that could triple the time.
 

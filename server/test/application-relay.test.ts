@@ -97,7 +97,10 @@ describe("recipient-scoped application relay", () => {
       env: "YWJj",
     };
     for (let n = 0; n < 300; n++) await f.backend.publish(channel, JSON.stringify(message));
-    await waitFor(() => b.inbox.some((m) => m.code === "relay_backpressure"));
+    await waitFor(() => b.inbox.some((m) => m.code === "relay_inbound_dropped"));
+    // 44 overflowing publishes, one informational notice without a retry delay (not a forwarding limit)
+    expect(b.inbox.filter((m) => m.code === "relay_inbound_dropped")).toEqual([{ t: "relay-error", code: "relay_inbound_dropped" }]);
+    expect(b.inbox.some((m) => m.code === "relay_backpressure")).toBe(false);
     release();
     await waitFor(() => b.inbox.filter((m) => m.t === "app-relay").length === 256);
     f.backend.getPresence = getPresence;

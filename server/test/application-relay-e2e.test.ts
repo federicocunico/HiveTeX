@@ -170,15 +170,26 @@ describe("application relay between current clients (3.x)", () => {
     await waitFor(async () => (await b.model.openText(id)).toString() === 'before after');
   }, 30_000);
 
-  // Retried: on a loaded 2-vCPU runner the start-up burst of 12 peers overflows the relay router's per-recipient queue,
-  // and dropped frames come back only through fixed-timer retransmission (no congestion control yet, see TODO_CI.md).
-  it("12 relay peers converge under simultaneous typing and send an edit once per connection (13.3)", { retry: 2, timeout: 90_000 }, async () => {
-    const { owner, bob, pid } = await project("relay-scale-12");
+  /**
+   * 12 peers with no direct path start together, sync a file, send one edit (once per connection) and type concurrently.
+   * `delayMs` delays every relay delivery (and forward) at the router, as on an overloaded host: the start-up burst then
+   * overflows the router's per-recipient queue, and congestion control must keep retransmissions below first sends.
+   */
+  async function relayScale12(slug: string, delayMs: number) {
+    if (delayMs > 0) {
+      const getPresence = backend.getPresence.bind(backend);
+      backend.getPresence = async (...args) => {
+        await sleep(delayMs);
+        return getPresence(...args);
+      };
+    }
+    const slow = delayMs > 0 ? 5 : 1;
+    const { owner, bob, pid } = await project(slug);
     const nodes = await Promise.all(
       Array.from({ length: 12 }, (_, i) => makeDevice(i % 2 ? bob : owner, pid, `p${i}`, { directRetryMs: 60_000, linkTimeoutMs: 20_000, relayTransport: { rtoMs: 1500 } })),
     );
     for (const d of nodes) d.mgr.start();
-    await waitFor(() => nodes.every((d) => d.mesh.peers.length === 11), 30_000);
+    await waitFor(() => nodes.every((d) => d.mesh.peers.length === 11), 30_000 * Math.min(slow, 2));
     for (const d of nodes)
       expect(Object.values(d.mgr.routes()).every((r) => r.route === "relay")).toBe(true);
     const id = await nodes[0]!.model.createTextNow("scale.tex", "start");
@@ -187,7 +198,7 @@ describe("application relay between current clients (3.x)", () => {
       await d.mesh.openDoc(`f:${id}`);
     }
     const texts = await Promise.all(nodes.map((d) => d.model.openText(id)));
-    await waitFor(() => texts.every((t) => t.toString() === "start"));
+    await waitFor(() => texts.every((t) => t.toString() === "start"), 6000 * slow);
     await Promise.all(
       nodes.slice(1).map(async (d) =>
         expect((await d.mesh.reconcile(`f:${id}`, { timeoutMs: 10_000 })).outcome).toBe(
@@ -212,7 +223,7 @@ describe("application relay between current clients (3.x)", () => {
       }
     const started = performance.now();
     texts[0]!.insert(texts[0]!.length, " once");
-    await waitFor(() => texts.every((t) => t.toString() === "start once"));
+    await waitFor(() => texts.every((t) => t.toString() === "start once"), 6000 * slow);
     await sleep(100);
     expect(frames).toBe(11);
     for (const r of restore) r();
@@ -224,13 +235,29 @@ describe("application relay between current clients (3.x)", () => {
         }
       }),
     );
-    await waitFor(() => new Set(texts.map((t) => t.toString())).size === 1, 20_000);
+    await waitFor(() => new Set(texts.map((t) => t.toString())).size === 1, 20_000 * Math.min(slow, 2));
     const final = texts[0]!.toString();
     for (let i = 0; i < 12; i++)
       for (let k = 0; k < 20; k++) expect(final).toContain(`<${i}.${k}>`);
+    let sent = 0, retransmits = 0;
+    for (const d of nodes)
+      for (const peer of d.mesh.peers) {
+        const st = (peer.conn.transport as unknown as { stats?: { sentFragments: number; retransmits: number } }).stats;
+        sent += st?.sentFragments ?? 0;
+        retransmits += st?.retransmits ?? 0;
+      }
     console.log(
-      `[relay scale] 12 peers, ${frames} frames for one edit; 240 concurrent edits converged in ${(performance.now() - started).toFixed(0)} ms`,
+      `[relay scale${delayMs ? ` +${delayMs} ms` : ''}] 12 peers, ${frames} frames for one edit; 240 concurrent edits converged in ${(performance.now() - started).toFixed(0)} ms; ${retransmits} retransmits / ${sent} fragments`,
     );
+    expect(retransmits).toBeLessThan(sent);
+  }
+
+  it("12 relay peers converge under simultaneous typing and send an edit once per connection (13.3)", { timeout: 90_000 }, async () => {
+    await relayScale12("relay-scale-12", 0);
+  });
+
+  it("12 relay peers converge when every relay delivery is delayed by 15 ms (overloaded host)", { timeout: 240_000 }, async () => {
+    await relayScale12("relay-scale-12-slow", 15);
   });
 
   it("syncs through the relay within 5 s without WebRTC or TURN, independently of attempt timeouts, as ciphertext", async () => {

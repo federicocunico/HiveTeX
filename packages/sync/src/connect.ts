@@ -121,6 +121,7 @@ interface RelayStep {
   /** The sender's direct link to us went silent: take the relay even if that link still looks fine here. */
   degraded?: unknown;
 }
+// `relay_backpressure`: our own forwarding queue at the hub is full (and, from older servers, also our delivery queue).
 const RELAY_LIMIT_CODES = new Set(['relay_limited', 'relay_accounting_unavailable', 'relay_rate_limited', 'relay_backpressure', 'relay_unavailable']);
 
 export interface IceConfig {
@@ -1191,6 +1192,12 @@ export class ConnectionManager {
     if (m.t === 'pong') return;
     if (m.t === 'app-relay') return void this.onRelayMessage(m);
     if (m.t === 'relay-error') {
+      // Our delivery queue overflowed at the server: not a forwarding limit on our sends. The senders repair the loss;
+      // our next ACKs tell them to slow down (we cannot know whose frames were dropped).
+      if (m.code === 'relay_inbound_dropped') {
+        for (const a of this.relays.values()) a.transport?.noteInboundDrop();
+        return;
+      }
       if (typeof m.code === 'string' && RELAY_LIMIT_CODES.has(m.code)) {
         for (const a of this.relays.values()) a.transport?.noteLimited(m.code, Number(m.retryAfterMs) || 30_000);
         this.emitState();
