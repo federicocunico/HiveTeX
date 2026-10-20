@@ -28,6 +28,11 @@ through the Deploy workflow after CI passes (docs/deployment.md section 3). The 
 - [ ] `apps/desktop/e2e/lifecycle.mjs` "worker started at login" timed out once (0e4d4ca, passed on rerun) with no app
       process at all: probably the previous, force-killed instance still held the single-instance lock, so the
       `--background` launch handed over to it and exited. Wait until no harness app is left before the login start.
+- [x] `e2e/recovery.spec.ts` "Download version" saved an empty file in 3 of 8 local runs on 2026-10-19, only while
+      uncommitted epoch work was in `packages/sync/src/mesh.ts`. Not reproduced on 2026-10-20 in more than 80 runs
+      (7d9875f and 018f317, also 4–8 workers in parallel). Closed; reopen with a trace if it shows up on CI.
+- [ ] Under heavy parallel load (8 workers) sign-up can miss its 15 s wait for "Your projects" (`e2e/helpers.ts`
+      `newUser`). Not seen on CI.
 - [ ] The two-machine sync checks are manual, not in CI: `make sandbox-sync` (this PC plus Windows Sandbox, fault
       injection `FAULT=deaf|deaf-silent|no-udp`, `MATRIX=...`) and `make rtc-lab` (browser and native WebRTC per ICE
       scenario; `HOLD_S=330 SCENARIOS=relay-udp PEERS=native` guards the TURN refresh patch). They need Windows Sandbox
