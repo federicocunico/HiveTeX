@@ -59,7 +59,7 @@
   --syn-string: #9a4a08;
 
   /* PDF stays paper in both themes */
-  --pdf-desk: #e4e7ee;
+  --pdf-desk: #eceef2;
   --pdf-paper: #ffffff;
 
   --scrim: rgb(20 22 28 / 0.38);
@@ -92,6 +92,8 @@
   --header-h: 48px;
   --rail-w: 48px;
   --statusbar-h: 28px;
+  --pane-header-h: 36px;
+  --formatbar-h: 34px;
 
 }
 

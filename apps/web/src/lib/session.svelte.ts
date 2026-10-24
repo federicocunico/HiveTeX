@@ -1,7 +1,10 @@
 import { exportRecoveryZip } from './recovery-export.js';
+import { prefs, onPreferencesChange } from './preferences.svelte.js';
 import type { StoredDeviceKeys } from '@hivetex/crypto';
 import {
   LocalCompiler,
+  explainFailure,
+  type CompileFailure,
   type LocalBuild,
   type CompileEngine,
   type CompileResult,
@@ -103,15 +106,24 @@ export class ProjectSession {
   connected = $state(false);
   noPeerOnline = $state(true);
   compileStatus = $state<'idle' | 'compiling' | 'ok' | 'error'>('idle');
+  compileWaiting = $state(false);
+  private requestFailure = $state<CompileFailure | null>(null);
+  get compileFailure(): CompileFailure | null {
+    if (this.requestFailure) return this.requestFailure;
+    if (!this.engine && this.engineNote) return explainFailure(this.engineNote);
+    return this.result && !this.result.ok ? this.result.failure ?? explainFailure(this.result.log, this.result.diagnostics, this.result.incomplete) : null;
+  }
   result = $state<CompileResult | null>(null);
   pdf = $state<Uint8Array | null>(null);
   pdfRev = $state(0);
   stale = $state(true);
-  /** When the shown PDF arrived; change sets that end later are "edits since the last compile". */
-  private pdfShownAt = $state(0);
-  /** Editing bursts (change sets) newer than the shown PDF. */
+  private sourceSeq = $state(0);
+  private pdfSourceSeq = $state(0);
+  private acceptedPdf: LocalBuild | null = null;
+  get pdfEngine() { void this.pdfRev; return this.acceptedPdf?.source?.engine ?? null; }
+  /** Source updates newer than the immutable capture used for the shown PDF. */
   get editsSincePdf(): number {
-    return this.changes.filter((c) => c.endedAt > this.pdfShownAt).length;
+    return this.pdf ? Math.max(0, this.sourceSeq - this.pdfSourceSeq) : 0;
   }
   syncIndex = $state<SyncIndex | null>(null);
   engineKind = $state<'native' | 'wasm' | 'none'>('none');
@@ -283,9 +295,9 @@ export class ProjectSession {
     if (this.disposed) return;
     this.foregroundUnsubs.push(this.model.onDocUpdate(() => {
       this.stale = true;
+      this.sourceSeq = this.model.changeSeq;
       this.scheduleSnapshot();
       this.scheduleStaleCheck();
-      this.scheduleLocalCompile();
     }));
     // A local project (no account, local-mode spec) never meets anyone: no ticket, no connections.
     if (this.isLocal) this.offline = true;
@@ -567,15 +579,20 @@ export class ProjectSession {
       automatic: () => !!this.engine && !this.disposed,
     });
     this.foregroundUnsubs.push(this.compiler.onResult((build) => void this.acceptLocalBuild(build)));
+    this.foregroundUnsubs.push(this.compiler.onSchedule((waiting) => { this.compileWaiting = waiting; }));
     this.foregroundUnsubs.push(this.compiler.onState((running) => {
       if (running) this.compileStatus = 'compiling';
       else if (this.compiler.latest) this.compileStatus = this.compiler.latest.result.ok ? 'ok' : 'error';
     }));
+    const configure = () => this.compiler.setSchedule(prefs.compileSchedule, prefs.compileIntervalSeconds);
+    configure();
+    this.foregroundUnsubs.push(onPreferencesChange(configure));
     this.scheduleLocalCompile(0);
   }
 
   private async acceptLocalBuild(build: LocalBuild) {
     if (this.disposed) return;
+    this.requestFailure = null;
     this.result = build.result;
     this.compileStatus = build.result.ok ? 'ok' : 'error';
     if (build.result.ok && build.pdf) {
@@ -583,9 +600,14 @@ export class ProjectSession {
       this.pdf = build.pdf;
       this.pdfRev++;
       this.pdfState = build.result.stateHash;
-      this.pdfShownAt = Date.now();
+      this.acceptedPdf = build;
+      this.sourceSeq = this.model.changeSeq;
+      this.pdfSourceSeq = build.source?.seq ?? 0;
+      // A new PDF must never temporarily use the previous build's mapping.
+      this.syncIndex = null;
+      this.stale = this.sourceSeq > this.pdfSourceSeq;
       const index = build.synctex ? await parseSyncTeXGz(build.synctex).catch(() => null) : null;
-      if (!this.disposed && this.result === build.result) this.syncIndex = index;
+      if (!this.disposed && this.acceptedPdf === build) this.syncIndex = index;
     }
     this.scheduleStaleCheck();
   }
@@ -593,11 +615,15 @@ export class ProjectSession {
   private scheduleStaleCheck() {
     if (this.staleTimer) clearTimeout(this.staleTimer);
     this.staleTimer = setTimeout(async () => {
+      const revision = this.pdfRev;
+      const source = this.model.changeSeq;
+      let stale = true;
       try {
-        this.stale = await this.compiler.isStale();
-      } catch {
-        this.stale = true;
-      }
+        stale = await this.compiler.isStale();
+      } catch { /* incomplete input stays stale */ }
+      if (this.disposed) return;
+      if (revision === this.pdfRev && source === this.model.changeSeq) this.stale = stale;
+      else this.scheduleStaleCheck();
     }, 300);
   }
 
@@ -609,13 +635,19 @@ export class ProjectSession {
   }
 
   async compileLocal() {
+    this.requestFailure = null;
+    try {
     // The in-browser engine was unavailable at open (TeX file server unreachable, no cached format): try it again now.
     if (!this.engine && !this.disposed && this.compiler) await this.retryWasmEngine();
     if (!this.engine) throw new Error(this.engineNote || 'Set up a local compiler in Account > Compiler.');
     await this.engine.refresh?.();
     this.compileStatus = 'compiling';
-    try { await this.compiler.run(); }
-    catch (e) { this.compileStatus = 'error'; throw e; }
+    await this.compiler.run();
+    } catch (e) {
+      this.compileStatus = 'error';
+      this.requestFailure = explainFailure(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
   }
 
   async setCompileMode(_mode: CompileMode) {

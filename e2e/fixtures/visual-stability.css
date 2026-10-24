@@ -1,0 +1,3 @@
+/* Random project suffixes have different proportional widths; keep their mask and role badge stable.
+ * Contact-sheet captures use the unmodified product layout with the actual long names. */
+[data-testid="project-slug"] { width: 320px !important; }

@@ -42,3 +42,27 @@ Installer tests are in `scripts/verify-upgrade.ps1` and require a disposable run
 Local Windows checks: all package unit suites passed (14 Turbo tasks); native suite passed 126 tests with five pre-existing opt-in tests ignored on the disposable Windows runner; build/lint and Svelte types passed (zero errors). The seven lifecycle scenarios above passed, including twelve delayed/concurrent/cross-path launches. The cache reset regression also verifies active-build refusal, deletion-error propagation and repeated worker reset. The [Windows installer run](https://github.com/federicocunico/HiveTeX/actions/runs/38497317948/attempts/2) passed setup v0.7.1 → v0.7.3, MSI → setup, setup → MSI and MSI reinstall, preserving both current and legacy profile/credential fixtures. Explicit uninstall of each format removed program, running app/worker, profiles, credentials and startup while preserving the external project. Packaged startup without Node on PATH passed. [Source CI](https://github.com/federicocunico/HiveTeX/actions/runs/38497317448), [native/lifecycle checks](https://github.com/federicocunico/HiveTeX/actions/runs/38497317497) and [checked production deployment](https://github.com/federicocunico/HiveTeX/actions/runs/38498363228) succeeded.
 
 Production ordering also recognizes the commit metadata of older Vercel CLI uploads, retaining the same project, SHA, ancestry and CI checks.
+
+## Authoring acceptance for 0.9.1 (2026-10-23)
+
+The isolated current debug build (`app.hivetex.desktop.e2e`, bundled Node 22.22.0) passed real manual and automatic
+compilation in Windows WebView2 155.0.4283.62, PDF zoom and all 24 long-CRLF editor geometry cases (maximum gutter
+discrepancy 0.073 px). It used installed MiKTeX 25.4 / pdfTeX 1.40.27 / format 2025.11.11. The newly created file
+availability defect that falsely marked a fresh PDF outdated was reproduced and fixed with a worker regression.
+
+Separate real native/helper tests passed on disposable TinyTeX 2026.10, including package outage, explicit retry,
+offline cached article/report and repair after interrupted package-index generation. Installer subprocesses now obey
+the build deadline and cancellation. See [authoring acceptance and raw evidence](authoring-acceptance.md).
+
+A current optimized 0.9.1 NSIS installer was subsequently installed in Windows Sandbox with the production identity.
+Its self-check passed, but concurrent launches reproduced a startup freeze: an early reopen callback constructed a
+second partial window before app setup. Startup now retains those requests until setup completes; replacement windows
+also stay hidden until their WebView construction finishes. The corrected actual package passed 12 concurrent launches
+across two paths and three close/reopen cycles, with one owner/tray/worker throughout. The E2E regression additionally
+covers both delayed and immediate handover, browser pairing, restart, background login and cleanup.
+
+[Package hashes and before/after records](authoring-acceptance.md#packaged-production-identity-reproduction-and-correction-a09).
+This certifies current packaged startup, **not upgrade/uninstall or signed updates**; those remain separate release gates.
+The older 0.7.3 installer results do not certify 0.9.1 upgrades. macOS/Linux native webviews remain missing acceptance.
+An installed HiveTeX and the E2E executable have different identifiers and can coexist intentionally; compiler and
+WebView workers do not constitute duplicate application owners.

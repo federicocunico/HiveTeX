@@ -191,10 +191,12 @@ test('the status bar and PDF bar speak plainly', async ({ browser }) => {
   await expect(p.getByTestId('statusbar')).toContainText('Saved on this device');
   await expect(p.getByTestId('peer-count')).toHaveText('No co-authors online');
   // Every build runs on this device: the indicator says so, and there is no build mode to choose.
+  await p.getByTestId('status-details').click();
   await expect(p.getByTestId('compile-mode')).toHaveText('Build: this device');
   await expect(p.getByTestId('compile-location')).toHaveText('Compiles on this device');
   await expect(p.locator('select[data-testid=compile-mode]')).toHaveCount(0);
   await expect(p.getByTestId('no-peer-compiler')).toHaveCount(0);
+  await p.keyboard.press('Escape');
   await p.getByRole('button', { name: 'Recompile' }).click();
   await expect(p.getByTestId('compiled-by')).toBeVisible({ timeout: 30_000 });
   await expect(p.getByTestId('stale-badge')).toBeHidden();

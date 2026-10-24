@@ -1,6 +1,7 @@
 <script lang="ts">
   import { type PdfPosition, type SyncIndex, reverseSearch } from '@hivetex/compile';
   import { onDestroy, untrack } from 'svelte';
+  import { PdfRenderer } from '../lib/pdf-renderer.js';
   import { ChevronDown, ChevronUp, PanelRight, ZoomIn, ZoomOut } from '../ui/icons.js';
   import IconButton from '../ui/IconButton.svelte';
 
@@ -33,64 +34,26 @@
   let current = $state(1);
   let error = $state('');
   let rendering = $state(false);
-  // biome-ignore lint/suspicious/noExplicitAny: pdf.js document type is loaded lazily
-  let doc: any = null;
-  let token = 0;
+  let pages: HTMLDivElement;
+  let renderer: PdfRenderer | null = null;
+  let jumpToHighlight = false;
+  let highlightRevision = -1;
 
-  /** Frees a rendered document. pdf.js 6 keeps destroy() on the loading task; older versions had it on the document. */
-  // biome-ignore lint/suspicious/noExplicitAny: pdf.js document type is loaded lazily
-  function dispose(d: any) {
-    if (!d) return;
-    if (typeof d.destroy === 'function') void d.destroy();
-    else if (typeof d.loadingTask?.destroy === 'function') void d.loadingTask.destroy();
-  }
-
-  async function render() {
-    if (!pdf) return;
-    const my = ++token;
-    rendering = true;
-    error = '';
-    try {
+  function render() {
+    if (!scroller || !pages) return;
+    renderer ??= new PdfRenderer(scroller, async (data) => {
       const pdfjs = await import('pdfjs-dist');
       pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
-      dispose(doc);
-      doc = await pdfjs.getDocument({ data: pdf.slice(), useSystemFonts: false }).promise;
-      if (my !== token) return;
-      pageCount = doc.numPages;
-      const top = scroller?.scrollTop ?? 0;
-      const frag = document.createDocumentFragment();
-      const dpr = window.devicePixelRatio || 1;
-      for (let n = 1; n <= doc.numPages; n++) {
-        const page = await doc.getPage(n);
-        if (my !== token) return;
-        const vp = page.getViewport({ scale: zoom });
-        const wrap = document.createElement('div');
-        wrap.className = 'page-wrap';
-        wrap.dataset.page = String(n);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.floor(vp.width * dpr);
-        canvas.height = Math.floor(vp.height * dpr);
-        canvas.style.width = `${Math.floor(vp.width)}px`;
-        canvas.style.height = `${Math.floor(vp.height)}px`;
-        wrap.append(canvas);
-        frag.append(wrap);
-        const ctx = canvas.getContext('2d');
-        if (ctx) await page.render({ canvasContext: ctx, viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined }).promise;
-      }
-      if (my !== token) return;
-      scroller.replaceChildren(frag);
-      scroller.scrollTop = top;
-      drawHighlight();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Could not render the PDF';
-    } finally {
-      if (my === token) rendering = false;
-    }
+      return pdfjs.getDocument({ data, useSystemFonts: false });
+    }, (state) => {
+      pageCount = state.pages; current = state.current; rendering = state.loading; error = state.error;
+    }, () => drawHighlight(jumpToHighlight), pages);
+    void renderer.show(pdf, zoom);
   }
 
-  function drawHighlight() {
+  function drawHighlight(scroll = true) {
     scroller?.querySelectorAll('.hl').forEach((el) => el.remove());
-    if (!highlight || !scroller) return;
+    if (!highlight || !syncIndex || highlightRevision !== rev || !scroller || !renderer?.ready) return;
     const wrap = scroller.querySelector<HTMLElement>(`.page-wrap[data-page="${highlight.page}"]`);
     if (!wrap) return;
     const el = document.createElement('div');
@@ -100,33 +63,26 @@
     el.style.width = `${Math.max(highlight.w * zoom, 30) + 4}px`;
     el.style.height = `${Math.max(highlight.h * zoom, 10) + 4}px`;
     wrap.append(el);
-    wrap.scrollIntoView({ block: 'center' });
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (scroll) {
+      jumpToHighlight = false;
+      renderer.goto(highlight.page);
+      // Scroll only the preview; source focus and outer workspace position stay put.
+      scroller.scrollTop = wrap.offsetTop + highlight.y * zoom - scroller.clientHeight / 2;
+      scroller.scrollLeft = Math.max(0, wrap.offsetLeft + highlight.x * zoom - scroller.clientWidth / 2);
+      renderer.update();
+    }
   }
 
   function onDblClick(ev: MouseEvent) {
     const wrap = (ev.target as HTMLElement).closest<HTMLElement>('.page-wrap');
-    if (!wrap || !syncIndex) return;
+    if (!wrap || !syncIndex || !renderer?.ready) return;
     const rect = wrap.getBoundingClientRect();
     const r = reverseSearch(syncIndex, Number(wrap.dataset.page), (ev.clientX - rect.left) / zoom, (ev.clientY - rect.top) / zoom);
     if (r) onReverse?.(r.file, r.line);
   }
 
-  function onScroll() {
-    const wraps = scroller.querySelectorAll<HTMLElement>('.page-wrap');
-    const mid = scroller.scrollTop + scroller.clientHeight / 3;
-    for (const w of wraps) {
-      if (w.offsetTop + w.offsetHeight > mid) {
-        current = Number(w.dataset.page);
-        break;
-      }
-    }
-  }
-
-  function goto(n: number) {
-    const w = scroller.querySelector<HTMLElement>(`.page-wrap[data-page="${n}"]`);
-    if (w) scroller.scrollTo({ top: w.offsetTop - 12, behavior: 'smooth' });
-  }
+  function onScroll() { renderer?.update(); }
+  function goto(n: number) { renderer?.goto(n); }
 
   $effect(() => {
     void rev;
@@ -136,17 +92,16 @@
 
   $effect(() => {
     void highlight;
-    untrack(drawHighlight);
+    untrack(() => { highlightRevision = rev; jumpToHighlight = !!highlight; drawHighlight(); });
   });
+
+  $effect(() => { void syncIndex; untrack(() => drawHighlight(false)); });
 
   const staleText = $derived(
     editsSincePdf > 0 ? `Outdated: ${editsSincePdf} edit${editsSincePdf === 1 ? '' : 's'} since the last compile` : 'Outdated',
   );
 
-  onDestroy(() => {
-    token++;
-    dispose(doc);
-  });
+  onDestroy(() => renderer?.close());
 </script>
 
 
@@ -174,6 +129,7 @@
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (scrollable regions must be keyboard-focusable, WCAG 2.1.1) -->
   <div class="pdf-scroll" bind:this={scroller} onscroll={onScroll} ondblclick={onDblClick} role="document" aria-label="PDF preview" tabindex="0" data-testid="pdf-scroll">
+    <div class="pages" bind:this={pages}></div>
     {#if !pdf}
       <div class="nopdf">
         <p><strong>No PDF yet.</strong></p>
@@ -198,7 +154,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    min-height: 40px;
+    min-height: var(--pane-header-h);
     padding: 0 6px 0 10px;
     background: var(--surface);
     border-bottom: 1px solid var(--line);
@@ -209,6 +165,9 @@
   .pdf-bar :global(.pill) {
     flex: none;
     white-space: nowrap;
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
   .by {
     margin-left: 6px;
@@ -252,6 +211,7 @@
     background: var(--line);
   }
   .pdf-scroll {
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow: auto;
@@ -268,6 +228,8 @@
   .pdf-scroll :global(.page-wrap) {
     position: relative;
     width: max-content;
+    background: var(--pdf-paper);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
     margin: 0 auto 16px;
   }
   .pdf-scroll :global(.page-wrap canvas) {

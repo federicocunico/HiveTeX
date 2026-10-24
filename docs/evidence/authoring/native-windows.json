@@ -1,0 +1,1764 @@
+{
+  "identifier": "app.hivetex.desktop.e2e",
+  "exe": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\hivetex-desktop.exe",
+  "pid": 53540,
+  "webview": "155.0.4283.62",
+  "engine": "native",
+  "lifecycle": [
+    {
+      "stage": "before managed compiler setup",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 53540,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "children": [
+        {
+          "ProcessId": 59204,
+          "ParentProcessId": 53540,
+          "Name": "conhost.exe",
+          "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+        },
+        {
+          "ProcessId": 70508,
+          "ParentProcessId": 53540,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 55200,
+          "ParentProcessId": 53540,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "stage": "managed compiler setup requested, secondary exited",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 53540,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "children": [
+        {
+          "ProcessId": 59204,
+          "ParentProcessId": 53540,
+          "Name": "conhost.exe",
+          "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+        },
+        {
+          "ProcessId": 70508,
+          "ParentProcessId": 53540,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 55200,
+          "ParentProcessId": 53540,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "stage": "managed compiler setup completed",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 53540,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "children": [
+        {
+          "ProcessId": 59204,
+          "ParentProcessId": 53540,
+          "Name": "conhost.exe",
+          "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+        },
+        {
+          "ProcessId": 70508,
+          "ParentProcessId": 53540,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 55200,
+          "ParentProcessId": 53540,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "stage": "compiler detected, before manual build",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 53540,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "children": [
+        {
+          "ProcessId": 59204,
+          "ParentProcessId": 53540,
+          "Name": "conhost.exe",
+          "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+        },
+        {
+          "ProcessId": 70508,
+          "ParentProcessId": 53540,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 55200,
+          "ParentProcessId": 53540,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "stage": "manual build requested",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 53540,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "children": [
+        {
+          "ProcessId": 59204,
+          "ParentProcessId": 53540,
+          "Name": "conhost.exe",
+          "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+        },
+        {
+          "ProcessId": 70508,
+          "ParentProcessId": 53540,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 55200,
+          "ParentProcessId": 53540,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        },
+        {
+          "ProcessId": 63200,
+          "ParentProcessId": 53540,
+          "Name": "latexmk.exe",
+          "ExecutablePath": "C:\\Users\\feder\\AppData\\Roaming\\app.hivetex.desktop.e2e\\tinytex\\bin\\windows\\latexmk.exe"
+        }
+      ]
+    },
+    {
+      "stage": "automatic build completed",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 53540,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "children": [
+        {
+          "ProcessId": 59204,
+          "ParentProcessId": 53540,
+          "Name": "conhost.exe",
+          "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+        },
+        {
+          "ProcessId": 70508,
+          "ParentProcessId": 53540,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 55200,
+          "ParentProcessId": 53540,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    }
+  ],
+  "geometry": [
+    {
+      "editorFontSize": 11,
+      "width": 1440,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 2,
+          "top": 146.14584350585938,
+          "gutter": 146.14584350585938,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 3,
+          "top": 164.2916717529297,
+          "gutter": 164.2916717529297,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 4,
+          "top": 182.4375,
+          "gutter": 182.4375,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 5,
+          "top": 200.58334350585938,
+          "gutter": 200.58334350585938,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6,
+          "top": 218.7291717529297,
+          "gutter": 218.7291717529297,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 7,
+          "top": 236.875,
+          "gutter": 236.875,
+          "delta": 0,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 8,
+          "top": 327.60418701171875,
+          "gutter": 327.60418701171875,
+          "delta": 0,
+          "height": 108.875
+        },
+        {
+          "line": 9,
+          "top": 436.47918701171875,
+          "gutter": 436.47918701171875,
+          "delta": 0,
+          "height": 145.1666717529297
+        },
+        {
+          "line": 10,
+          "top": 581.6458740234375,
+          "gutter": 581.6458740234375,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 11,
+          "top": 617.9375,
+          "gutter": 617.9375,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 12,
+          "top": 654.2291870117188,
+          "gutter": 654.2291870117188,
+          "delta": 0,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 13,
+          "top": 744.9583740234375,
+          "gutter": 744.9583740234375,
+          "delta": 0,
+          "height": 108.875
+        }
+      ],
+      "collapsed": [],
+      "font": "11px",
+      "lineHeight": "18.15px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 11,
+      "width": 1440,
+      "line": 1900,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1903,
+          "top": 117.91667175292969,
+          "gutter": 117.91667175292969,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 1904,
+          "top": 154.20834350585938,
+          "gutter": 154.20834350585938,
+          "delta": 0,
+          "height": 145.1666717529297
+        },
+        {
+          "line": 1905,
+          "top": 299.375,
+          "gutter": 299.375,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 1906,
+          "top": 335.66668701171875,
+          "gutter": 335.66668701171875,
+          "delta": 0,
+          "height": 72.58333587646484
+        },
+        {
+          "line": 1907,
+          "top": 408.25,
+          "gutter": 408.25,
+          "delta": 0,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 1908,
+          "top": 498.97918701171875,
+          "gutter": 498.97918701171875,
+          "delta": 0,
+          "height": 127.02083587646484
+        },
+        {
+          "line": 1909,
+          "top": 626,
+          "gutter": 626,
+          "delta": 0,
+          "height": 145.1666717529297
+        },
+        {
+          "line": 1910,
+          "top": 771.1666870117188,
+          "gutter": 771.1666870117188,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 1911,
+          "top": 807.4583740234375,
+          "gutter": 807.4583740234375,
+          "delta": 0,
+          "height": 72.58333587646484
+        }
+      ],
+      "collapsed": [],
+      "font": "11px",
+      "lineHeight": "18.15px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 11,
+      "width": 1440,
+      "line": 6100,
+      "maxDelta": 0.0208740234375,
+      "rows": [
+        {
+          "line": 6098,
+          "top": -4.958333492279053,
+          "gutter": -4.9375,
+          "delta": 0.020833492279052734,
+          "height": 127.02083587646484
+        },
+        {
+          "line": 6099,
+          "top": 122.0625,
+          "gutter": 122.08333587646484,
+          "delta": 0.02083587646484375,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6100,
+          "top": 140.20834350585938,
+          "gutter": 140.2291717529297,
+          "delta": 0.0208282470703125,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 6101,
+          "top": 176.5,
+          "gutter": 176.52084350585938,
+          "delta": 0.020843505859375,
+          "height": 72.58333587646484
+        },
+        {
+          "line": 6102,
+          "top": 249.08334350585938,
+          "gutter": 249.1041717529297,
+          "delta": 0.0208282470703125,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6103,
+          "top": 267.22918701171875,
+          "gutter": 267.25,
+          "delta": 0.02081298828125,
+          "height": 127.02083587646484
+        },
+        {
+          "line": 6104,
+          "top": 394.25,
+          "gutter": 394.2708435058594,
+          "delta": 0.020843505859375,
+          "height": 145.1666717529297
+        },
+        {
+          "line": 6105,
+          "top": 539.4166870117188,
+          "gutter": 539.4375,
+          "delta": 0.02081298828125,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6106,
+          "top": 557.5625,
+          "gutter": 557.5833740234375,
+          "delta": 0.0208740234375,
+          "height": 72.58333587646484
+        },
+        {
+          "line": 6107,
+          "top": 630.1458740234375,
+          "gutter": 630.1666870117188,
+          "delta": 0.02081298828125,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6108,
+          "top": 648.2916870117188,
+          "gutter": 648.3125,
+          "delta": 0.02081298828125,
+          "height": 127.02083587646484
+        },
+        {
+          "line": 6109,
+          "top": 775.3125,
+          "gutter": 775.3333740234375,
+          "delta": 0.0208740234375,
+          "height": 145.1666717529297
+        }
+      ],
+      "collapsed": [],
+      "font": "11px",
+      "lineHeight": "18.15px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 11,
+      "width": 1180,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 2,
+          "top": 146.14584350585938,
+          "gutter": 146.14584350585938,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 3,
+          "top": 164.2916717529297,
+          "gutter": 164.2916717529297,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 4,
+          "top": 182.4375,
+          "gutter": 182.4375,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 5,
+          "top": 200.58334350585938,
+          "gutter": 200.58334350585938,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6,
+          "top": 218.7291717529297,
+          "gutter": 218.7291717529297,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 7,
+          "top": 236.875,
+          "gutter": 236.875,
+          "delta": 0,
+          "height": 127.02083587646484
+        },
+        {
+          "line": 8,
+          "top": 363.8958435058594,
+          "gutter": 363.8958435058594,
+          "delta": 0,
+          "height": 163.3125
+        },
+        {
+          "line": 9,
+          "top": 527.2083740234375,
+          "gutter": 527.2083740234375,
+          "delta": 0,
+          "height": 199.6041717529297
+        },
+        {
+          "line": 10,
+          "top": 726.8125,
+          "gutter": 726.8125,
+          "delta": 0,
+          "height": 54.4375
+        },
+        {
+          "line": 11,
+          "top": 781.25,
+          "gutter": 781.25,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 12,
+          "top": 817.5416870117188,
+          "gutter": 817.5416870117188,
+          "delta": 0,
+          "height": 127.02083587646484
+        }
+      ],
+      "collapsed": [],
+      "font": "11px",
+      "lineHeight": "18.15px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 11,
+      "width": 1180,
+      "line": 1900,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1899,
+          "top": -71.70833587646484,
+          "gutter": -71.70833587646484,
+          "delta": 0,
+          "height": 199.6041717529297
+        },
+        {
+          "line": 1900,
+          "top": 127.89583587646484,
+          "gutter": 127.89583587646484,
+          "delta": 0,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 1901,
+          "top": 146.0416717529297,
+          "gutter": 146.0416717529297,
+          "delta": 0,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 1902,
+          "top": 236.77084350585938,
+          "gutter": 236.77084350585938,
+          "delta": 0,
+          "height": 127.02083587646484
+        },
+        {
+          "line": 1903,
+          "top": 363.79168701171875,
+          "gutter": 363.79168701171875,
+          "delta": 0,
+          "height": 36.29166793823242
+        },
+        {
+          "line": 1904,
+          "top": 400.0833435058594,
+          "gutter": 400.0833435058594,
+          "delta": 0,
+          "height": 199.6041717529297
+        },
+        {
+          "line": 1905,
+          "top": 599.6875,
+          "gutter": 599.6875,
+          "delta": 0,
+          "height": 54.4375
+        },
+        {
+          "line": 1906,
+          "top": 654.125,
+          "gutter": 654.125,
+          "delta": 0,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 1907,
+          "top": 744.8541870117188,
+          "gutter": 744.8541870117188,
+          "delta": 0,
+          "height": 127.02083587646484
+        }
+      ],
+      "collapsed": [],
+      "font": "11px",
+      "lineHeight": "18.15px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 11,
+      "width": 1180,
+      "line": 6100,
+      "maxDelta": 0.0208740234375,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 110.125,
+          "gutter": 110.14583587646484,
+          "delta": 0.02083587646484375,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6100,
+          "top": 128.27084350585938,
+          "gutter": 128.2916717529297,
+          "delta": 0.0208282470703125,
+          "height": 54.4375
+        },
+        {
+          "line": 6101,
+          "top": 182.70834350585938,
+          "gutter": 182.7291717529297,
+          "delta": 0.0208282470703125,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 6102,
+          "top": 273.4375,
+          "gutter": 273.4583435058594,
+          "delta": 0.020843505859375,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6103,
+          "top": 291.5833435058594,
+          "gutter": 291.60418701171875,
+          "delta": 0.020843505859375,
+          "height": 163.3125
+        },
+        {
+          "line": 6104,
+          "top": 454.8958435058594,
+          "gutter": 454.91668701171875,
+          "delta": 0.020843505859375,
+          "height": 199.6041717529297
+        },
+        {
+          "line": 6105,
+          "top": 654.5,
+          "gutter": 654.5208740234375,
+          "delta": 0.0208740234375,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6106,
+          "top": 672.6458740234375,
+          "gutter": 672.6666870117188,
+          "delta": 0.02081298828125,
+          "height": 90.72917175292969
+        },
+        {
+          "line": 6107,
+          "top": 763.375,
+          "gutter": 763.3958740234375,
+          "delta": 0.0208740234375,
+          "height": 18.14583396911621
+        },
+        {
+          "line": 6108,
+          "top": 781.5208740234375,
+          "gutter": 781.5416870117188,
+          "delta": 0.02081298828125,
+          "height": 163.3125
+        }
+      ],
+      "collapsed": [],
+      "font": "11px",
+      "lineHeight": "18.15px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 14,
+      "width": 1440,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 2,
+          "top": 151.09375,
+          "gutter": 151.09375,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 3,
+          "top": 174.1875,
+          "gutter": 174.1875,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 4,
+          "top": 197.28125,
+          "gutter": 197.28125,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 5,
+          "top": 220.375,
+          "gutter": 220.375,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 6,
+          "top": 243.46875,
+          "gutter": 243.46875,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 7,
+          "top": 266.5625,
+          "gutter": 266.5625,
+          "delta": 0,
+          "height": 138.5625
+        },
+        {
+          "line": 8,
+          "top": 405.125,
+          "gutter": 405.125,
+          "delta": 0,
+          "height": 184.75
+        },
+        {
+          "line": 9,
+          "top": 589.875,
+          "gutter": 589.875,
+          "delta": 0,
+          "height": 230.9375
+        },
+        {
+          "line": 10,
+          "top": 820.8125,
+          "gutter": 820.8125,
+          "delta": 0,
+          "height": 69.28125
+        }
+      ],
+      "collapsed": [],
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 14,
+      "width": 1440,
+      "line": 1900,
+      "maxDelta": 0.01043701171875,
+      "rows": [
+        {
+          "line": 1901,
+          "top": 85.39583587646484,
+          "gutter": 85.38542175292969,
+          "delta": 0.01041412353515625,
+          "height": 92.375
+        },
+        {
+          "line": 1902,
+          "top": 177.77084350585938,
+          "gutter": 177.7604217529297,
+          "delta": 0.0104217529296875,
+          "height": 138.5625
+        },
+        {
+          "line": 1903,
+          "top": 316.3333435058594,
+          "gutter": 316.32293701171875,
+          "delta": 0.010406494140625,
+          "height": 46.1875
+        },
+        {
+          "line": 1904,
+          "top": 362.5208435058594,
+          "gutter": 362.51043701171875,
+          "delta": 0.010406494140625,
+          "height": 230.9375
+        },
+        {
+          "line": 1905,
+          "top": 593.4583740234375,
+          "gutter": 593.4479370117188,
+          "delta": 0.01043701171875,
+          "height": 69.28125
+        },
+        {
+          "line": 1906,
+          "top": 662.7396240234375,
+          "gutter": 662.7291870117188,
+          "delta": 0.01043701171875,
+          "height": 92.375
+        },
+        {
+          "line": 1907,
+          "top": 755.1146240234375,
+          "gutter": 755.1041870117188,
+          "delta": 0.01043701171875,
+          "height": 138.5625
+        }
+      ],
+      "collapsed": [],
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 14,
+      "width": 1440,
+      "line": 6100,
+      "maxDelta": 0.01043701171875,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 104.33333587646484,
+          "gutter": 104.32292175292969,
+          "delta": 0.01041412353515625,
+          "height": 23.09375
+        },
+        {
+          "line": 6100,
+          "top": 127.42708587646484,
+          "gutter": 127.41667175292969,
+          "delta": 0.01041412353515625,
+          "height": 69.28125
+        },
+        {
+          "line": 6101,
+          "top": 196.70834350585938,
+          "gutter": 196.6979217529297,
+          "delta": 0.0104217529296875,
+          "height": 92.375
+        },
+        {
+          "line": 6102,
+          "top": 289.0833435058594,
+          "gutter": 289.07293701171875,
+          "delta": 0.010406494140625,
+          "height": 23.09375
+        },
+        {
+          "line": 6103,
+          "top": 312.1770935058594,
+          "gutter": 312.16668701171875,
+          "delta": 0.010406494140625,
+          "height": 184.75
+        },
+        {
+          "line": 6104,
+          "top": 496.9270935058594,
+          "gutter": 496.91668701171875,
+          "delta": 0.010406494140625,
+          "height": 230.9375
+        },
+        {
+          "line": 6105,
+          "top": 727.8646240234375,
+          "gutter": 727.8541870117188,
+          "delta": 0.01043701171875,
+          "height": 23.09375
+        },
+        {
+          "line": 6106,
+          "top": 750.9583740234375,
+          "gutter": 750.9479370117188,
+          "delta": 0.01043701171875,
+          "height": 92.375
+        }
+      ],
+      "collapsed": [],
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 14,
+      "width": 1180,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 2,
+          "top": 151.09375,
+          "gutter": 151.09375,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 3,
+          "top": 174.1875,
+          "gutter": 174.1875,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 4,
+          "top": 197.28125,
+          "gutter": 197.28125,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 5,
+          "top": 220.375,
+          "gutter": 220.375,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 6,
+          "top": 243.46875,
+          "gutter": 243.46875,
+          "delta": 0,
+          "height": 23.09375
+        },
+        {
+          "line": 7,
+          "top": 266.5625,
+          "gutter": 266.5625,
+          "delta": 0,
+          "height": 207.84375
+        },
+        {
+          "line": 8,
+          "top": 474.40625,
+          "gutter": 474.40625,
+          "delta": 0,
+          "height": 254.03125
+        },
+        {
+          "line": 9,
+          "top": 728.4375,
+          "gutter": 728.4375,
+          "delta": 0,
+          "height": 323.3125
+        }
+      ],
+      "collapsed": [],
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 14,
+      "width": 1180,
+      "line": 1900,
+      "maxDelta": 0.01043701171875,
+      "rows": [
+        {
+          "line": 1899,
+          "top": -195.73959350585938,
+          "gutter": -195.75,
+          "delta": 0.010406494140625,
+          "height": 323.3125
+        },
+        {
+          "line": 1900,
+          "top": 127.57292175292969,
+          "gutter": 127.5625,
+          "delta": 0.0104217529296875,
+          "height": 46.1875
+        },
+        {
+          "line": 1901,
+          "top": 173.7604217529297,
+          "gutter": 173.75,
+          "delta": 0.0104217529296875,
+          "height": 138.5625
+        },
+        {
+          "line": 1902,
+          "top": 312.32293701171875,
+          "gutter": 312.3125,
+          "delta": 0.01043701171875,
+          "height": 207.84375
+        },
+        {
+          "line": 1903,
+          "top": 520.1666870117188,
+          "gutter": 520.15625,
+          "delta": 0.01043701171875,
+          "height": 69.28125
+        },
+        {
+          "line": 1904,
+          "top": 589.4479370117188,
+          "gutter": 589.4375,
+          "delta": 0.01043701171875,
+          "height": 323.3125
+        }
+      ],
+      "collapsed": [],
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 14,
+      "width": 1180,
+      "line": 6100,
+      "maxDelta": 0.01043701171875,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 81.86458587646484,
+          "gutter": 81.85417175292969,
+          "delta": 0.01041412353515625,
+          "height": 46.1875
+        },
+        {
+          "line": 6100,
+          "top": 128.05209350585938,
+          "gutter": 128.0416717529297,
+          "delta": 0.0104217529296875,
+          "height": 69.28125
+        },
+        {
+          "line": 6101,
+          "top": 197.33334350585938,
+          "gutter": 197.3229217529297,
+          "delta": 0.0104217529296875,
+          "height": 138.5625
+        },
+        {
+          "line": 6102,
+          "top": 335.8958435058594,
+          "gutter": 335.88543701171875,
+          "delta": 0.010406494140625,
+          "height": 23.09375
+        },
+        {
+          "line": 6103,
+          "top": 358.9895935058594,
+          "gutter": 358.97918701171875,
+          "delta": 0.010406494140625,
+          "height": 254.03125
+        },
+        {
+          "line": 6104,
+          "top": 613.0208740234375,
+          "gutter": 613.0104370117188,
+          "delta": 0.01043701171875,
+          "height": 323.3125
+        }
+      ],
+      "collapsed": [],
+      "font": "14px",
+      "lineHeight": "23.1px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 18,
+      "width": 1440,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 2,
+          "top": 157.6979217529297,
+          "gutter": 157.6979217529297,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 3,
+          "top": 187.39584350585938,
+          "gutter": 187.39584350585938,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 4,
+          "top": 217.09375,
+          "gutter": 217.09375,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 5,
+          "top": 246.7916717529297,
+          "gutter": 246.7916717529297,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 6,
+          "top": 276.4895935058594,
+          "gutter": 276.4895935058594,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 7,
+          "top": 306.1875,
+          "gutter": 306.1875,
+          "delta": 0,
+          "height": 237.58334350585938
+        },
+        {
+          "line": 8,
+          "top": 543.7708740234375,
+          "gutter": 543.7708740234375,
+          "delta": 0,
+          "height": 326.6770935058594
+        }
+      ],
+      "collapsed": [],
+      "font": "18px",
+      "lineHeight": "29.7px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 18,
+      "width": 1440,
+      "line": 1900,
+      "maxDelta": 0.0104217529296875,
+      "rows": [
+        {
+          "line": 1901,
+          "top": 52.25,
+          "gutter": 52.26041793823242,
+          "delta": 0.010417938232421875,
+          "height": 178.1875
+        },
+        {
+          "line": 1902,
+          "top": 230.4375,
+          "gutter": 230.4479217529297,
+          "delta": 0.0104217529296875,
+          "height": 237.58334350585938
+        },
+        {
+          "line": 1903,
+          "top": 468.0208435058594,
+          "gutter": 468.03125,
+          "delta": 0.010406494140625,
+          "height": 89.09375
+        },
+        {
+          "line": 1904,
+          "top": 557.1146240234375,
+          "gutter": 557.125,
+          "delta": 0.0103759765625,
+          "height": 386.07293701171875
+        }
+      ],
+      "collapsed": [],
+      "font": "18px",
+      "lineHeight": "29.7px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 18,
+      "width": 1440,
+      "line": 6100,
+      "maxDelta": 0.03125,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 68.29167175292969,
+          "gutter": 68.26042175292969,
+          "delta": 0.03125,
+          "height": 59.395835876464844
+        },
+        {
+          "line": 6100,
+          "top": 127.6875,
+          "gutter": 127.65625,
+          "delta": 0.03125,
+          "height": 89.09375
+        },
+        {
+          "line": 6101,
+          "top": 216.78125,
+          "gutter": 216.75,
+          "delta": 0.03125,
+          "height": 178.1875
+        },
+        {
+          "line": 6102,
+          "top": 394.96875,
+          "gutter": 394.9375,
+          "delta": 0.03125,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 6103,
+          "top": 424.66668701171875,
+          "gutter": 424.63543701171875,
+          "delta": 0.03125,
+          "height": 326.6770935058594
+        },
+        {
+          "line": 6104,
+          "top": 751.34375,
+          "gutter": 751.3125,
+          "delta": 0.03125,
+          "height": 386.07293701171875
+        }
+      ],
+      "collapsed": [],
+      "font": "18px",
+      "lineHeight": "29.7px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 18,
+      "width": 1180,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 2,
+          "top": 157.6979217529297,
+          "gutter": 157.6979217529297,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 3,
+          "top": 187.39584350585938,
+          "gutter": 187.39584350585938,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 4,
+          "top": 217.09375,
+          "gutter": 217.09375,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 5,
+          "top": 246.7916717529297,
+          "gutter": 246.7916717529297,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 6,
+          "top": 276.4895935058594,
+          "gutter": 276.4895935058594,
+          "delta": 0,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 7,
+          "top": 306.1875,
+          "gutter": 306.1875,
+          "delta": 0,
+          "height": 356.375
+        },
+        {
+          "line": 8,
+          "top": 662.5625,
+          "gutter": 662.5625,
+          "delta": 0,
+          "height": 445.46875
+        }
+      ],
+      "collapsed": [],
+      "font": "18px",
+      "lineHeight": "29.7px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 18,
+      "width": 1180,
+      "line": 1900,
+      "maxDelta": 0.0104217529296875,
+      "rows": [
+        {
+          "line": 1899,
+          "top": -436.46875,
+          "gutter": -436.4583435058594,
+          "delta": 0.010406494140625,
+          "height": 564.2604370117188
+        },
+        {
+          "line": 1900,
+          "top": 127.79167175292969,
+          "gutter": 127.80208587646484,
+          "delta": 0.01041412353515625,
+          "height": 59.395835876464844
+        },
+        {
+          "line": 1901,
+          "top": 187.1875,
+          "gutter": 187.1979217529297,
+          "delta": 0.0104217529296875,
+          "height": 237.58334350585938
+        },
+        {
+          "line": 1902,
+          "top": 424.7708435058594,
+          "gutter": 424.78125,
+          "delta": 0.010406494140625,
+          "height": 356.375
+        },
+        {
+          "line": 1903,
+          "top": 781.1458740234375,
+          "gutter": 781.15625,
+          "delta": 0.0103759765625,
+          "height": 89.09375
+        }
+      ],
+      "collapsed": [],
+      "font": "18px",
+      "lineHeight": "29.7px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 18,
+      "width": 1180,
+      "line": 6100,
+      "maxDelta": 0.03125,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 68.36458587646484,
+          "gutter": 68.33333587646484,
+          "delta": 0.03125,
+          "height": 59.395835876464844
+        },
+        {
+          "line": 6100,
+          "top": 127.76042175292969,
+          "gutter": 127.72917175292969,
+          "delta": 0.03125,
+          "height": 148.48959350585938
+        },
+        {
+          "line": 6101,
+          "top": 276.25,
+          "gutter": 276.21875,
+          "delta": 0.03125,
+          "height": 237.58334350585938
+        },
+        {
+          "line": 6102,
+          "top": 513.8333740234375,
+          "gutter": 513.8021240234375,
+          "delta": 0.03125,
+          "height": 29.697917938232422
+        },
+        {
+          "line": 6103,
+          "top": 543.53125,
+          "gutter": 543.5,
+          "delta": 0.03125,
+          "height": 475.16668701171875
+        }
+      ],
+      "collapsed": [],
+      "font": "18px",
+      "lineHeight": "29.7px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 24,
+      "width": 1440,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 2,
+          "top": 167.59375,
+          "gutter": 167.59375,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 3,
+          "top": 207.1875,
+          "gutter": 207.1875,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 4,
+          "top": 246.78125,
+          "gutter": 246.78125,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 5,
+          "top": 286.375,
+          "gutter": 286.375,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 6,
+          "top": 325.96875,
+          "gutter": 325.96875,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 7,
+          "top": 365.5625,
+          "gutter": 365.5625,
+          "delta": 0,
+          "height": 475.125
+        }
+      ],
+      "collapsed": [],
+      "font": "24px",
+      "lineHeight": "39.6px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 24,
+      "width": 1440,
+      "line": 1900,
+      "maxDelta": 0.01043701171875,
+      "rows": [
+        {
+          "line": 1901,
+          "top": -16.229167938232422,
+          "gutter": -16.23958396911621,
+          "delta": 0.010416030883789062,
+          "height": 316.75
+        },
+        {
+          "line": 1902,
+          "top": 300.5208435058594,
+          "gutter": 300.51043701171875,
+          "delta": 0.010406494140625,
+          "height": 475.125
+        },
+        {
+          "line": 1903,
+          "top": 775.6458740234375,
+          "gutter": 775.6354370117188,
+          "delta": 0.01043701171875,
+          "height": 118.78125
+        }
+      ],
+      "collapsed": [],
+      "font": "24px",
+      "lineHeight": "39.6px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 24,
+      "width": 1440,
+      "line": 6100,
+      "maxDelta": 0.07291412353515625,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 48.427085876464844,
+          "gutter": 48.5,
+          "delta": 0.07291412353515625,
+          "height": 79.1875
+        },
+        {
+          "line": 6100,
+          "top": 127.61458587646484,
+          "gutter": 127.6875,
+          "delta": 0.07291412353515625,
+          "height": 197.96875
+        },
+        {
+          "line": 6101,
+          "top": 325.5833435058594,
+          "gutter": 325.65625,
+          "delta": 0.072906494140625,
+          "height": 316.75
+        },
+        {
+          "line": 6102,
+          "top": 642.3333740234375,
+          "gutter": 642.40625,
+          "delta": 0.0728759765625,
+          "height": 39.59375
+        },
+        {
+          "line": 6103,
+          "top": 681.9271240234375,
+          "gutter": 682,
+          "delta": 0.0728759765625,
+          "height": 633.5
+        }
+      ],
+      "collapsed": [],
+      "font": "24px",
+      "lineHeight": "39.6px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 24,
+      "width": 1180,
+      "line": 1,
+      "maxDelta": 0,
+      "rows": [
+        {
+          "line": 1,
+          "top": 128,
+          "gutter": 128,
+          "delta": 0,
+          "height": 79.1875
+        },
+        {
+          "line": 2,
+          "top": 207.1875,
+          "gutter": 207.1875,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 3,
+          "top": 246.78125,
+          "gutter": 246.78125,
+          "delta": 0,
+          "height": 79.1875
+        },
+        {
+          "line": 4,
+          "top": 325.96875,
+          "gutter": 325.96875,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 5,
+          "top": 365.5625,
+          "gutter": 365.5625,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 6,
+          "top": 405.15625,
+          "gutter": 405.15625,
+          "delta": 0,
+          "height": 39.59375
+        },
+        {
+          "line": 7,
+          "top": 444.75,
+          "gutter": 444.75,
+          "delta": 0,
+          "height": 633.5
+        }
+      ],
+      "collapsed": [],
+      "font": "24px",
+      "lineHeight": "39.6px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 24,
+      "width": 1180,
+      "line": 1900,
+      "maxDelta": 0.0208740234375,
+      "rows": [
+        {
+          "line": 1899,
+          "top": -901.4791870117188,
+          "gutter": -901.5,
+          "delta": 0.02081298828125,
+          "height": 1029.4375
+        },
+        {
+          "line": 1900,
+          "top": 127.95833587646484,
+          "gutter": 127.9375,
+          "delta": 0.02083587646484375,
+          "height": 118.78125
+        },
+        {
+          "line": 1901,
+          "top": 246.73959350585938,
+          "gutter": 246.71875,
+          "delta": 0.020843505859375,
+          "height": 435.53125
+        },
+        {
+          "line": 1902,
+          "top": 682.2708740234375,
+          "gutter": 682.25,
+          "delta": 0.0208740234375,
+          "height": 633.5
+        }
+      ],
+      "collapsed": [],
+      "font": "24px",
+      "lineHeight": "39.6px",
+      "documentOverflow": 0,
+      "selection": ""
+    },
+    {
+      "editorFontSize": 24,
+      "width": 1180,
+      "line": 6100,
+      "maxDelta": 0.020843505859375,
+      "rows": [
+        {
+          "line": 6099,
+          "top": 8.822916984558105,
+          "gutter": 8.802083969116211,
+          "delta": 0.02083301544189453,
+          "height": 118.78125
+        },
+        {
+          "line": 6100,
+          "top": 127.60417175292969,
+          "gutter": 127.58333587646484,
+          "delta": 0.02083587646484375,
+          "height": 237.5625
+        },
+        {
+          "line": 6101,
+          "top": 365.16668701171875,
+          "gutter": 365.1458435058594,
+          "delta": 0.020843505859375,
+          "height": 435.53125
+        },
+        {
+          "line": 6102,
+          "top": 800.6979370117188,
+          "gutter": 800.6771240234375,
+          "delta": 0.02081298828125,
+          "height": 79.1875
+        }
+      ],
+      "collapsed": [],
+      "font": "24px",
+      "lineHeight": "39.6px",
+      "documentOverflow": 0,
+      "selection": ""
+    }
+  ],
+  "missingAcceptance": [
+    "macOS WKWebView",
+    "Linux WebKitGTK"
+  ]
+}

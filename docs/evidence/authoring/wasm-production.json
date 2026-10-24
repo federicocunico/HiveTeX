@@ -1,0 +1,156 @@
+{
+    "recordedAt":  "2026-10-24T06:42:55Z",
+    "distribution":  "tl2019-5eed4a4ac9c250ecc67f2f74",
+    "manifestSha256":  "d6a5fdd75c4f7d0f64ac0132283c985c95ffed91ce2fdf91735336ee37eb7c78",
+    "resources":  4311,
+    "archiveCount":  46,
+    "packageCount":  21,
+    "release":  "TL2019-final / LaTeX 2020-02-02 / SwiftLaTeX v20022022",
+    "formats":  {
+                    "swiftlatexpdftex.fmt":  "3134ef8cbfa829780fc0b63b5320fb680e8f895f0c7f48ecb82af159098760ec",
+                    "swiftlatexxetex.fmt":  "fecae874377a2f7cb31811e41edabbda1e19f762d00630a8faa9fb12043b5e5f"
+                },
+    "engines":  {
+                    "swiftlatexpdftex.js":  "019ccf66c2981cc3a371ca8983f8a0f191952e28b5df3c0b41c2e3ed80f9be65",
+                    "swiftlatexpdftex.wasm":  "154d08cbb298191cefe1bdd9e47a909d60fc7a96fce5f2319bfc6878c5b61cf1",
+                    "swiftlatexxetex.js":  "238181805c9d8ffbb231d2ba09323145d485cf85847fc34b8c2168e7b886adb3",
+                    "swiftlatexxetex.wasm":  "dd7f4f8fe8b07b64c058683edd0298afa1998cfae461cab71bd2571e27ffb673",
+                    "swiftlatexdvipdfm.js":  "80d0620536e0a13afaf7ddcf0ccc00c758a6735313a4e962b3a5c8779058ac40",
+                    "swiftlatexdvipdfm.wasm":  "1bf8c0d424c87c1548d9d22d29251aa3308506fa6acc29d4f08dcd77ccc1f9b1"
+                },
+    "generatedWorkers":  {
+                             "swiftlatexpdftex.js":  "9eaeddedb768920866bac96d08a49f39a5f1e4d282a3ec5739c0e00eff0a6de6",
+                             "swiftlatexpdftex.wasm":  "154d08cbb298191cefe1bdd9e47a909d60fc7a96fce5f2319bfc6878c5b61cf1",
+                             "swiftlatexxetex.js":  "09634824b67c3a09f0f918c094a1dfa966ca1b0d5ea5953954b8c556c186e908",
+                             "swiftlatexxetex.wasm":  "dd7f4f8fe8b07b64c058683edd0298afa1998cfae461cab71bd2571e27ffb673",
+                             "swiftlatexdvipdfm.js":  "5773ba99ad103300ba28da8b9b82af36803f5840ee481a67f2a1e2ea7933e0c6",
+                             "swiftlatexdvipdfm.wasm":  "1bf8c0d424c87c1548d9d22d29251aa3308506fa6acc29d4f08dcd77ccc1f9b1"
+                         },
+    "checksums":  "scripts/tex-distribution.lock.json",
+    "productionAcceptance":  {
+                                 "command":  "pnpm exec playwright test --config playwright.production.config.ts --retries=0",
+                                 "result":  "2 passed",
+                                 "seconds":  20.6,
+                                 "fakeEngine":  false,
+                                 "customTexEndpoint":  false,
+                                 "applicationShellAndApiOnline":  true,
+                                 "compilerResourceNetworkBlockedOnReopen":  true,
+                                 "pdfs":  [
+                                              {
+                                                  "template":  "article",
+                                                  "engine":  "pdflatex",
+                                                  "stage":  "cold",
+                                                  "bytes":  103189,
+                                                  "sha256":  "bb5e921a5a4ea590ec2350ddead8d051991ec86f0b6cb1c77a42e5c80a38c10e"
+                                              },
+                                              {
+                                                  "template":  "article",
+                                                  "engine":  "pdflatex",
+                                                  "stage":  "warm",
+                                                  "bytes":  103189,
+                                                  "sha256":  "cc46a00e70efc3720624daf315a7e18bc8f9fd689aab918f2cdc879f0d23ec9a"
+                                              },
+                                              {
+                                                  "template":  "article",
+                                                  "engine":  "pdflatex",
+                                                  "stage":  "offline-reopen",
+                                                  "bytes":  103189,
+                                                  "sha256":  "ff37df6d6bff466c307439e6fa1ca05e5f936b023ac29e2d6befc57fb5fea67a"
+                                              },
+                                              {
+                                                  "template":  "report",
+                                                  "engine":  "xelatex",
+                                                  "stage":  "cold",
+                                                  "bytes":  47687,
+                                                  "sha256":  "9692c636973429d97b7a7d1ffd5a3966dbdef490afc73eb62afa84b814f532fd"
+                                              },
+                                              {
+                                                  "template":  "report",
+                                                  "engine":  "xelatex",
+                                                  "stage":  "warm",
+                                                  "bytes":  47687,
+                                                  "sha256":  "5b6e9357d6965c6147b9b0f9eacb6b03f308820000501f47717203135f76705b"
+                                              },
+                                              {
+                                                  "template":  "report",
+                                                  "engine":  "xelatex",
+                                                  "stage":  "offline-reopen",
+                                                  "bytes":  47687,
+                                                  "sha256":  "6f7256215a71a665a9c7dd3ff6d9b999bc4bbd5bde12333288bad6aa93e3c93f"
+                                              }
+                                          ]
+                             },
+    "directEngineMatrix":  [
+                               {
+                                   "template":  "report",
+                                   "engine":  "xelatex",
+                                   "stages":  [
+                                                  "cold",
+                                                  "warm",
+                                                  "offline-reopen"
+                                              ],
+                                   "result":  "passed",
+                                   "evidence":  "docs\\evidence\\authoring\\wasm-report-xelatex"
+                               },
+                               {
+                                   "template":  "article",
+                                   "engine":  "xelatex",
+                                   "stages":  [
+                                                  "cold",
+                                                  "warm",
+                                                  "offline-reopen"
+                                              ],
+                                   "result":  "passed",
+                                   "evidence":  "docs\\evidence\\authoring\\wasm-article-xelatex"
+                               },
+                               {
+                                   "template":  "article",
+                                   "engine":  "pdflatex",
+                                   "stages":  [
+                                                  "cold",
+                                                  "warm",
+                                                  "offline-reopen"
+                                              ],
+                                   "result":  "passed",
+                                   "evidence":  "docs\\evidence\\authoring\\wasm-article-pdflatex"
+                               },
+                               {
+                                   "template":  "report",
+                                   "engine":  "pdflatex",
+                                   "stages":  [
+                                                  "cold",
+                                                  "warm",
+                                                  "offline-reopen"
+                                              ],
+                                   "result":  "passed",
+                                   "evidence":  "docs\\evidence\\authoring\\wasm-report-pdflatex"
+                               }
+                           ],
+    "historicalCleanSetup":  {
+                                 "checkout":  "F:/github/p2platex-acceptance-20261023",
+                                 "newArchiveCache":  "F:/github/p2platex-acceptance-20261023/acceptance-temp-wasm",
+                                 "archiveBytesDownloaded":  128336928,
+                                 "buildSeconds":  27.52,
+                                 "normalization":  "Vendored JavaScript CRLF checkout is normalized to upstream LF before SHA-256 validation; WASM checked byte-for-byte.",
+                                 "distribution":  "tl2019-9192d084f8ad27a369bc2b0e",
+                                 "manifestSha256":  "d5effcb5212411eb1b96c610b42fc6db4eef97539dd70eb51d2ef1225dfa0ac8",
+                                 "identicalAcrossCheckoutsAtThatTime":  true
+                             },
+    "finalSelectiveChecks":  {
+                                 "date":  "2026-10-24",
+                                 "compilerTemplateMatrix":  "4 passed, each cold/warm/offline reopen",
+                                 "productionViteBuild":  "passed",
+                                 "productionUi":  "2 passed, each cold/warm/offline reopen",
+                                 "sourceCheckout":  "F:/github/p2platex",
+                                 "cleanCheckoutEqualityForCurrentDistribution":  "not measured"
+                             },
+    "historicalRegressionGates":  {
+                                      "browser":  "6 passed: four bundled combinations, legacy real compiler, package cache",
+                                      "webUnit":  "21 passed: WASM runner, service worker/adapter and CI policy",
+                                      "compilerUnit":  "27 passed: scheduler/local/failures",
+                                      "syncUnit":  "35 passed: worker runtime, availability, snapshot and history",
+                                      "rustCache":  "4 passed",
+                                      "frontend":  "0 errors, 12 existing warnings; initial JS 190.9 KiB gzip / 250 KiB budget",
+                                      "openspec":  "strict validation passed"
+                                  }
+}

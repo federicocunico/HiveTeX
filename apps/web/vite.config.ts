@@ -3,6 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
+import { distributionPath, prepareTexDistribution } from '../../scripts/tex-distribution.mjs';
 
 // Server the dev UI talks to through this proxy (`make dev` sets the hosted one; e2e and `make dev-local` use the
 // local API). The browser/webview sees same-origin /api, and the server sees its own origin, so its CORS and CSRF
@@ -13,10 +14,11 @@ const remote = !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(target);
 
 export default defineConfig({
   // svelteTesting only acts under Vitest (browser build of Svelte, DOM cleanup between component tests).
-  plugins: [svelte(), svelteTesting()],
+  plugins: [svelte(), svelteTesting(), { name: 'hivetex-tex-distribution', async buildStart() { if (!process.env.VITEST) await prepareTexDistribution(); } }],
   // Unit tests (vitest): see packages/sync/vitest.config.ts for why CI needs generous limits and fewer workers.
   test: { testTimeout: 30_000, hookTimeout: 30_000, ...(process.env.CI ? { maxWorkers: 2, minWorkers: 1 } : {}) },
   define: {
+    'import.meta.env.VITE_TEX_DISTRIBUTION': JSON.stringify(distributionPath),
     'import.meta.env.VITE_DEV_PROXY_TARGET': JSON.stringify(target),
     // Reported to co-authors in connection tests and shown in the network report.
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version),

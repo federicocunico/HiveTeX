@@ -57,7 +57,9 @@ test('three clients: concurrent edits, independent local builds, read-only viewe
 
   // Every member, including the viewer, builds and displays only their own local result.
   for (const u of [O, E, V]) {
+    await u.page.getByTestId('status-details').click();
     await expect(u.page.getByTestId('compile-location')).toContainText('this device');
+    await u.page.keyboard.press('Escape');
     await expect(u.page.getByTestId('compiled-by')).toContainText(u.username, { timeout: 30_000 });
   }
   await O.page.close();

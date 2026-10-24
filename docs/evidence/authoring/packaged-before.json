@@ -1,0 +1,66 @@
+﻿{
+    "startedAt":  "2026-10-23T06:23:04.3215298Z",
+    "failureProcesses":  [
+                             {
+                                 "Id":  14524,
+                                 "Path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                                 "MainWindowTitle":  "HiveTeX"
+                             }
+                         ],
+    "exeSha256":  "2b1ae86466bb8cbd7a0d32fe69f91f9fe51aefbee741b279a56e0a3b023ff331",
+    "webviewOverride":  "C:\\hx-webview",
+    "selfCheck":  "self-check: sync worker ready\n",
+    "version":  "0.9.1",
+    "identifier":  "app.hivetex.desktop",
+    "error":  "Timed out: bundled worker",
+    "failureWindows":  [
+                           {
+                               "Handle":  131798,
+                               "Pid":  14524,
+                               "Class":  "Tauri Window",
+                               "Title":  "HiveTeX",
+                               "Visible":  false
+                           },
+                           {
+                               "Handle":  262250,
+                               "Pid":  14524,
+                               "Class":  "Tauri Window",
+                               "Title":  "HiveTeX",
+                               "Visible":  true
+                           },
+                           {
+                               "Handle":  131794,
+                               "Pid":  14524,
+                               "Class":  "app.hivetex.desktop-sic",
+                               "Title":  "app.hivetex.desktop-siw",
+                               "Visible":  true
+                           },
+                           {
+                               "Handle":  262810,
+                               "Pid":  14524,
+                               "Class":  "Tao Thread Event Target",
+                               "Title":  "",
+                               "Visible":  true
+                           },
+                           {
+                               "Handle":  131822,
+                               "Pid":  14524,
+                               "Class":  "MSCTFIME UI",
+                               "Title":  "MSCTFIME UI",
+                               "Visible":  false
+                           },
+                           {
+                               "Handle":  197316,
+                               "Pid":  14524,
+                               "Class":  "IME",
+                               "Title":  "Default IME",
+                               "Visible":  false
+                           }
+                       ],
+    "installerSha256":  "ecce02532ef94ce34dab7f63a8e73a228305aacc778d56ca722bf20dcd73a8ea",
+    "passed":  false,
+    "finishedAt":  "2026-10-23T06:23:55.7879258Z",
+    "scenarios":  [
+
+                  ]
+}

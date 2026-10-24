@@ -49,13 +49,14 @@ pub fn package_from_search(output: &str, file: &str) -> Option<String> {
 /// Runs tlmgr with fixed arguments; returns (success, stdout + stderr). Replaceable in tests.
 pub type Runner<'a> = &'a dyn Fn(&[&str]) -> Option<(bool, String)>;
 
-pub fn tlmgr_runner(bin_dir: &Path) -> impl Fn(&[&str]) -> Option<(bool, String)> {
+pub fn tlmgr_runner<'a>(bin_dir: &'a Path, deadline: std::time::Instant, memory_mb: u64, on_timeout: &'a dyn Fn()) -> impl Fn(&[&str]) -> Option<(bool, String)> + 'a {
     let exe: PathBuf = if cfg!(windows) { bin_dir.join("tlmgr.bat") } else { bin_dir.join("tlmgr") };
     move |args: &[&str]| {
-        let out = background_command(&exe).args(args).output().ok()?;
-        let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-        text.push_str(&String::from_utf8_lossy(&out.stderr));
-        Some(outcome(out.status.success(), text))
+        let mut cmd = background_command(&exe);
+        cmd.args(args);
+        let (ok, timed_out, text) = crate::tex::run_package(cmd, deadline.saturating_duration_since(std::time::Instant::now()), memory_mb).ok()?;
+        if timed_out { on_timeout(); return None; }
+        Some(outcome(ok, text))
     }
 }
 
@@ -85,6 +86,7 @@ pub fn install_missing(files: &[String], tried: &mut Vec<String>, run: Runner, o
                 // On Windows the self-update completes in a separate process after tlmgr exits: retry a few times.
                 for attempt in 0..5 {
                     res = run(&["install", &pkg]);
+                    if res.is_none() { break; }
                     if matches!(res, Some((true, _))) {
                         break;
                     }

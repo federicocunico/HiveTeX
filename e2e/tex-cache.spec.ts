@@ -44,7 +44,7 @@ test('web: the in-browser compiler downloads each TeX file once; missing files a
   } finally {
     await page.evaluate(async () => {
       for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
-      await caches.delete('hivetex-tex-v1');
+      for (const name of await caches.keys()) if (name.startsWith('hivetex-tex-')) await caches.delete(name);
     });
     server.close();
   }

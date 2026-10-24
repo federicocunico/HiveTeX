@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Diagnostic } from '@hivetex/compile';
+  import type { Diagnostic, CompileFailure } from '@hivetex/compile';
   import type { Snippet } from 'svelte';
   import { ChevronDown, ChevronUp, CircleAlert, Info, TriangleAlert } from '../../ui/icons.js';
   import Icon from '../../ui/Icon.svelte';
@@ -16,6 +16,10 @@
     compileError = '',
     note = '',
     hint = '',
+    failure = null,
+    onRetry,
+    onSetup,
+    onSync,
     expanded,
     onToggle,
     onGo,
@@ -30,6 +34,10 @@
     note?: string;
     /** Plain explanation of a failed build (a missing package), above the line-by-line problems. */
     hint?: string;
+    failure?: CompileFailure | null;
+    onRetry?: () => void;
+    onSetup?: () => void;
+    onSync?: () => void;
     expanded: boolean;
     onToggle: () => void;
     onGo: (file: string, line: number) => void;
@@ -40,7 +48,7 @@
   let showLog = $state(false);
   const errors = $derived(diagnostics.filter((d) => d.severity === 'error').length);
   const warnings = $derived(diagnostics.filter((d) => d.severity === 'warning').length);
-  const visible = $derived(diagnostics.length > 0 || failed || !!compileError || !!note);
+  const visible = $derived(diagnostics.length > 0 || failed || !!compileError || !!note || !!failure);
   const sevIcon = { error: CircleAlert, warning: TriangleAlert, info: Info } as const;
 </script>
 
@@ -51,17 +59,26 @@
         <strong>Problems</strong>
         {#if errors}<span class="pill bad">{errors} error{errors === 1 ? '' : 's'}</span>{/if}
         {#if warnings}<span class="pill warn">{warnings} warning{warnings === 1 ? '' : 's'}</span>{/if}
-        {#if !errors && !warnings && !failed && !compileError}<span class="pill ok">No problems</span>{/if}
+        {#if !errors && !warnings && !failed && !compileError && !note && !failure}<span class="pill ok">No problems</span>{/if}
+        {#if (note || failure) && !errors}<span class="pill warn">Build blocked</span>{/if}
       </button>
-      {#if log}<button type="button" class="link" aria-pressed={showLog} onclick={() => (showLog = !showLog)}>{showLog ? 'Hide raw log' : 'Raw log'}</button>{/if}
+      {#if log}<button type="button" class="link" aria-pressed={showLog} onclick={() => { showLog = !showLog; if (showLog && !expanded) onToggle(); }}>{showLog ? 'Hide raw log' : 'Raw log'}</button>{/if}
       <IconButton icon={expanded ? ChevronDown : ChevronUp} size={26} label={expanded ? 'Collapse problems' : 'Expand problems'} onclick={onToggle} />
     </div>
+    {#if failure}
+      <div class="msg" role="alert" data-testid="compile-failure" data-cause={failure.kind}>
+        <strong>{failure.summary}</strong> {failure.recovery}
+        {#if failure.action === 'setup' && onSetup}<button type="button" class="small" onclick={onSetup}>Compiler setup</button>{/if}
+        {#if failure.action === 'sync' && onSync}<button type="button" class="small" onclick={onSync}>Sync inputs</button>{/if}
+        {#if onRetry}<button type="button" class="small" onclick={onRetry}>Retry build</button>{/if}
+      </div>
+    {/if}
     {#if expanded}
       <div class="body">
         {#if compileError}<div class="error msg" role="alert">{compileError}</div>{/if}
-        {#if note}<div class="notice msg">{note}</div>{/if}
+        {#if note && !failure}<div class="notice msg">{note}</div>{/if}
         {#if hint}<div class="notice msg" role="status" data-testid="missing-package">{hint}</div>{/if}
-        {#if failed && diagnostics.length === 0}
+        {#if failed && diagnostics.length === 0 && !failure}
           <div class="error msg">The compile failed without a message that points to a line. Open the raw log for details.</div>
         {/if}
         <ul>

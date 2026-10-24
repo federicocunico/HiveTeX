@@ -75,6 +75,8 @@
     z-index: 70;
     min-width: 200px;
     max-width: min(360px, calc(100vw - 8px));
+    max-height: calc(100dvh - 8px);
+    overflow-y: auto;
     padding: 4px;
     display: grid;
     background: var(--raised);

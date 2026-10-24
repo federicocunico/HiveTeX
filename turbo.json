@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["scripts/tex-distribution.mjs", "scripts/tex-distribution.lock.json", "scripts/tex-resource-adapter.js"],
   "tasks": {
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "lint": {},

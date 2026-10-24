@@ -67,6 +67,7 @@ describe('exclusively local compilation', () => {
     const hash = await d.blobs.add(new TextEncoder().encode('image'));
     d.n.model.createBinary('image.png', hash, 5);
     const captured = await computeStateHash(d.n.model);
+    const capturedSeq = d.n.model.changeSeq;
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
     const fetch = d.blobs.fetch.bind(d.blobs);
@@ -79,6 +80,7 @@ describe('exclusively local compilation', () => {
     const result = await build;
     expect(d.calls[0]?.files.find((f) => f.path === 'main.tex')?.text).toBe('initial');
     expect(result.result.stateHash).toBe(captured);
+    expect(result.source).toMatchObject({ seq: capturedSeq, stateHash: captured, engine: 'pdflatex' });
     expect(await d.compiler.isStale()).toBe(true);
   });
 

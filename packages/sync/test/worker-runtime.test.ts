@@ -111,6 +111,8 @@ describe("live packaged worker and editor replica", () => {
     await b.open(project("local-p2"));
     const id = await a.model.createTextNow("main.tex", "hello");
     const text = await a.model.openText(id);
+    expect(a.model.availability(`f:${id}`)).toBe('complete');
+    expect(a.model.missingText(), 'new worker-owned files must be complete in the renderer').toEqual([]);
     text.insert(text.length, " world");
     await a.model.flush();
     expect(w.calls).toContain("store_ingress_put");
@@ -118,6 +120,8 @@ describe("live packaged worker and editor replica", () => {
     const again = new WorkerRenderer(w.link);
     await again.open(project());
     expect((await again.model.openText(id)).toString()).toBe("hello world");
+    expect(again.model.availability(`f:${id}`)).toBe('complete');
+    expect(again.model.missingText(), 'replica completeness must use the worker-authoritative availability').toEqual([]);
     expect(b.model.list()).toHaveLength(0);
     await a.close();
     (await again.model.openText(id)).insert(0, "kept ");

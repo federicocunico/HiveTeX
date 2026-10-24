@@ -30,6 +30,8 @@ export interface ProjectCapture {
   settings: { main: string; engine: string };
   /** `ProjectModel.changeSeq` at the capture: edits with a higher number are not included. */
   seq: number;
+  /** Local wall clock at the synchronous capture, before waiting for binary inputs. */
+  at: number;
 }
 
 export interface MissingContent {
@@ -75,7 +77,7 @@ function captureNow(model: ProjectModel): { capture: ProjectCapture } | { missin
     } else files.push({ id: f.id, path: f.path, kind: 'dir' });
   }
   if (missing.length || unloaded) return { missing, unloaded };
-  return { capture: { files, settings: projectSettings(model), seq: model.changeSeq } };
+  return { capture: { files, settings: projectSettings(model), seq: model.changeSeq, at: Date.now() } };
 }
 
 /**

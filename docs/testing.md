@@ -1,5 +1,64 @@
 # Writing tests that pass on CI as well as locally
 
+## PDF preview and source revision
+
+Run `pnpm --filter @hivetex/web exec vitest run test/pdf-renderer.test.ts test/pdf-revision.test.ts` for controlled load/render/parsing races, bounded canvas ownership and source watermarks. Run `pnpm exec playwright test e2e/pdf-preview.spec.ts e2e/synctex.spec.ts e2e/compiler-state.spec.ts --retries=0` for the 100-page preview, zoom/SyncTeX, focus and last-good-PDF preservation. Renderer fixtures isolate geometry; real template compilation is verified separately.
+
+The preview retains its page and relative reading position after zoom or a successful build. Its outdated count starts from the captured source revision, including edits made while that build ran. A failed build leaves the last successful PDF visible. Source/PDF navigation is unavailable until the mapping for that specific PDF has finished loading.
+
+## Compilation scheduling
+
+Run `pnpm --filter @hivetex/compile exec vitest run test/scheduling.test.ts test/local.test.ts`, `pnpm --filter @hivetex/web exec vitest run test/preferences.test.ts`, and `pnpm exec playwright test e2e/compile-scheduling.spec.ts e2e/compile-modes.spec.ts --retries=0`.
+
+Compilation schedule is a device preference in Account, the Compile options menu, and the command palette. After changes (default) waits 1500 ms, capped at 5000 ms of continuous edits. Periodic checks every 30 seconds by default, configurable to whole seconds from 5 to 300. Manual disables automatic builds, including opening a project. A running build may finish after switching to Manual; automatic queued work is discarded. Repeated unchanged failures wait for an edit, dependency/compiler recovery, or Compile now. Source synchronization and background seeds do not delegate or trigger builds on peers.
+
+## Authoring geometry
+
+Run `pnpm exec playwright test e2e/editor-geometry.spec.ts --retries=0` for logical source/gutter alignment under
+wrapping, 11–24 px fonts, distant scrolling, LF/CRLF and remote edits. The test includes a deliberately shifted gutter
+to validate its detector, source clipboard checks and exact undo restoration. It uses the fake compiler to isolate
+editor rendering; real compilation is a separate acceptance lane. See [authoring acceptance](authoring-acceptance.md).
+The probe also rejects collapsed CR-only blank rows; removing the minimum line height must reproduce that defect.
+The active EditorView accessor exists only in development or explicitly isolated E2E builds and is removed when its editor is released.
+
+## Required authoring gates and visual review
+
+The `authoring-browser` CI job runs this exact command with zero retries:
+
+```sh
+pnpm exec playwright test e2e/editor-geometry.spec.ts e2e/compile-scheduling.spec.ts e2e/pdf-preview.spec.ts e2e/synctex.spec.ts e2e/format-overflow.spec.ts e2e/workspace-status.spec.ts e2e/authoring.spec.ts --retries=0
+```
+
+The separate required `authoring-real-and-visual` job runs:
+
+```sh
+pnpm exec playwright test e2e/compiler-templates.spec.ts e2e/authoring-visual.spec.ts --retries=0
+```
+
+Both jobs use Windows 2025, Node 22.22.0, a frozen pnpm lockfile and its Playwright Chromium. Fonts are bundled
+IBM Plex Sans, JetBrains Mono and STIX Two Text (5.3.0). Package archives used by the real WASM fixture have SHA-256
+checksums in `e2e/texlive-2019.ts`; no system TeX is needed for that lane. An unavailable prerequisite fails the job.
+Native template acceptance remains required in `desktop.yml` with `HIVETEX_NATIVE_TESTS=1`. These local test resources
+do not fix the production WASM package service; see the open item in [acceptance](authoring-acceptance.md).
+
+For an intentional visual change, run `pnpm exec playwright test e2e/authoring-visual.spec.ts --retries=0 --update-snapshots`
+on that Windows/font environment. Review every changed baseline and the generated `test-results/**/contact-sheet.html`
+or PNG, then run again **without** `--update-snapshots`. Do not accept diffs solely because a test can regenerate them.
+The test fixes the article date and masks random identities; a screenshot-only stylesheet stabilizes the random
+project slug's mask width. The contact sheet retains actual long names and unmodified layout. Set
+`AUTHORING_REVIEW_EXPORT=1` to refresh `docs/images/authoring-review.png` after review.
+
+The matrix covers both themes, 1440/1280/1024 widths, real loading/ready/stale/error/offline/collaborating states and
+125%/150% CSS zoom. At 1024 it checks both Editor and PDF, waiting for rendered output after remounting. Axe checks
+workspace, overflow, status and scheduling dialogs after rendering; CodeMirror keeps its existing exclusion.
+The ready-state baselines include the narrow PDF view. `screenshots.spec.ts` also requires real LaTeX and fails if
+compilation is unavailable. Failed required runs upload traces/screenshots; the real lane uploads compiler logs and
+the contact sheet on successful runs too. Broad unrelated browser diagnostics remain advisory.
+
+`pnpm --filter @hivetex/web exec vitest run test/ci-browser-policy.test.ts` guards the workflow policy, including
+mutations that hide failures, enable retries or omit a required spec. Local negative acceptance also verified that a
+deliberately failing Playwright test with `--retries=0` returns exit 1, as propagated explicitly by the PowerShell jobs.
+
 Native bridge suites rebuild `rtc_cli` and `tex_cli` before running an existing executable. A stale binary is never
 used. They also build the current worker and prepare pinned Node resources when absent (the first preparation needs
 network access; cached resources are reused offline). `CARGO_TARGET_DIR` is respected. On a clean checkout, run with
@@ -201,3 +260,96 @@ NO_APP_RELAY=0 SCENARIOS=basic,assets,rename-delete,offline,crash,author,recover
 Inside the sandbox, the image allows all outbound traffic through a rule ("Container: allow outbound"), so a default
 block policy alone cuts nothing; `FAULT=offline` adds explicit outbound block rules (loopback excepted) and checks that
 the host is unreachable.
+
+## Managed package recovery and Windows authoring acceptance
+
+Use a disposable extracted TinyTeX root for package-outage tests. The test changes that installation's repository and
+removes/reinstalls `tikz-cd` and `lipsum`, then restores the repository. Never point it at a personal TeX installation.
+The pinned Windows archive and checksum are recorded in [authoring acceptance](authoring-acceptance.md).
+
+```powershell
+$env:HIVETEX_NATIVE_TESTS = '1'
+$env:HIVETEX_IGNORE_SYSTEM_TEX = '1'
+$env:HIVETEX_TINYTEX_ROOT = 'C:\disposable-acceptance\managed'
+pnpm --filter @hivetex/compile exec vitest run test/native.test.ts test/native-managed.test.ts
+```
+
+The root contains `TinyTeX/bin/windows`. Normal native/helper tests assert real article/report PDF text, resolved
+references and SyncTeX. Managed tests additionally cover interrupted-index repair, package HTTP failure, explicit retry
+and cached builds with no repository requests. Opt-in prerequisites are required for these commands; a skipped test
+does not establish native acceptance.
+
+After building the existing isolated desktop harness (`test-picker`, `tauri.e2e.conf.json`, `VITE_E2E=1`):
+
+```powershell
+$env:HIVETEX_DESKTOP_AUTHORING = '1'
+$env:HIVETEX_DESKTOP_INSTALL = '1'
+pnpm exec playwright test e2e/native-authoring.spec.ts --retries=0
+```
+
+This launches the E2E executable, connects to its actual Windows WebView2 and verifies real native automatic builds,
+PDF zoom and the 6200-line CRLF gutter matrix. It writes native geometry, WebView version, owner PID, compiler log and
+a screenshot to `test-results`. The E2E identifier is separate from the installed app. macOS WKWebView and Linux
+WebKitGTK need their own acceptance environments; this command records them as missing, never as passes.
+The install opt-in downloads and installs the pinned TinyTeX into the isolated E2E profile and launches a secondary
+app during setup, checking that it exits while the existing owner retains one tray/window/worker. CI enables it.
+
+For the native lifetime and no-renderer seeding regressions together, use
+`HIVETEX_LIFECYCLE_ONLY=1 HIVETEX_BACKGROUND_CHECK=1 pnpm --filter @hivetex/desktop e2e` (set environment variables
+with `$env:NAME='1'` in PowerShell). `SKIP_BUILD=1` reuses an already rebuilt E2E executable. The runner owns its local
+servers and writes both lifecycle and background reports. The background harness joins using the full assigned project ID.
+
+For current production-identity installer acceptance, build the NSIS package, then run in PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-packaged-sandbox.ps1 `
+  -Installer apps/desktop/src-tauri/target/release/bundle/nsis/HiveTeX_0.9.1_x64-setup.exe `
+  -Out apps/desktop/src-tauri/target/packaged-authoring-new
+```
+
+This requires Windows Sandbox and a new output directory; it refuses to replace a running sandbox. Only the installer,
+acceptance script, output directory and a read-only WebView runtime are mapped. The inner script refuses a non-Sandbox
+user or existing app/profile, installs the real package, verifies its worker self-check and tests 12 concurrent launches
+from two paths plus three close/reopen cycles. Native `tray_icon_app` windows count actual registered icons independently
+of the application process count. It records package/executable hashes and stops only its own disposable sandbox.
+This startup test does not replace the separate upgrade/uninstall release suite.
+
+## Bundled browser compiler acceptance
+
+`pnpm exec playwright test e2e/compiler-templates.spec.ts e2e/tex-cache.spec.ts --retries=0` runs the real bundled
+pdfLaTeX and XeLaTeX/Dvipdfmx pipeline for article/report, bibliography, references and a PNG. Each combination builds
+cold, warm and after reload with every compiler-resource network request blocked. No fixture server or fake engine
+participates. Logs and versioned cache identities are retained under `test-results`.
+
+For the actual production bundle and product UI:
+
+```powershell
+pnpm --filter @hivetex/web build
+pnpm exec playwright test --config playwright.production.config.ts --retries=0
+```
+
+The separate configuration serves `dist` with Vite preview and the isolated API. It creates templates, selects
+XeLaTeX for the report, edits sources to invalidate accepted output, recompiles cold/warm/with compiler resources
+offline, and downloads PDFs through the visible UI for text validation. It uses no development module imports or
+session injection. PDFs/traces are retained in `test-results/production`; the required real/visual CI job runs both
+the direct engine matrix and this production journey. This isolates compiler-resource offline support; application
+shell/API requests remain available during the reload.
+
+`pnpm --filter @hivetex/web test -- test/wasm-runner.test.ts test/tex-cache.test.ts` covers cancellation/deadlines,
+the XDV-to-PDF handoff, failed upgrades, corrupt resource retry, old-cache preservation and source-store isolation.
+`cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib texcache::tests` checks custom desktop endpoint
+cache separation. `scripts/tex-distribution.lock.json` and the generated manifest retain all revisions/checksums.
+
+## Integrated authoring stress
+
+`pnpm exec playwright test e2e/authoring-stress.spec.ts --retries=0` compiles the actual 6200-line manuscript with the
+pinned real WASM fixture, then exercises two editors, distant scrolling, PDF zoom, theme/width changes, exact undo,
+offline edits/reconnect and real source-error recovery. Canvas count remains bounded at six. The dedicated required
+`authoring-stress` CI job retains `interaction.json`, screenshot and failure traces. Timing uses 60 synthetic source
+edits with scroll and two animation frames per sample, discarding five warm-up samples. A 600 ms pause separates
+that burst's Yjs undo group from the independent user edit whose restoration is asserted.
+
+The target is p95 <=100 ms, with a hard <=250 ms limit confined to this stress lane. Reference local runner:
+Windows 11 10.0.26200, Core i9-12900F (24 logical CPUs), Node 22.22.0, Chromium 156.0.8078.4. CI uses
+`windows-2025` / Node 22.22.0 and records its actual CPU/browser with every run. Local passing measurements do not
+claim that an unrun hosted workflow passed. See [raw local samples](evidence/authoring/interaction-windows.json).

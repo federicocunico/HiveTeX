@@ -1,0 +1,250 @@
+{
+  "schema": 1,
+  "release": "TL2019-final / LaTeX 2020-02-02 / SwiftLaTeX v20022022",
+  "archiveBase": "https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2019/tlnet-final/archive/",
+  "archives": [
+    {
+      "name": "latex.tar.xz",
+      "sha256": "9a5500271084fac6fa184d7f323473cab22a2d93c4b0f1e54f7b33e480fee239",
+      "kind": "runtime"
+    },
+    {
+      "name": "amsmath.tar.xz",
+      "sha256": "8cb9620f2c4561cd02bdab910e6d0d508002d7c1e19d283ca95ce49e574c3193",
+      "kind": "runtime"
+    },
+    {
+      "name": "graphics.tar.xz",
+      "sha256": "e950eaee2e650cedba0da5508eb01a76854b5cb22a76c507e1accccd15be38c5",
+      "kind": "runtime"
+    },
+    {
+      "name": "graphics-def.tar.xz",
+      "sha256": "3b03fd1de5e2979960a36a79634773cba905cb8ab3d47c9d7955e557b3b93ceb",
+      "kind": "runtime"
+    },
+    {
+      "name": "graphics-cfg.tar.xz",
+      "sha256": "f49fd69ee7b03442e3ce16837e846d1e108e8a71db098fe8eb707c0e3d8e2c6c",
+      "kind": "runtime"
+    },
+    {
+      "name": "l3backend.tar.xz",
+      "sha256": "e0e74b38a739576a32bd8e964b7201ff949ea8908eb4eda78579f592dca42590",
+      "kind": "runtime"
+    },
+    {
+      "name": "l3kernel.tar.xz",
+      "sha256": "cedbd51f98f65742d63fe1cd61b6e9ec109df410c032679023f4a1936157693c",
+      "kind": "runtime"
+    },
+    {
+      "name": "cm.tar.xz",
+      "sha256": "b6ab07931636348df2059df8f3a60f6ad978ed3614e7a3ada190cb8ba4d13302",
+      "kind": "runtime"
+    },
+    {
+      "name": "ec.tar.xz",
+      "sha256": "bb85425c214b1056b5f0b8f3bf1478b81e89bd7d290d61c7c73289b534786897",
+      "kind": "runtime"
+    },
+    {
+      "name": "cm-super.tar.xz",
+      "sha256": "70867904e38451ab1a11ba4677dd5891914f128170b53fac26d3e9dca9d326e4",
+      "kind": "runtime"
+    },
+    {
+      "name": "amsfonts.tar.xz",
+      "sha256": "fec4b4df7f3c49e74b5592e19b41949fa6413e5fa91e46fe255de083e6601666",
+      "kind": "runtime"
+    },
+    {
+      "name": "latex-fonts.tar.xz",
+      "sha256": "c542058e4dc1dfedc36bd65c44b472f69cf1d85bf271090cb10f698e901ebdbf",
+      "kind": "runtime"
+    },
+    {
+      "name": "bibtex.tar.xz",
+      "sha256": "7b4c032e1fbf6b0af9b063ad1edeeb020acbf3235ee1cb83a71f3efdad7659d1",
+      "kind": "runtime"
+    },
+    {
+      "name": "pdftex.tar.xz",
+      "sha256": "797165be30247bc8230abb6f11d9b5d9f85b8c9302c6c98a5fcad31c842bad35",
+      "kind": "runtime"
+    },
+    {
+      "name": "hyphen-base.tar.xz",
+      "sha256": "79d4b1cc33ad9a140041e7a2218da06e550af65c032acc1985ba501e3b304bf7",
+      "kind": "runtime"
+    },
+    {
+      "name": "tex-ini-files.tar.xz",
+      "sha256": "6569ec35c603a770f762e1783f79cfd8171b0eb919d06d806d2280829a6582bd",
+      "kind": "runtime"
+    },
+    {
+      "name": "latex.doc.tar.xz",
+      "sha256": "191bddb55a076648c3044da099390f1cc271dc02702c52ae1f5e232b87aa989c",
+      "kind": "doc"
+    },
+    {
+      "name": "latex.source.tar.xz",
+      "sha256": "a829adcadd6f81c45d5822e95774d064d6e6b9a0475a34001a3aed52575809a7",
+      "kind": "source"
+    },
+    {
+      "name": "amsmath.doc.tar.xz",
+      "sha256": "495b1e23d5f1705c65b818871d4c1e897c20ffbda76d7d82753c652a12a4c18d",
+      "kind": "doc"
+    },
+    {
+      "name": "amsmath.source.tar.xz",
+      "sha256": "841da9fe9c01f52797853fbdb9db77a4cba51fdf41f6c0a08b0f0175b3e2b132",
+      "kind": "source"
+    },
+    {
+      "name": "graphics.doc.tar.xz",
+      "sha256": "dbfc6f69a567e479cf27b63b4ea2a1d0f3de625dc2b0e5e104d66655636afc82",
+      "kind": "doc"
+    },
+    {
+      "name": "graphics.source.tar.xz",
+      "sha256": "d028b48105683a884809c05ca153aba2aa09c71feadec3ce3e8397fac0eb7f89",
+      "kind": "source"
+    },
+    {
+      "name": "graphics-def.doc.tar.xz",
+      "sha256": "7870d4fe5abfa283e3ad7230989fb77c2f5522d1676603c735499142832c5840",
+      "kind": "doc"
+    },
+    {
+      "name": "graphics-cfg.doc.tar.xz",
+      "sha256": "100d51daf649a36f0b2f4c7b505aa21501e469bda19d63cf4247e1e315a428f5",
+      "kind": "doc"
+    },
+    {
+      "name": "l3backend.doc.tar.xz",
+      "sha256": "0927a7634298bf14cf30f5f5ef0c74e7c20b1d260dd16b58b5a20cf81fef8301",
+      "kind": "doc"
+    },
+    {
+      "name": "l3backend.source.tar.xz",
+      "sha256": "5bb1bf21065a97fab6485b49f4de801628b4fdad36fd1f8905d9076f8f4f7440",
+      "kind": "source"
+    },
+    {
+      "name": "l3kernel.doc.tar.xz",
+      "sha256": "12a72904cc95294cf6d1bcb5ebbbd815f57359a541a44793352a03230aba17b5",
+      "kind": "doc"
+    },
+    {
+      "name": "l3kernel.source.tar.xz",
+      "sha256": "9071c7248801fa357eba033008021c192b3b5ae474752bd36ccf819d17594a79",
+      "kind": "source"
+    },
+    {
+      "name": "cm.doc.tar.xz",
+      "sha256": "7fa2279fa8e224bcf080916ffb3f7395111ae52f73d7e53577b3d1df792416fe",
+      "kind": "doc"
+    },
+    {
+      "name": "ec.doc.tar.xz",
+      "sha256": "84f0d011f0cb75aae92ff40c4d004738477d59a8dfa33abbb3441f64e6878edc",
+      "kind": "doc"
+    },
+    {
+      "name": "cm-super.doc.tar.xz",
+      "sha256": "73964d63f70963a6c7afeb45d133fb1ffb740e65aef266c9c576e80445b03698",
+      "kind": "doc"
+    },
+    {
+      "name": "amsfonts.doc.tar.xz",
+      "sha256": "02e50390d1c84b4d847d487718446a57fc2a71aa85abbff8d85c09d7189f858b",
+      "kind": "doc"
+    },
+    {
+      "name": "amsfonts.source.tar.xz",
+      "sha256": "82967e36cde7aaf02e8156b8d912dc8f05bed7cbb2702e045b7546ea1c1ec893",
+      "kind": "source"
+    },
+    {
+      "name": "latex-fonts.doc.tar.xz",
+      "sha256": "2ab65ef8b005d89ca4241aa49b48f8901125ca9ed8d82dc7327a31b3df32b02d",
+      "kind": "doc"
+    },
+    {
+      "name": "bibtex.doc.tar.xz",
+      "sha256": "261eb73a387dbe01b50fa23a4a4fca903607c3316b6f46ce9b157d7cb09cd557",
+      "kind": "doc"
+    },
+    {
+      "name": "pdftex.doc.tar.xz",
+      "sha256": "d8e7ad96a934ad8971f8735b2057882018faa566da7eb828b69611e180df9c16",
+      "kind": "doc"
+    },
+    {
+      "name": "tex-ini-files.doc.tar.xz",
+      "sha256": "2231a805bc508a3c903967a926a630e765896d3ce16fa170f0bc42188bd34826",
+      "kind": "doc"
+    },
+    {
+      "name": "lm.tar.xz",
+      "sha256": "c59d05446e130f24ee3d621b149fbd339141fee2ff8e63b530351780f536edf4",
+      "kind": "runtime"
+    },
+    {
+      "name": "lm.doc.tar.xz",
+      "sha256": "cff2ff8606f6f120da61dce60e1ef44f34642270cd4403b45914ca000b0fbafe",
+      "kind": "doc"
+    },
+    {
+      "name": "lm.source.tar.xz",
+      "sha256": "675f7a12c95b7c7b0e22d82de3f1258abedae97c5636c4448f9c346e25865a02",
+      "kind": "source"
+    },
+    {
+      "name": "xetex.tar.xz",
+      "sha256": "49d73e1a6a9517eb7e21bf07efa4fd193e1c0be7980e01910c62623f006d4f6c",
+      "kind": "runtime"
+    },
+    {
+      "name": "xetex.doc.tar.xz",
+      "sha256": "7fe5f8c06013c2c10bb66cbfad8bbee7ddc432a68e3983ca6a43e4ef16daece2",
+      "kind": "doc"
+    },
+    {
+      "name": "xetexconfig.tar.xz",
+      "sha256": "9a505894bdf246695cd1d7140f459f6589e36253da6cfe406c86bfadc70e104c",
+      "kind": "runtime"
+    },
+    {
+      "name": "dvipdfmx.tar.xz",
+      "sha256": "b544eb34cc52b4483b040e7b481d056ab076f0f22e18e71387921a984a251ce7",
+      "kind": "runtime"
+    },
+    {
+      "name": "dvipdfmx.doc.tar.xz",
+      "sha256": "e4b2d16727439142cd1f4a65abe388ee2574ce27c8cd1eba31354b0201f20c5e",
+      "kind": "doc"
+    },
+    {
+      "name": "glyphlist.tar.xz",
+      "sha256": "5e01ba4f2d4400d6c9f294707c1bb8396013d98a8c824bf11bd145175eb82d57",
+      "kind": "runtime"
+    }
+  ],
+  "formatBase": "https://raw.githubusercontent.com/SwiftLaTeX/Texlive-Ondemand/cc2146e220658f5ee0f8643355252ae0995fbc98/",
+  "formats": {
+    "swiftlatexpdftex.fmt": "3134ef8cbfa829780fc0b63b5320fb680e8f895f0c7f48ecb82af159098760ec",
+    "swiftlatexxetex.fmt": "fecae874377a2f7cb31811e41edabbda1e19f762d00630a8faa9fb12043b5e5f"
+  },
+  "engines": {
+    "swiftlatexpdftex.js": "019ccf66c2981cc3a371ca8983f8a0f191952e28b5df3c0b41c2e3ed80f9be65",
+    "swiftlatexpdftex.wasm": "154d08cbb298191cefe1bdd9e47a909d60fc7a96fce5f2319bfc6878c5b61cf1",
+    "swiftlatexxetex.js": "238181805c9d8ffbb231d2ba09323145d485cf85847fc34b8c2168e7b886adb3",
+    "swiftlatexxetex.wasm": "dd7f4f8fe8b07b64c058683edd0298afa1998cfae461cab71bd2571e27ffb673",
+    "swiftlatexdvipdfm.js": "80d0620536e0a13afaf7ddcf0ccc00c758a6735313a4e962b3a5c8779058ac40",
+    "swiftlatexdvipdfm.wasm": "1bf8c0d424c87c1548d9d22d29251aa3308506fa6acc29d4f08dcd77ccc1f9b1"
+  }
+}

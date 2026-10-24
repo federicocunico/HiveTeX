@@ -4,6 +4,11 @@ import { addFile, createProject, joinProject, newUser, replaceEditorText, uniq }
 
 const editor = (p: Page) => p.locator('.cm-content');
 
+async function format(p: Page, id: string) {
+  if (!await p.getByTestId(`fmt-${id}`).isVisible()) await p.getByRole('button', { name: 'More formatting', exact: true }).click();
+  await p.getByTestId(`fmt-${id}`).click();
+}
+
 /** Selects `word` in the editor by searching for it on the first line. */
 async function selectWord(p: Page, word: string) {
   const text = await editor(p).innerText();
@@ -116,7 +121,7 @@ test('insert pickers: a 3 × 4 table, a citation from the project .bib, a symbol
   await replaceEditorText(p, 'Text ');
 
   // table
-  await p.getByTestId('fmt-table').click();
+  await format(p, 'table');
   const dlg = p.getByTestId('table-dialog');
   await dlg.getByLabel('Rows').fill('3');
   await dlg.getByLabel('Columns').fill('4');
@@ -125,7 +130,7 @@ test('insert pickers: a 3 × 4 table, a citation from the project .bib, a symbol
 
   // citation (the index refreshes shortly after typing)
   await p.keyboard.press('Control+End');
-  await p.getByTestId('fmt-cite').click();
+  await format(p, 'cite');
   await expect(p.getByTestId('cite-picker').getByRole('option')).toHaveCount(1, { timeout: 15_000 });
   await expect(p.getByTestId('cite-picker')).toContainText('Donald Knuth');
   await p.keyboard.type('knuth');
@@ -135,7 +140,7 @@ test('insert pickers: a 3 × 4 table, a citation from the project .bib, a symbol
   // symbol: outside math it is wrapped in $…$
   await p.keyboard.press('Control+End');
   await p.keyboard.press('Enter');
-  await p.getByTestId('fmt-symbol').click();
+  await format(p, 'symbol');
   await p.getByLabel('Search symbols').fill('less or equal');
   await p.keyboard.press('Enter');
   await expect(editor(p)).toContainText('$\\leq$');

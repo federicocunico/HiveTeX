@@ -8,6 +8,7 @@ export const PREFS_KEY = 'hivetex.prefs';
 
 export type Theme = 'system' | 'light' | 'dark';
 export type Keymap = 'default' | 'vim' | 'emacs';
+export type CompileSchedule = 'after-changes' | 'periodic' | 'manual';
 
 export interface Prefs {
   theme: Theme;
@@ -16,9 +17,17 @@ export interface Prefs {
   /** Formatting toolbar above the editor. */
   toolbar: boolean;
   keymap: Keymap;
+  compileSchedule: CompileSchedule;
+  compileIntervalSeconds: number;
 }
 
-export const DEFAULT_PREFS: Readonly<Prefs> = { theme: 'system', editorFontSize: 14, toolbar: true, keymap: 'default' };
+export const DEFAULT_PREFS: Readonly<Prefs> = { theme: 'system', editorFontSize: 14, toolbar: true, keymap: 'default', compileSchedule: 'after-changes', compileIntervalSeconds: 30 };
+export const COMPILE_INTERVAL_MIN = 5;
+export const COMPILE_INTERVAL_MAX = 300;
+export const COMPILE_SCHEDULES: CompileSchedule[] = ['after-changes', 'periodic', 'manual'];
+export function validCompileInterval(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= COMPILE_INTERVAL_MIN && value <= COMPILE_INTERVAL_MAX;
+}
 export const FONT_MIN = 11;
 export const FONT_MAX = 24;
 
@@ -44,6 +53,8 @@ export function parsePrefs(raw: string | null): Prefs {
     editorFontSize: o.editorFontSize === undefined ? DEFAULT_PREFS.editorFontSize : clampFont(o.editorFontSize),
     toolbar: typeof o.toolbar === 'boolean' ? o.toolbar : DEFAULT_PREFS.toolbar,
     keymap: KEYMAPS.includes(o.keymap as Keymap) ? (o.keymap as Keymap) : DEFAULT_PREFS.keymap,
+    compileSchedule: COMPILE_SCHEDULES.includes(o.compileSchedule as CompileSchedule) ? o.compileSchedule as CompileSchedule : DEFAULT_PREFS.compileSchedule,
+    compileIntervalSeconds: validCompileInterval(o.compileIntervalSeconds) ? o.compileIntervalSeconds : DEFAULT_PREFS.compileIntervalSeconds,
   };
 }
 
@@ -55,12 +66,16 @@ export function applyTheme(theme: Theme, root: HTMLElement | undefined = globalT
 }
 
 export const prefs = $state<Prefs>(parsePrefs(safeStorage(PREFS_KEY)));
+const listeners = new Set<() => void>();
+export function onPreferencesChange(cb: () => void) { listeners.add(cb); return () => listeners.delete(cb); }
 
 export function setPref<K extends keyof Prefs>(key: K, value: Prefs[K]) {
+  if (key === 'compileIntervalSeconds' && !validCompileInterval(value)) return;
   const next = parsePrefs(JSON.stringify({ ...prefs, [key]: value }));
   prefs[key] = next[key];
   safeStorage(PREFS_KEY, JSON.stringify(next));
   if (key === 'theme') applyTheme(next.theme);
+  for (const cb of listeners) cb();
 }
 
 if (typeof window !== 'undefined') {
@@ -71,5 +86,6 @@ if (typeof window !== 'undefined') {
     const next = parsePrefs(e.newValue);
     Object.assign(prefs, next);
     applyTheme(next.theme);
+    for (const cb of listeners) cb();
   });
 }

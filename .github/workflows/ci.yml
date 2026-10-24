@@ -72,6 +72,79 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  authoring-browser:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22.22.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium
+      - name: Required editor, scheduling, preview and reachable controls
+        run: |
+          pnpm exec playwright test e2e/editor-geometry.spec.ts e2e/compile-scheduling.spec.ts e2e/pdf-preview.spec.ts e2e/synctex.spec.ts e2e/format-overflow.spec.ts e2e/workspace-status.spec.ts e2e/authoring.spec.ts --retries=0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: authoring-browser-failure
+          path: test-results/
+          retention-days: 7
+
+  authoring-real-and-visual:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22.22.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium
+      - name: Required real article/report and reviewed visual baselines
+        run: |
+          pnpm exec playwright test e2e/compiler-templates.spec.ts e2e/authoring-visual.spec.ts --retries=0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @hivetex/web build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm exec playwright test --config playwright.production.config.ts --retries=0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: authoring-real-and-visual
+          path: test-results/
+          retention-days: 14
+
+  authoring-stress:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22.22.0, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium
+      - name: Required long manuscript, real PDF and collaboration stress
+        run: |
+          pnpm exec playwright test e2e/authoring-stress.spec.ts --retries=0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: authoring-stress
+          path: test-results/
+          retention-days: 14
+
   browser-diagnostics:
     runs-on: windows-2025
     continue-on-error: true

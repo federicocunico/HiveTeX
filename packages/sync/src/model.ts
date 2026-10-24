@@ -396,7 +396,7 @@ export class ProjectModel {
 
   /** Text files whose content is not complete on this device (listed in the file table, not received or only partly). */
   missingText(): FileEntry[] {
-    return this.list().filter((f) => f.kind === 'text' && !this.complete.has(fileDocId(f.id)));
+    return this.list().filter((f) => f.kind === 'text' && this.availability(fileDocId(f.id)) !== 'complete');
   }
 
   /** Updates seen by a document so far; unchanged means the document did not move in between. */

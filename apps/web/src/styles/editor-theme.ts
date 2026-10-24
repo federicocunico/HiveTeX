@@ -20,6 +20,7 @@ export const hivetexHighlight = HighlightStyle.define([
   { tag: t.invalid, color: 'inherit' },
 ]);
 
+const LINE_HEIGHT = 1.65;
 const base = EditorView.theme({
   '&': {
     height: '100%',
@@ -28,8 +29,11 @@ const base = EditorView.theme({
   },
   '.cm-scroller': {
     fontFamily: 'var(--font-code)',
-    lineHeight: '1.65',
+    lineHeight: String(LINE_HEIGHT),
   },
+  // CRLF is preserved in the shared document. A CR-only line is not empty to CodeMirror,
+  // but collapses as whitespace in the browser; it must still occupy one visual text row.
+  '.cm-line': { minHeight: `${LINE_HEIGHT}em` },
   '.cm-content': { caretColor: 'var(--ink)', padding: '10px 0' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--ink)', borderLeftWidth: '2px' },
   '&.cm-focused': { outline: 'none' },
@@ -39,10 +43,10 @@ const base = EditorView.theme({
     backgroundColor: 'var(--surface)',
     color: 'var(--faint)',
     border: 'none',
-    borderRight: '1px solid var(--line)',
+    userSelect: 'none',
   },
   '.cm-activeLineGutter': { backgroundColor: 'var(--active-line)', color: 'var(--ink)' },
-  '.cm-lineNumbers .cm-gutterElement': { padding: '0 12px 0 8px', minWidth: '36px' },
+  '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 6px', minWidth: '32px' },
   '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': {
     backgroundColor: 'var(--honey-soft)',
     outline: '1px solid var(--honey)',

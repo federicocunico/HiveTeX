@@ -20,9 +20,34 @@ offers only blobs that live files, their earlier versions and deletions, or Hist
 ## Pipeline
 
 `LocalCompiler` captures complete sources, asset hashes, main document and engine as one immutable input. After edits
-settle (1.2 s debounce, 5 s maximum wait), it builds locally. A running request coalesces additional requests into one
+settle (1.5 s debounce, 5 s maximum wait), it builds locally. A running request coalesces additional requests into one
 follow-up build. Changing compiler or settings invalidates cached results. The previous good PDF stays visible after
 LaTeX errors, missing content or timeout, with its outdated status preserved.
+
+Choose **After changes**, **Periodic**, or **Manual** in Compile options, Account preferences, or the command palette
+(*Compilation schedule*). Periodic checks changed inputs every 30 seconds by default; whole-second intervals from 5 to
+300 are accepted. Manual starts no automatic build, including on reopening a project. Preferences stay on this device.
+Changing to Manual discards automatic waiting requests and lets a running build finish. Failed automatic attempts wait
+for changed source, available dependencies, compiler recovery, or an explicit retry instead of repeating every interval.
+
+### Recovering a failed build
+
+The Problems panel shows a cause and recovery action even when its detailed list is collapsed:
+
+| Cause | Recovery |
+|---|---|
+| Compiler missing or selected engine unsupported | Open **Compiler setup**; install a compatible engine, or change the project's engine. |
+| Input file unavailable | **Sync inputs**, reconnect to a co-author, or restore the named file, then retry. |
+| Package or format unavailable | Check the package name, connection and configured package server; **Retry build** after recovery. Account > Compiler contains setup/cache controls. |
+| Source error | Follow the diagnostic to its file and line, correct the source, then compile using the selected schedule. |
+| Timeout or worker failure | Retry; inspect the source for expensive work and use the raw log if the failure persists. |
+
+A failed build keeps the last good PDF visible with its outdated marker. The panel never reports “No problems” while
+compiler setup blocks a build. A correct PDF alone does not prove a later build succeeded. The raw log is supplementary.
+
+The browser adapter completes bibliography/reference passes within one build deadline; a bibliography no longer needs
+several clicks on Recompile. Resource compatibility is separately checked with the actual shipped article/report in
+`e2e/compiler-templates.spec.ts`; see `docs/authoring-acceptance.md` for the current production-distribution limitation.
 
 Missing sources and assets are reported by name. Empty stand-ins are never compiled. Sources can be acquired from peers
 through ordinary sync, but no build request or output travels to a co-author. Complete local projects compile without peers.
@@ -68,7 +93,7 @@ Nothing has to be installed to compile. Each device uses the first compiler avai
 | 2 | Desktop | **Your TeX distribution** (TeX Live / MiKTeX / MacTeX on `PATH`) | this device |
 | 3 | Desktop | **Quick compiler**: Tectonic (~10–21 MB), set up automatically at the first compile on a computer without TeX. It downloads each package the first time a document needs it and caches it | this device |
 | 4 | Web | **Your desktop app**, if it runs on the same computer and you paired this browser with it (*Compile with my desktop app*) | same computer |
-| 5 | Web / desktop | **In-browser compiler**: SwiftLaTeX pdfTeX/XeTeX (WebAssembly, in a worker); uses a reachable TeX file server or its locally cached format | this device |
+| 5 | Web / desktop | **In-browser compiler**: SwiftLaTeX pdfTeX/XeTeX (WebAssembly, in workers); compatible versioned TeX resources included with the app and cached on demand | this device |
 
 - Desktop builds run in a persistent per-project work directory; only changed files are written. Shell-escape is
   disabled, nothing is written outside the project, `latexmk -norc` ignores project `latexmkrc` files, and a
@@ -141,11 +166,30 @@ The status bar shows which compiler the device uses (*TeX Live*, *MiKTeX*, *full
 *downloading tikz-cd.sty*, *installing pgf*). The Rust tests (`cargo test --lib` in `apps/desktop/src-tauri`) compile real documents when a distribution is
 installed and skip otherwise; the CI workflow `.github/workflows/desktop.yml` requires them on Windows with TinyTeX installed.
 
-## Self-hosting a TeX file server for the browser engine
+## Browser compiler resources and custom servers
 
-The browser engine fetches missing TeX files from `https://texlive2.swiftlatex.com/` by default. That public server is run
-by a third party and may be unavailable; point `VITE_TEXLIVE_URL` (or the *texliveUrl* setting) at a server you control
-(the SwiftLaTeX project documents the `texlive-ondemand` server). Compilation on desktop is unaffected.
+The default browser compiler uses a coherent TeX Live 2019 final resource set matching the bundled SwiftLaTeX
+v20022022 engines and February 2020 formats. It supports the shipped article and report, including bibliography,
+cross-references and images, with pdfLaTeX and XeLaTeX. XeTeX's intermediate XDV is converted by the matching
+Dvipdfmx worker; conversion shares the build deadline and cancellation. LuaLaTeX still requires a desktop compiler.
+
+Vite prepares the distribution automatically before dev/build. `node scripts/tex-distribution.mjs` can prepare it
+explicitly. `scripts/tex-distribution.lock.json` pins every archive, format and engine by SHA-256; downloads with a
+different checksum fail preparation. Runtime files remain unchanged, with a generated font map and a small worker
+resource-lookup adapter. The output includes package metadata, original documentation/license notices and available
+source archives. `manifest.json` records file and worker hashes; `NOTICE.txt` records provenance.
+
+The immutable `/texlive/tl2019-<identity>/` path identifies the lock, generator and adapter together. Browser caches
+are named `hivetex-tex-v2:<distribution URL>`; content-addressed resource downloads are checked before caching. Old
+caches survive an upgrade, so rolling back the app can reuse its previous distribution. Explicit **Clear compiler
+caches** removes compiler caches only. Desktop packages contain these resources directly. Browsers download only
+requested resources; after the first build they can recompile with the compiler-resource server unavailable.
+
+For packages outside this set, use a full desktop TeX distribution or set `VITE_TEXLIVE_URL` / **Account > Connections
+> TeX package server** to a compatible SwiftLaTeX file server. Use a versioned URL and keep its format and packages
+together; current TeX Live files cannot be mixed with the 2020 format. Custom endpoints have separate browser/disk
+caches. Leave the field empty for the bundled default. Older saved references to the previous public default
+`https://texlive2.swiftlatex.com/` migrate to the bundled set. Source documents never go to a package server.
 
 ## SyncTeX
 
@@ -155,3 +199,10 @@ editor to highlight the matching position in the PDF. (Browser-engine builds hav
 ## Recovery after older Windows installs
 
 Select **Account > Compiler > Clear compiler caches** to reset build files, downloaded quick-compiler packages, temporary downloads and browser TeX files. Documents, sign-in and installed compilers are preserved. Managed full LaTeX is preferred; system tools are selected from one working installation with bounded probes. See [Windows maintenance](windows-maintenance.md).
+
+If a managed full-LaTeX package download times out or is interrupted, restore connectivity and select **Recompile**.
+The next build repairs the package filename index before compiling. Package installation, bibliography and TeX passes
+share the build's deadline; cancellation also terminates installer descendants. Desktop and paired-browser builds
+serialize access to the managed distribution so that an index repair cannot race another package installation.
+If repair itself fails, the build reports that failure and retains the previous PDF; retry after resolving the reported
+installation or connectivity problem. This recovery does not remove project files or reinstall a system distribution.

@@ -1,0 +1,40 @@
+This is XeTeX, Version 3.14159265-2.6-0.999992 (XeTeX WebAssembly 0.3.0) (preloaded format=swiftlatexxetex)
+entering extended mode
+(main.tex
+LaTeX2e <2020-02-02> patch level 2
+L3 programming layer <2020-02-14>
+(/tex/5547a81b18edf6bd4f4950f4bf5a7af3b1786ddbfa21340e23fa22273ee1b3f3
+Document Class: report 2019/12/20 v1.4l Standard LaTeX document class
+(/tex/d3fa3ed15375c8f01c53581e1d26134e7a731bc3bce39bef4307b47b70340002))
+(/tex/843c4a4ee0404b93ea384acb44f137ec086ce11092b90bd2ba1a1ed94b003611
+For additional information on amsmath, use the `?' option.
+(/tex/3c27d940d38027ca930d9ecefc615d81985d018ba4aa5e19fe7bb2dd7ed639ca
+(/tex/785f0b19d3ed9e5a94c5198c4400685ef3bb132a7e7c468000bbc1e547393f65))
+(/tex/4f806f0319e8e45acb2d0ea8052b78284ada7243ca80cbebe584b39c1b26bfcd)
+(/tex/1bde81ae4bb2198d3f99aa4f0e0b7bd36a32f3a033edcbb871690119f3bc6af5))
+(/tex/431ccfe3c42cd8e20f956fd60e7d55ce0f25f69d82cfb054b76b5c1d661e96e5
+(/tex/dac21f2d090d1a055b45dcefac77f6f513f5b39bd393848083e7988c077b05af)
+(/tex/f293789153e8de00444f2cb031fc66d040fa0e23ece99811e07db18991a03e9b
+(/tex/06ceddc6a846d34b8ff178ffe49b23b384a819c9fbd15b45d6fcf895febfb928)
+(/tex/feb91e48789a21e4acced98e952c77a2e2cf4a77e01bf147b59fa56a1b3f2008)
+(/tex/7c81a9b69d3e7e925719a164d4b1b877a4d14efae6d64bd2319f53e1b6a9456d)))
+(/tex/d044d5b932796db2dcf8dd7c7a0d651ff35ce4124ac52501450856cc60d2610c)
+(main.aux (chapters/introduction.aux) (chapters/background.aux))
+(/tex/0c41f180ac83d031cf99284624548e6a9b5939517e73dcb8cbdb43cd59c6f947)
+[1] [1] (main.toc) [1] (chapters/introduction.tex
+Chapter 1.
+) [2] (chapters/background.tex
+Chapter 2.
+) [3]
+Appendix A.
+(main.bbl [4]) [5] (main.aux (chapters/introduction.aux)
+(chapters/background.aux)) )
+Output written on main.xdv (7 pages, 12792 bytes).
+Transcript written on main.log.
+A level-1 auxiliary file: chapters/introduction.aux
+A level-1 auxiliary file: chapters/background.aux
+
+
+warning: Couldn't open font map file "kanjix.map".
+Couldn't open font map file "kanjix.map".
+[1][2][3][4][5][6][7]

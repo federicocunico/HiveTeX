@@ -37,7 +37,7 @@ test('a real WASM compiler builds a local PDF without a co-author', async ({ bro
   expect(loaded.some((url) => url.includes('swiftlatexpdftex.js'))).toBe(true);
   await expect(user.page.getByTestId('compiled-by')).toContainText(user.username);
   await expect(user.page.getByTestId('peer-count')).toContainText('No co-authors');
-  expect(await user.page.evaluate(async (url) => !!await (await caches.open('hivetex-tex-v1')).match(`${url}pdftex/10/swiftlatexpdftex.fmt`), packages.url)).toBe(true);
+  expect(await user.page.evaluate(async (url) => !!await (await caches.open(`hivetex-tex-v2:${url}`)).match(`${url}pdftex/10/swiftlatexpdftex.fmt`), packages.url)).toBe(true);
   await packages.close();
   await user.page.evaluate(() => sessionStorage.removeItem('hivetex.texserver'));
   await user.page.reload();

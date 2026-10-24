@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
+use sha2::{Digest, Sha256};
 
 pub const DEFAULT_UPSTREAM: &str = "https://texlive2.swiftlatex.com/";
 const NEGATIVE_TTL: Duration = Duration::from_secs(3600);
@@ -61,6 +62,10 @@ impl TexCache {
         Ok(())
     }
 
+    fn distribution_root(&self, upstream: &str) -> PathBuf {
+        self.root.join(format!("v2-{:x}", Sha256::digest(upstream.as_bytes())))
+    }
+
     fn missing_marker(file: &Path) -> PathBuf {
         let mut m = file.as_os_str().to_owned();
         m.push(".missing");
@@ -70,7 +75,10 @@ impl TexCache {
     /// Serves `rel` from disk, else downloads it once. `Ok(Missing)` = the server does not have it.
     pub async fn get(&self, rel: &Path) -> Result<Lookup, String> {
         let _active = crate::maintenance::COMPILER_ACTIVITY.try_read().map_err(|_| "Compiler maintenance is active".to_string())?;
-        let file = self.root.join(rel);
+        // Snapshot the endpoint together with its cache identity before awaiting network I/O.
+        // Old unversioned resources remain recoverable, but never enter a different distribution.
+        let upstream = self.upstream.lock().unwrap().clone();
+        let file = self.distribution_root(&upstream).join(rel);
         if let Ok(b) = std::fs::read(&file) {
             return Ok(Lookup::Hit(b));
         }
@@ -81,7 +89,7 @@ impl TexCache {
                 return Ok(Lookup::Missing);
             }
         }
-        let url = format!("{}{}", self.upstream.lock().unwrap(), rel.to_string_lossy().replace('\\', "/"));
+        let url = format!("{}{}", upstream, rel.to_string_lossy().replace('\\', "/"));
         let res = self.client.get(&url).send().await.map_err(|e| e.to_string())?;
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -105,7 +113,7 @@ impl TexCache {
 
     /// Whether `rel` is already on disk (no download needed).
     pub fn stats_contains(&self, rel: &Path) -> bool {
-        self.root.join(rel).is_file()
+        self.distribution_root(&self.upstream.lock().unwrap()).join(rel).is_file()
     }
 
     pub fn stats(&self) -> Stats {
@@ -210,5 +218,24 @@ mod tests {
         assert_eq!(c.stats().files, 1);
         c.clear_guarded(&tokio::sync::RwLock::new(())).unwrap();
         assert_eq!(c.stats().files, 0);
+    }
+
+    #[tokio::test]
+    async fn switching_distributions_never_reuses_incompatible_resources_or_removes_the_old_cache() {
+        let (first, first_hits) = server();
+        let (second, second_hits) = server();
+        let c = cache("distribution-isolation");
+        let path = safe_rel("pdftex/hit.sty").unwrap();
+        c.set_upstream(&first).unwrap();
+        assert!(matches!(c.get(&path).await.unwrap(), Lookup::Hit(_)));
+        c.set_upstream(&second).unwrap();
+        assert!(!c.stats_contains(&path));
+        assert!(matches!(c.get(&path).await.unwrap(), Lookup::Hit(_)));
+        assert_eq!(second_hits.load(Ordering::SeqCst), 1);
+        c.set_upstream(&first).unwrap();
+        assert!(c.stats_contains(&path));
+        assert!(matches!(c.get(&path).await.unwrap(), Lookup::Hit(_)));
+        assert_eq!(first_hits.load(Ordering::SeqCst), 1);
+        c.clear_guarded(&tokio::sync::RwLock::new(())).unwrap();
     }
 }

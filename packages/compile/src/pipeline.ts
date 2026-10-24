@@ -1,12 +1,15 @@
 import { type MissingContent, type ProjectModel, describeMissing, projectHash, projectSettings } from '@hivetex/sync';
 import type { EngineKind, TexEngine } from './capability.js';
 import type { Diagnostic } from './logparser.js';
+import type { CompileFailure } from './failure.js';
 
 export interface CompileInput {
   files: Array<{ path: string; kind: 'text' | 'binary'; text?: string; bytes?: Uint8Array }>;
   main: string;
   engine: TexEngine;
   stateHash: string;
+  /** Local snapshot metadata; never sent to co-authors. */
+  capture?: { seq: number; at: number };
 }
 
 export interface CompileOutput {
@@ -34,6 +37,7 @@ export interface CompileResult {
   log: string;
   /** Set when nothing was built because these project files were not available yet (never with `ok`). */
   incomplete?: string[];
+  failure?: CompileFailure;
   by: { dev: string; uname: string };
   at: number;
   seq: number;
@@ -66,7 +70,7 @@ export async function computeStateHash(model: ProjectModel): Promise<string> {
     const files: Parameters<typeof projectHash>[0]['files'] = entries.map((f) => f.kind === 'text'
       ? { id: f.id, path: f.path, kind: 'text', text: model.getLoadedDoc(`f:${f.id}`)!.getText('t').toString() }
       : { id: f.id, path: f.path, kind: f.kind, ...(f.hash ? { hash: f.hash } : {}) });
-    const hash = await projectHash({ files: files.filter((f) => f.kind !== 'binary' || f.hash), settings: projectSettings(model), seq });
+    const hash = await projectHash({ files: files.filter((f) => f.kind !== 'binary' || f.hash), settings: projectSettings(model), seq, at: Date.now() });
     if (seq === model.changeSeq) return hash;
   }
   throw new Error('Project changed while checking the result identity');

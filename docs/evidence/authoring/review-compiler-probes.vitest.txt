@@ -1,0 +1,49 @@
+// @vitest-environment jsdom
+import { afterEach, expect, it, vi } from 'vitest';
+vi.mock('../src/lib/api.js', () => ({ isDesktop: false, safeStorage: () => null }));
+import { Runner, loadWasmEngine } from '../src/lib/wasm-engine.js';
+const input = { files: [], main: 'main.tex', engine: 'xelatex' as const, stateHash: 'review' };
+class Fake {
+  static all: Fake[] = [];
+  onmessage: ((e: {data: unknown}) => void) | null = null;
+  onerror: (() => void) | null = null;
+  terminate = vi.fn();
+  posted: Array<{cmd: string}> = [];
+  constructor() { Fake.all.push(this); }
+  postMessage(m: {cmd: string}) { this.posted.push(m); }
+  reply(data: unknown) { this.onmessage?.({data}); }
+}
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+it('review probe: stopping after preparation resolves prevents worker startup', async () => {
+  vi.useFakeTimers(); Fake.all = []; vi.stubGlobal('Worker', Fake);
+  let downloaded!: () => void;
+  const prepare = new Promise<void>(resolve => { downloaded = resolve; });
+  const runner = new Runner('pdflatex', 100, () => prepare);
+  const result = runner.compile({...input, engine:'pdflatex'}, 1000);
+  downloaded(); queueMicrotask(() => runner.stop());
+  await vi.advanceTimersByTimeAsync(0);
+  const createdAfterStop = Fake.all.length;
+  runner.stop(); await result;
+  expect(createdAfterStop).toBe(0);
+});
+it('review probe: retry gets a fresh converter startup allowance', async () => {
+  vi.useFakeTimers(); Fake.all = []; vi.stubGlobal('Worker', Fake);
+  vi.stubGlobal('fetch', vi.fn(async () => ({ok:true})));
+  sessionStorage.clear();
+  const engine = (await loadWasmEngine('review'))!;
+  const first = engine.compile(input,{timeoutMs:1000});
+  await vi.advanceTimersByTimeAsync(0);
+  const tex = Fake.all[0]!; tex.reply({result:'ok'});
+  await vi.advanceTimersByTimeAsync(900);
+  tex.reply({cmd:'compile',result:'ok',status:0,pdf:new ArrayBuffer(1),log:''});
+  await vi.advanceTimersByTimeAsync(101);
+  expect((await first).ok).toBe(false);
+  const retry = engine.compile(input,{timeoutMs:1000});
+  await vi.advanceTimersByTimeAsync(0);
+  tex.reply({cmd:'compile',result:'ok',status:0,pdf:new ArrayBuffer(1),log:''});
+  await vi.advanceTimersByTimeAsync(101);
+  const converter = Fake.all.at(-1)!;
+  const prematurelyTerminated = converter.terminate.mock.calls.length;
+  engine.dispose?.(); await retry;
+  expect(prematurelyTerminated).toBe(0);
+});

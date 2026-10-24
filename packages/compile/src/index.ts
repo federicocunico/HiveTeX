@@ -6,3 +6,4 @@ export * from './native.js';
 export * from './synctex.js';
 
 export * from './local.js';
+export * from './failure.js';

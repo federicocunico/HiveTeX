@@ -22,6 +22,26 @@ use crate::worker_service::WorkerService;
 
 pub const BACKGROUND_ARG: &str = "--background";
 
+/// Isolated harness telemetry, including when there is no webview to query over CDP.
+#[cfg(feature = "test-picker")]
+pub fn test_monitor(app: &AppHandle) {
+    let Some(path) = std::env::var_os("HIVETEX_TEST_LIFECYCLE_REPORT") else { return };
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        let windows = app.webview_windows();
+        let report = json!({
+            "pid": std::process::id(), "identifier": app.config().identifier,
+            "version": app.package_info().version.to_string(),
+            "windows": windows.keys().collect::<Vec<_>>(),
+            "visibleWindows": windows.values().filter(|w| w.is_visible().unwrap_or(false)).count(),
+            "trayCount": usize::from(app.tray_by_id("main").is_some()),
+            "quitting": app.state::<Lifecycle>().quitting.load(Ordering::SeqCst),
+        });
+        let _ = std::fs::write(&path, report.to_string());
+        std::thread::sleep(Duration::from_millis(250));
+    });
+}
+
 #[derive(Default)]
 pub struct Lifecycle {
     pub tray: AtomicBool,
@@ -30,6 +50,33 @@ pub struct Lifecycle {
     items: Mutex<Option<(MenuItem<Wry>, MenuItem<Wry>)>>,
     refreshing: AtomicBool,
     last_refresh: Mutex<Option<Instant>>,
+    startup: WindowStartup,
+    opening: AtomicBool,
+}
+
+#[derive(Default)]
+struct WindowStartup {
+    main_ready: AtomicBool,
+    pending_open: AtomicBool,
+}
+
+impl WindowStartup {
+    fn request_open(&self) -> bool {
+        if self.main_ready.load(Ordering::SeqCst) { return true; }
+        self.pending_open.store(true, Ordering::SeqCst);
+        // Setup may have completed between the first check and recording the request.
+        self.main_ready.load(Ordering::SeqCst)
+    }
+
+    /// Release startup requests only after Tauri created the configured webview and app setup finished.
+    fn finish_setup(&self) -> bool {
+        self.main_ready.store(true, Ordering::SeqCst);
+        self.pending_open.swap(false, Ordering::SeqCst)
+    }
+}
+
+impl Lifecycle {
+    pub fn finish_setup(&self) -> bool { self.startup.finish_setup() }
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,18 +109,29 @@ pub fn background_launch(args: &[String], settings: StartupSettings) -> bool {
 
 /// Shows the main window, recreating it if it was closed.
 pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-        return;
-    }
-    let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else { return };
-    if let Ok(builder) = WebviewWindowBuilder::from_config(app, &config) {
-        if let Ok(w) = builder.visible(true).build() {
+    let state = app.state::<Lifecycle>();
+    // WM_COPYDATA can arrive while WebView2 pumps messages during initial window construction, before setup.
+    // Reentering its builder there creates a second half-initialized window and prevents worker/tray startup.
+    if !state.startup.request_open() || state.opening.swap(true, Ordering::SeqCst) { return; }
+    let show = || {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.unminimize();
             let _ = w.set_focus();
+            return;
         }
-    }
+        let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main").cloned() else { return };
+        if let Ok(builder) = WebviewWindowBuilder::from_config(app, &config) {
+            // A native window becomes visible before WebView2 finishes constructing it. Keep a reopened
+            // window hidden until its webview/close handlers exist, so rapid close/reopen cannot interrupt setup.
+            if let Ok(w) = builder.visible(false).build() {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }
+    };
+    show();
+    state.opening.store(false, Ordering::SeqCst);
 }
 
 /// Creates the tray. On failure (no tray host, e.g. some Linux desktops) the app keeps a recoverable window.
@@ -312,6 +370,16 @@ pub fn startup_set(app: AppHandle, login: bool, background: bool) -> Result<Star
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_open_requests_wait_for_setup_and_are_not_lost() {
+        let state = WindowStartup::default();
+        for _ in 0..12 { assert!(!state.request_open()); }
+        assert!(state.finish_setup(), "a secondary launch must also reopen a background startup");
+        assert!(!state.finish_setup(), "the startup request is consumed once");
+        assert!(state.request_open(), "normal tray/reopen requests run after setup");
+        assert!(!WindowStartup::default().finish_setup(), "background startup without a request stays hidden");
+    }
 
     #[test]
     fn background_launch_needs_both_the_login_argument_and_the_setting() {

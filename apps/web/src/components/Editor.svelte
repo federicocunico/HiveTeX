@@ -54,12 +54,14 @@
     if (!view || readOnly) return false;
     const { from, to } = view.state.selection.main;
     const ins = build(view.state.sliceDoc(from, to), { inMath: inMathAt(view.state.doc.toString(), from) });
+    undo?.stopCapturing();
     view.dispatch({
       changes: { from, to, insert: ins.text },
       selection: { anchor: from + ins.anchor, head: from + (ins.head ?? ins.anchor) },
       scrollIntoView: true,
       userEvent: 'input.format',
     });
+    undo?.stopCapturing();
     view.focus();
     return true;
   }
@@ -68,7 +70,9 @@
   export function insertLineBefore(line: number, text: string): boolean {
     if (!view || readOnly) return false;
     const l = view.state.doc.line(Math.min(Math.max(1, line), view.state.doc.lines));
+    undo?.stopCapturing();
     view.dispatch({ changes: { from: l.from, insert: `${text}\n` }, userEvent: 'input.fix' });
+    undo?.stopCapturing();
     return true;
   }
 
@@ -160,6 +164,7 @@
 
   /** Releases the editor view and its undo manager (every rebinding and the close go through here). */
   function release() {
+    if ((import.meta.env.DEV || import.meta.env.VITE_E2E === '1') && host) delete (host as HTMLDivElement & { __hivetexEditor?: EditorView }).__hivetexEditor;
     view?.destroy();
     view = null;
     undo?.destroy();
@@ -214,6 +219,7 @@
             {
               key: 'Mod-Alt-j',
               run: (v) => {
+                if (!session.syncIndex) return false;
                 onForwardSearch?.(v.state.doc.lineAt(v.state.selection.main.head).number);
                 return true;
               },
@@ -226,6 +232,8 @@
         ],
       }),
     });
+    // Development/native acceptance only: the geometry probe needs logical document positions, not DOM row indexes.
+    if (import.meta.env.DEV || import.meta.env.VITE_E2E === '1') (host as HTMLDivElement & { __hivetexEditor?: EditorView }).__hivetexEditor = view;
     loading = false;
     loadedKeymap = 'default';
     void applyKeymap(prefs.keymap);

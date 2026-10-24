@@ -43,12 +43,17 @@ test('double-clicking the PDF jumps to the source line; forward search highlight
     return w.__p2p.compile.forwardSearch(w.__p2p.session.syncIndex, 'main.tex', 3);
   });
   expect(pos?.page).toBe(1);
-  const box = (await canvas.boundingBox()) as { x: number; y: number };
-  const zoom = 1.2;
-  await page.mouse.dblclick(box.x + ((pos as { x: number }).x + 20) * zoom, box.y + ((pos as { y: number; h: number }).y + (pos as { h: number }).h / 2) * zoom);
-
-  // the editor jumped to that line of main.tex
-  await expect(page.locator('.cm-activeLine')).toContainText('First paragraph of the main file');
+  const pageWidth = await canvas.evaluate((el) => Number.parseFloat(el.style.width) / 1.2);
+  for (const scale of [1.2, 1.3, 1.4]) {
+    if (scale > 1.2) await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+    await expect(page.locator('[data-page="1"][data-rendered="true"]')).toBeVisible();
+    await expect.poll(async () => Math.abs(await canvas.evaluate((el) => Number.parseFloat(el.style.width)) - pageWidth * scale)).toBeLessThan(0.01);
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.dblclick(box.x + (pos!.x + 20) * scale, box.y + (pos!.y + pos!.h / 2) * scale);
+    await expect(page.locator('.cm-activeLine')).toContainText('First paragraph of the main file');
+  }
+  const zoom = 1.4;
+  const box = (await canvas.boundingBox())!;
 
   // reverse into the included file (second page text lives in sections/body.tex)
   const pos2 = await page.evaluate(() => {
@@ -60,8 +65,26 @@ test('double-clicking the PDF jumps to the source line; forward search highlight
   await expect(page.locator('.cm-activeLine')).toContainText('Body text line two');
 
   // forward search: Ctrl+Alt+J in the editor highlights the matching spot in the PDF
-  await page.locator('.cm-content').click();
+  await expect(page.locator('.cm-content')).toBeFocused();
   await page.keyboard.press('Control+Alt+j');
   await expect(page.locator('.pdf-scroll .hl')).toHaveCount(1);
+  await expect(page.locator('.cm-content')).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollTop)).toBe(0);
+  const highlight = page.locator('.pdf-scroll .hl');
+  await expect.poll(async () => Math.abs(await highlight.evaluate((el) => Number.parseFloat((el as HTMLElement).style.left)) - (pos2!.x * zoom - 2))).toBeLessThan(0.01);
+
+  // Removing the map disables both directions, and removes old highlighting.
+  await page.evaluate(() => { (window as any).__p2p.session.syncIndex = null; });
+  await expect(highlight).toHaveCount(0);
+  await page.keyboard.press('Control+Alt+j');
+  await expect(highlight).toHaveCount(0);
+  await page.keyboard.press('Control+k');
+  await page.getByTestId('palette-input').fill('Show this line in the PDF');
+  await expect(page.getByTestId('palette').getByRole('option', { name: /Show this line/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  const before = await page.getByTestId('cursor-pos').innerText();
+  const now = (await canvas.boundingBox())!;
+  await page.mouse.dblclick(now.x + (pos!.x + 20) * zoom, now.y + (pos!.y + pos!.h / 2) * zoom);
+  await expect(page.getByTestId('cursor-pos')).toHaveText(before);
   await ctx.close();
 });

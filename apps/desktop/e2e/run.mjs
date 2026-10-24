@@ -123,7 +123,14 @@ try {
     code = l.status ?? 1;
     report.lifecycle = code;
   }
+  if (code === 0 && win && process.env.HIVETEX_BACKGROUND_CHECK === '1') {
+    await ensureNoTestInstance();
+    const b = spawnSync(process.execPath, [join(here, 'background.mjs')], { stdio: 'inherit', cwd: root, env: { ...process.env, HIVETEX_APP: exe, E2E_OUT: out } });
+    code = b.status ?? 1;
+    report.background = code;
+  }
 } catch (e) {
+  code = 1;
   console.error(e instanceof Error ? e.message : e);
   report.error = e instanceof Error ? e.message : String(e);
 } finally {

@@ -94,6 +94,7 @@
     Wifi,
   } from '../ui/icons.js';
   import Dialog from '../ui/Dialog.svelte';
+  import CompilePreferences from '../components/CompilePreferences.svelte';
   import AvatarStack from '../ui/AvatarStack.svelte';
   import Icon from '../ui/Icon.svelte';
   import IconButton from '../ui/IconButton.svelte';
@@ -114,6 +115,7 @@
   /** Text of every text file, refreshed with the index (for outline and compile help). */
   let texts = $state.raw(new Map<string, string>());
   let showSettings = $state(false);
+  let showCompilePreferences = $state(false);
   let showShare = $state(false);
   let showNetwork = $state(false);
   /** Resolve dialog for offline-merge conflicts (id of the conflict to show first). */
@@ -724,7 +726,8 @@
     const off = registerCommands([
       // Every build is local: Mod+Shift+Enter (the former "this device only" command) is one more alias.
       { id: 'compile', title: 'Compile now', group: 'Compile', keys: ['Mod+Enter', 'Mod+S', 'Mod+Shift+Enter'], icon: Play, aliases: ['recompile', 'build', 'save'], when: has, run: () => void compileNow() },
-      { id: 'synctex-forward', title: 'Show this line in the PDF', group: 'Navigate', keys: ['Mod+Alt+J'], editor: true, aliases: ['synctex', 'forward search'], when: () => active?.kind === 'text', run: () => forward(cursor?.line ?? 1) },
+      { id: 'compile-schedule', title: 'Compilation schedule', group: 'Compile', icon: Settings, aliases: ['automatic', 'periodic', 'manual', 'interval'], when: has, run: () => (showCompilePreferences = true) },
+      { id: 'synctex-forward', title: 'Show this line in the PDF', group: 'Navigate', keys: ['Mod+Alt+J'], editor: true, aliases: ['synctex', 'forward search'], when: () => active?.kind === 'text' && !!session?.syncIndex, run: () => forward(cursor?.line ?? 1) },
       { id: 'goto-line', title: 'Go to line…', group: 'Navigate', aliases: ['line number'], when: () => active?.kind === 'text', run: () => openPalette(':') },
       { id: 'goto-heading', title: 'Go to heading…', group: 'Navigate', aliases: ['outline', 'section'], when: has, run: () => openPalette('@') },
       { id: 'toggle-side', title: 'Show or hide the side panel', group: 'View', keys: ['Mod+Shift+E'], icon: PanelLeft, when: has, run: () => setLayout({ panel: layout.panel ? null : lastPanel }) },
@@ -821,10 +824,20 @@
     if (!s) return [];
     return [
       { label: 'Compile now', icon: Play, hint: 'Mod+Enter', onSelect: () => void compileNow() },
+      'separator',
+      ...([['after-changes', 'After changes'], ['periodic', `Periodic (${prefs.compileIntervalSeconds} s)`], ['manual', 'Manual']] as const).map(([value, label]) => ({ label, hint: prefs.compileSchedule === value ? 'Selected' : '', onSelect: () => setPref('compileSchedule', value) })),
+      { label: 'Schedule and interval…', icon: Settings, onSelect: () => (showCompilePreferences = true) },
+      'separator',
       { label: 'Download PDF', icon: Download, onSelect: () => void downloadPdf(), disabled: !s.pdf },
     ];
   });
 </script>
+
+{#if showCompilePreferences}
+  <Dialog title="Compilation schedule" onClose={() => (showCompilePreferences = false)} size="sm">
+    <CompilePreferences />
+  </Dialog>
+{/if}
 
 {#if error}
   <div class="ws-message"><div class="error" role="alert">{error}</div>
@@ -1047,6 +1060,10 @@
               {/if}
             </div>
             <ProblemsPanel
+              failure={s.compileFailure}
+              onRetry={() => void compileNow()}
+              onSetup={() => go('/account')}
+              onSync={() => void s.syncNow()}
               diagnostics={s.result?.diagnostics ?? []}
               failed={!!s.result && !s.result.ok}
               log={s.result?.log ?? ''}
@@ -1412,7 +1429,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 40px;
+    min-height: var(--pane-header-h);
     padding: 0 6px 0 14px;
     border-bottom: 1px solid var(--line);
     min-width: 0;

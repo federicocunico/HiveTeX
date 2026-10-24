@@ -1,0 +1,363 @@
+﻿{
+    "startedAt":  "2026-10-23T06:31:19.5692804Z",
+    "failureProcesses":  [
+                             {
+                                 "Id":  20856,
+                                 "Path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                                 "MainWindowTitle":  "HiveTeX"
+                             }
+                         ],
+    "exeSha256":  "e5014dca1bfac8c1ad9f682d256b2500026b7ccdfeb39a71a660d8b02778b0b4",
+    "webviewOverride":  "C:\\hx-webview",
+    "selfCheck":  "self-check: sync worker ready\n",
+    "version":  "0.9.1",
+    "identifier":  "app.hivetex.desktop",
+    "error":  "Timed out: closed to tray",
+    "failureWindows":  [
+                           {
+                               "Handle":  328412,
+                               "Pid":  20856,
+                               "Class":  "Tauri Window",
+                               "Title":  "HiveTeX",
+                               "Visible":  true
+                           },
+                           {
+                               "Handle":  328418,
+                               "Pid":  20856,
+                               "Class":  "tray_icon_app",
+                               "Title":  "",
+                               "Visible":  false
+                           },
+                           {
+                               "Handle":  131794,
+                               "Pid":  20856,
+                               "Class":  "app.hivetex.desktop-sic",
+                               "Title":  "app.hivetex.desktop-siw",
+                               "Visible":  true
+                           },
+                           {
+                               "Handle":  262848,
+                               "Pid":  20856,
+                               "Class":  "Tao Thread Event Target",
+                               "Title":  "",
+                               "Visible":  true
+                           },
+                           {
+                               "Handle":  262896,
+                               "Pid":  20856,
+                               "Class":  "MSCTFIME UI",
+                               "Title":  "MSCTFIME UI",
+                               "Visible":  false
+                           },
+                           {
+                               "Handle":  393850,
+                               "Pid":  20856,
+                               "Class":  "IME",
+                               "Title":  "Default IME",
+                               "Visible":  false
+                           }
+                       ],
+    "installerSha256":  "96b5b4a07ec740425d0000f12f8c9c0cf05b13493d4743d5690309a3a90ee29f",
+    "passed":  false,
+    "finishedAt":  "2026-10-23T06:32:15.3187990Z",
+    "scenarios":  [
+                      {
+                          "name":  "12 concurrent launches from two paths",
+                          "owner":  20856,
+                          "children":  [
+                                           {
+                                               "ProcessId":  20932,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "msedgewebview2.exe",
+                                               "ExecutablePath":  "C:\\hx-webview\\msedgewebview2.exe"
+                                           },
+                                           {
+                                               "ProcessId":  21776,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "node.exe",
+                                               "ExecutablePath":  "C:\\hivetex-packaged\\node\\node.exe"
+                                           }
+                                       ],
+                          "trayCount":  1,
+                          "path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                          "windows":  [
+                                          {
+                                              "Handle":  131818,
+                                              "Pid":  20856,
+                                              "Class":  "Tauri Window",
+                                              "Title":  "HiveTeX",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  328418,
+                                              "Pid":  20856,
+                                              "Class":  "tray_icon_app",
+                                              "Title":  "",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  131794,
+                                              "Pid":  20856,
+                                              "Class":  "app.hivetex.desktop-sic",
+                                              "Title":  "app.hivetex.desktop-siw",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  262848,
+                                              "Pid":  20856,
+                                              "Class":  "Tao Thread Event Target",
+                                              "Title":  "",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  327734,
+                                              "Pid":  20856,
+                                              "Class":  "MSCTFIME UI",
+                                              "Title":  "MSCTFIME UI",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  197314,
+                                              "Pid":  20856,
+                                              "Class":  "IME",
+                                              "Title":  "Default IME",
+                                              "Visible":  false
+                                          }
+                                      ],
+                          "visibleWindows":  1
+                      },
+                      {
+                          "name":  "closed to tray 1",
+                          "owner":  20856,
+                          "children":  [
+                                           {
+                                               "ProcessId":  20932,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "msedgewebview2.exe",
+                                               "ExecutablePath":  "C:\\hx-webview\\msedgewebview2.exe"
+                                           },
+                                           {
+                                               "ProcessId":  21776,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "node.exe",
+                                               "ExecutablePath":  "C:\\hivetex-packaged\\node\\node.exe"
+                                           }
+                                       ],
+                          "trayCount":  1,
+                          "path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                          "windows":  [
+                                          {
+                                              "Handle":  131818,
+                                              "Pid":  20856,
+                                              "Class":  "Tauri Window",
+                                              "Title":  "HiveTeX",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  328418,
+                                              "Pid":  20856,
+                                              "Class":  "tray_icon_app",
+                                              "Title":  "",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  131794,
+                                              "Pid":  20856,
+                                              "Class":  "app.hivetex.desktop-sic",
+                                              "Title":  "app.hivetex.desktop-siw",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  262848,
+                                              "Pid":  20856,
+                                              "Class":  "Tao Thread Event Target",
+                                              "Title":  "",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  327734,
+                                              "Pid":  20856,
+                                              "Class":  "MSCTFIME UI",
+                                              "Title":  "MSCTFIME UI",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  197314,
+                                              "Pid":  20856,
+                                              "Class":  "IME",
+                                              "Title":  "Default IME",
+                                              "Visible":  false
+                                          }
+                                      ],
+                          "visibleWindows":  0
+                      },
+                      {
+                          "name":  "reopened 1",
+                          "owner":  20856,
+                          "children":  [
+                                           {
+                                               "ProcessId":  20932,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "msedgewebview2.exe",
+                                               "ExecutablePath":  "C:\\hx-webview\\msedgewebview2.exe"
+                                           },
+                                           {
+                                               "ProcessId":  21776,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "node.exe",
+                                               "ExecutablePath":  "C:\\hivetex-packaged\\node\\node.exe"
+                                           }
+                                       ],
+                          "trayCount":  1,
+                          "path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                          "windows":  [
+                                          {
+                                              "Handle":  393846,
+                                              "Pid":  20856,
+                                              "Class":  "Tauri Window",
+                                              "Title":  "HiveTeX",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  328418,
+                                              "Pid":  20856,
+                                              "Class":  "tray_icon_app",
+                                              "Title":  "",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  131794,
+                                              "Pid":  20856,
+                                              "Class":  "app.hivetex.desktop-sic",
+                                              "Title":  "app.hivetex.desktop-siw",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  262848,
+                                              "Pid":  20856,
+                                              "Class":  "Tao Thread Event Target",
+                                              "Title":  "",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  393232,
+                                              "Pid":  20856,
+                                              "Class":  "MSCTFIME UI",
+                                              "Title":  "MSCTFIME UI",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  262850,
+                                              "Pid":  20856,
+                                              "Class":  "IME",
+                                              "Title":  "Default IME",
+                                              "Visible":  false
+                                          }
+                                      ],
+                          "visibleWindows":  1
+                      },
+                      {
+                          "name":  "closed to tray 2",
+                          "owner":  20856,
+                          "children":  [
+                                           {
+                                               "ProcessId":  21776,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "node.exe",
+                                               "ExecutablePath":  "C:\\hivetex-packaged\\node\\node.exe"
+                                           }
+                                       ],
+                          "trayCount":  1,
+                          "path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                          "windows":  [
+                                          {
+                                              "Handle":  328418,
+                                              "Pid":  20856,
+                                              "Class":  "tray_icon_app",
+                                              "Title":  "",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  131794,
+                                              "Pid":  20856,
+                                              "Class":  "app.hivetex.desktop-sic",
+                                              "Title":  "app.hivetex.desktop-siw",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  262848,
+                                              "Pid":  20856,
+                                              "Class":  "Tao Thread Event Target",
+                                              "Title":  "",
+                                              "Visible":  true
+                                          }
+                                      ],
+                          "visibleWindows":  0
+                      },
+                      {
+                          "name":  "reopened 2",
+                          "owner":  20856,
+                          "children":  [
+                                           {
+                                               "ProcessId":  21776,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "node.exe",
+                                               "ExecutablePath":  "C:\\hivetex-packaged\\node\\node.exe"
+                                           },
+                                           {
+                                               "ProcessId":  22448,
+                                               "ParentProcessId":  20856,
+                                               "Name":  "msedgewebview2.exe",
+                                               "ExecutablePath":  "C:\\hx-webview\\msedgewebview2.exe"
+                                           }
+                                       ],
+                          "trayCount":  1,
+                          "path":  "C:\\hivetex-packaged\\hivetex-desktop.exe",
+                          "windows":  [
+                                          {
+                                              "Handle":  328412,
+                                              "Pid":  20856,
+                                              "Class":  "Tauri Window",
+                                              "Title":  "HiveTeX",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  328418,
+                                              "Pid":  20856,
+                                              "Class":  "tray_icon_app",
+                                              "Title":  "",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  131794,
+                                              "Pid":  20856,
+                                              "Class":  "app.hivetex.desktop-sic",
+                                              "Title":  "app.hivetex.desktop-siw",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  262848,
+                                              "Pid":  20856,
+                                              "Class":  "Tao Thread Event Target",
+                                              "Title":  "",
+                                              "Visible":  true
+                                          },
+                                          {
+                                              "Handle":  262896,
+                                              "Pid":  20856,
+                                              "Class":  "MSCTFIME UI",
+                                              "Title":  "MSCTFIME UI",
+                                              "Visible":  false
+                                          },
+                                          {
+                                              "Handle":  393850,
+                                              "Pid":  20856,
+                                              "Class":  "IME",
+                                              "Title":  "Default IME",
+                                              "Visible":  false
+                                          }
+                                      ],
+                          "visibleWindows":  1
+                      }
+                  ]
+}

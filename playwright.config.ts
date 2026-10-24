@@ -32,7 +32,8 @@ export default defineConfig({
             command: 'pnpm --filter @hivetex/web dev',
             url: 'http://localhost:1420',
             reuseExistingServer: !process.env.CI,
-            timeout: 120_000,
+            // First setup verifies and assembles the pinned TeX distribution, including source/license archives.
+            timeout: 300_000,
           },
         ],
       }),

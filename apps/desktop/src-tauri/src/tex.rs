@@ -389,6 +389,25 @@ fn run_limited(cmd: Command, timeout: Duration, memory_mb: u64) -> std::io::Resu
     run_limited_io(cmd, timeout, memory_mb, None, None)
 }
 
+/// Package acquisition needs the same deadline/cancellation/process-tree ownership as TeX itself.
+/// Use a private, exclusively created output file so tlmgr cannot block on a full pipe.
+pub(crate) fn run_package(cmd: Command, timeout: Duration, memory_mb: u64) -> std::io::Result<(bool, bool, String)> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let (path, file) = loop {
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("hivetex-tlmgr-{}-{n}.log", std::process::id()));
+        match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => break (path, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    let result = run_limited_io(cmd, timeout, memory_mb, Some(file), None);
+    let text = String::from_utf8_lossy(&fs::read(&path).unwrap_or_default()).into_owned();
+    let _ = fs::remove_file(path);
+    result.map(|(ok, timed_out)| (ok, timed_out, text))
+}
+
 /// Overall limit for a build whose deadline is pushed back by downloads (the quick compiler's first build).
 const DOWNLOAD_CAP: Duration = Duration::from_secs(15 * 60);
 
@@ -404,6 +423,7 @@ fn timed_out(elapsed: Duration, last_download: Option<Duration>, timeout: Durati
 /// `run_limited`, with stderr written to `stderr` when given (Tectonic reports its downloads there), and the time limit
 /// counted from the latest download recorded in `activity` when given.
 fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: Option<fs::File>, activity: Option<Activity>) -> std::io::Result<(bool, bool)> {
+    if timeout.is_zero() || cancelled() { return Ok((false, true)); }
     // Both streams go to the file when given (Tectonic prints its `note:` lines on stdout).
     let stdout = stderr.as_ref().and_then(|f| f.try_clone().ok());
     cmd.stdin(Stdio::null())
@@ -431,7 +451,13 @@ fn run_limited_io(mut cmd: Command, timeout: Duration, memory_mb: u64, stderr: O
     let start = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {
-            return Ok((status.success(), false));
+            // Windows tlmgr self-update may outlive its launcher. Keep its job owned until all descendants
+            // finish, applying the same deadline below instead of killing the updater on a successful exit.
+            #[cfg(windows)]
+            let descendants = _job.as_ref().is_some_and(|job| job.active_processes() > 0);
+            #[cfg(not(windows))]
+            let descendants = false;
+            if !descendants { return Ok((status.success(), false)); }
         }
         let last = activity.as_ref().map(|a| a.load(std::sync::atomic::Ordering::SeqCst)).filter(|&ms| ms > 0).map(Duration::from_millis);
         let cap = if activity.is_some() { DOWNLOAD_CAP } else { timeout };
@@ -462,6 +488,14 @@ pub(crate) mod winjob {
     unsafe impl Send for JobGuard {}
 
     impl JobGuard {
+        pub fn active_processes(&self) -> u32 {
+            unsafe {
+                let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
+                let ok = QueryInformationJobObject(self.0, JobObjectBasicAccountingInformation,
+                    &mut info as *mut _ as *mut _, std::mem::size_of_val(&info) as u32, std::ptr::null_mut());
+                if ok != 0 { info.ActiveProcesses } else { 0 }
+            }
+        }
         pub fn attach(child: &Child, memory_mb: u64) -> Option<JobGuard> {
             unsafe {
                 let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -623,6 +657,8 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
         return resp;
     }
     let timeout = Duration::from_millis(req.timeout_ms.max(1000));
+    let deadline = Instant::now() + timeout;
+    let remaining = || deadline.saturating_duration_since(Instant::now());
     let mem = req.memory_mb;
     let main_name = main_rel.to_string_lossy().to_string();
     let exe = |name: &str| match &info.bin_dir {
@@ -635,6 +671,32 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
     let (mut success, mut timed_out) = (false, false);
     // Managed TinyTeX: install the packages a failed build was missing, then build again (tinytex.rs).
     let managed_tinytex = info.flavor.starts_with("tinytex");
+    // A desktop build and paired helper can overlap. They share the distribution and its recovery marker;
+    // never repair its index while another build is installing packages.
+    static MANAGED_BUILD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _managed_guard = if managed_tinytex {
+        Some(loop {
+            match MANAGED_BUILD.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::Poisoned(e)) => break e.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    if cancelled() { return cancelled_resp(); }
+                    if remaining().is_zero() { resp.log = "! Compile timed out waiting for compiler package maintenance".into(); resp.timed_out = true; return resp; }
+                    std::thread::sleep(Duration::from_millis(15));
+                }
+            }
+        })
+    } else { None };
+    // tlmgr may be interrupted while rebuilding ls-R. Repair its filename index on the next explicit
+    // attempt before TeX reads it; otherwise even installed classes can appear to be missing.
+    let package_marker = if managed_tinytex { info.bin_dir.as_ref().map(|bin| bin.join(".hivetex-package-pending")) } else { None };
+    if let Some(marker) = package_marker.as_ref().filter(|p| p.exists()) {
+        let repaired = exe("mktexlsr").map(|program| run_limited(base_command(program, &dir), remaining(), mem));
+        match repaired {
+            Some(Ok((true, false))) => { let _ = fs::remove_file(marker); }
+            _ => { resp.log = "! Could not restore the compiler package index after an interrupted download. Retry compiler setup.".into(); resp.timed_out = remaining().is_zero(); return resp; }
+        }
+    }
     let mut tried: Vec<String> = Vec::new();
     for round in 0..=crate::tinytex::MAX_ROUNDS {
         if info.has_latexmk {
@@ -658,7 +720,7 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
                 cmd.arg(format!("-latexoption={i}"));
             }
             cmd.arg(&main_name);
-            match run_limited(cmd, timeout, mem) {
+            match run_limited(cmd, remaining(), mem) {
                 Ok((s, t)) => (success, timed_out) = (s, t),
                 Err(e) => resp.log = format!("! cannot start latexmk: {e}"),
             }
@@ -671,7 +733,7 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
                     c.arg(i);
                 }
                 c.arg(&main_name);
-                run_limited(c, timeout, mem)
+                run_limited(c, remaining(), mem)
             };
             let mut last = run_engine(&dir);
             if let Ok((_, false)) = last {
@@ -680,7 +742,7 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
                     if let Some(b) = exe("bibtex") {
                         let mut c = base_command(b, &dir);
                         c.arg(sub.join(&stem));
-                        let _ = run_limited(c, timeout, mem);
+                        let _ = run_limited(c, remaining(), mem);
                     }
                 }
                 for _ in 0..2 {
@@ -700,13 +762,29 @@ pub fn compile_with(root: &Path, req: CompileReq, on_download: Option<OnDownload
         }
         let missing = crate::tinytex::missing_files(&fs::read_to_string(&log_path).unwrap_or_default());
         let Some(bin) = info.bin_dir.as_deref() else { break };
-        let run = crate::tinytex::tlmgr_runner(bin);
+        let package_timeout = std::cell::Cell::new(false);
+        let on_timeout = || package_timeout.set(true);
+        let run = crate::tinytex::tlmgr_runner(bin, deadline, mem, &on_timeout);
         let notify = |pkg: &str| {
             if let Some(cb) = &on_download {
                 cb(&format!("installing {pkg}"));
             }
         };
-        if cancelled() || missing.is_empty() || crate::tinytex::install_missing(&missing, &mut tried, &run, &notify).is_empty() {
+        if !missing.is_empty() {
+            if let Some(marker) = &package_marker {
+                if let Err(e) = fs::write(marker, b"Package operation in progress") {
+                    resp.log = format!("! Cannot prepare compiler package recovery: {e}\n");
+                    break;
+                }
+            }
+        }
+        let installed = if cancelled() || missing.is_empty() { Vec::new() }
+            else { crate::tinytex::install_missing(&missing, &mut tried, &run, &notify) };
+        timed_out |= package_timeout.get();
+        if !timed_out && !cancelled() && !installed.is_empty() {
+            if let Some(marker) = &package_marker { let _ = fs::remove_file(marker); }
+        }
+        if cancelled() || installed.is_empty() || timed_out {
             break;
         }
     }
@@ -1014,6 +1092,32 @@ mod tests {
         assert!(ok && !killed, "downloading build was stopped");
         let (_, killed) = run_limited_io(slow(), Duration::from_secs(1), 0, None, Some(Default::default())).unwrap();
         assert!(killed, "idle build was not stopped");
+    }
+
+    #[test]
+    fn package_acquisition_respects_deadline_and_kills_descendants() {
+        let dir = tmp("package-timeout");
+        let marker = dir.join("orphan.txt");
+        #[cfg(windows)]
+        fs::write(dir.join("tlmgr.bat"), format!("@echo off\r\necho package-started\r\nping -n 4 127.0.0.1 > nul\r\necho orphan > \"{}\"\r\n", marker.display())).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let exe = dir.join("tlmgr");
+            fs::write(&exe, format!("#!/bin/sh\necho package-started\nsleep 3\necho orphan > '{}'\n", marker.display())).unwrap();
+            fs::set_permissions(&exe, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let expired = std::cell::Cell::new(false);
+        let notify = || expired.set(true);
+        let start = Instant::now();
+        let run = crate::tinytex::tlmgr_runner(&dir, start + Duration::from_millis(200), 0, &notify);
+        assert!(run(&["search", "--global", "--file", "/missing.sty"]).is_none());
+        assert!(expired.get(), "package timeout must propagate to the build response");
+        assert!(start.elapsed() < Duration::from_secs(2), "package process ignored its deadline");
+        // A second command on the same expired budget cannot launch a new installer.
+        assert!(run(&["install", "missing"]).is_none());
+        std::thread::sleep(Duration::from_secs(4));
+        assert!(!marker.exists(), "package descendant outlived timeout and wrote its marker");
     }
 
     /// A cancel ends the running command at once (its tree, like a timeout), and one sent before the build starts stops it.

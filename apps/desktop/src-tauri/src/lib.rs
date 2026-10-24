@@ -664,6 +664,8 @@ pub fn run() {
                 return Ok(());
             }
             lifecycle::setup_tray(app.handle());
+            #[cfg(feature = "test-picker")]
+            lifecycle::test_monitor(app.handle());
             // Compiler check at every start (compiler_health.rs): compile a minimal document and repair the compiler if
             // that fails, before the user's first build does. Shortly after start, so it does not compete with it.
             // Desktop UI test builds skip it unless HIVETEX_COMPILER_CHECK=1 (no downloads, no timing changes).
@@ -709,7 +711,8 @@ pub fn run() {
                 }
             }
             let args: Vec<String> = std::env::args().collect();
-            if !lifecycle::background_launch(&args, lifecycle::load_settings(app.handle())) {
+            let requested_open = app.state::<lifecycle::Lifecycle>().finish_setup();
+            if requested_open || !lifecycle::background_launch(&args, lifecycle::load_settings(app.handle())) {
                 lifecycle::show_main(app.handle());
             }
             Ok(())

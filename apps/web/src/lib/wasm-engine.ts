@@ -6,11 +6,17 @@ import { isDesktop, safeStorage } from './api.js';
  * Only package file *names* are requested from the TeX file server; project sources never leave the device.
  * Loaded lazily: nothing is downloaded until the first compile on this device.
  */
-const DEFAULT_TEXLIVE = 'https://texlive2.swiftlatex.com/';
+const BUNDLED_TEX = new URL(`${import.meta.env.BASE_URL}${import.meta.env.VITE_TEX_DISTRIBUTION}`, location.href).href;
+export const texCacheName = (endpoint: string) => `hivetex-tex-v2:${endpoint}`;
 
-export function texliveEndpoint(): string {
-  return safeStorage('texliveUrl') ?? (import.meta.env.VITE_TEXLIVE_URL as string | undefined) ?? DEFAULT_TEXLIVE;
+export function customTexliveEndpoint(): string {
+  const configured = safeStorage('texliveUrl') ?? (import.meta.env.VITE_TEXLIVE_URL as string | undefined);
+  const url = configured?.trim().replace(/\/+$/, '');
+  // Older Account versions persisted the public default when saving unrelated connection settings.
+  // Migrate that default with the app; explicitly configured private/versioned servers remain overrides.
+  return url && url !== 'https://texlive2.swiftlatex.com' ? `${url}/` : '';
 }
+export const texliveEndpoint = (): string => customTexliveEndpoint() || BUNDLED_TEX;
 
 /** Where the compiler worker loads TeX files from: on the desktop, the app's disk cache (texcache://), which downloads
  * each file from the TeX file server once; on the web, the server itself (with the service worker cache in Chromium). */
@@ -38,18 +44,24 @@ function setUpCache(): Promise<void> {
   }
   cacheReady ??= (async () => {
     try {
-      if (isDesktop) {
+      if (isDesktop && cacheEndpoint !== BUNDLED_TEX) {
         const [{ invoke }, { listen }] = await Promise.all([import('@tauri-apps/api/core'), import('@tauri-apps/api/event')]);
         await invoke('texcache_set_upstream', { url: texliveEndpoint() });
         await listen<TexFetch>('texcache://fetch', (e) => emitFetch(e.payload));
         engineEndpoint = navigator.userAgent.includes('Windows') ? 'http://texcache.localhost/' : 'texcache://localhost/';
-      } else if ('serviceWorker' in navigator && window.isSecureContext) {
+      } else if (!isDesktop && 'serviceWorker' in navigator && window.isSecureContext) {
         navigator.serviceWorker.addEventListener('message', (e) => {
           const d = e.data as { type?: string } & TexFetch;
           if (d?.type === 'hivetex-tex') emitFetch({ file: d.file, state: d.state });
         });
-        await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js?tex=${encodeURIComponent(texliveEndpoint())}`);
+        const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js?tex=${encodeURIComponent(texliveEndpoint())}`);
         await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(r, 3000))]);
+        // ready may refer to the previous registration during an endpoint change. Wait for this update to activate.
+        const pending = registration.installing ?? registration.waiting;
+        if (pending && pending.state !== 'activated') await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 3000);
+          pending.addEventListener('statechange', () => { if (pending.state === 'activated' || pending.state === 'redundant') { clearTimeout(timer); resolve(); } });
+        });
       }
     } catch (e) {
       console.warn('TeX file cache unavailable', e);
@@ -71,7 +83,10 @@ export async function clearTexCache(allCompilerCaches = false): Promise<void> {
     if (isDesktop) {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke(allCompilerCaches ? 'compiler_cache_clear' : 'texcache_clear');
-    } else if ('caches' in window) await caches.delete('hivetex-tex-v1');
+    }
+    if ('caches' in window) {
+      for (const key of await caches.keys()) if (key.startsWith('hivetex-tex-')) await caches.delete(key);
+    }
     for (const reference of liveRunners) {
       const runner = reference.deref();
       if (runner) runner.stop();
@@ -82,27 +97,31 @@ export async function clearTexCache(allCompilerCaches = false): Promise<void> {
 }
 
 type EngineName = 'pdflatex' | 'xelatex';
-const SCRIPT: Record<EngineName, string> = { pdflatex: 'swiftlatexpdftex.js', xelatex: 'swiftlatexxetex.js' };
+type WorkerName = EngineName | 'dvipdfm';
+const SCRIPT: Record<WorkerName, string> = { pdflatex: 'swiftlatexpdftex.js', xelatex: 'swiftlatexxetex.js', dvipdfm: 'swiftlatexdvipdfm.js' };
 /** The engine's .wasm download has its own, longer limit: a slow first download is not a silent worker. */
 const WASM_DOWNLOAD_MS = 5 * 60_000;
-const wasmFiles = new Map<EngineName, Promise<void>>();
+const wasmFiles = new Map<string, Promise<void>>();
+const engineAsset = (name: WorkerName, endpoint: string, extension: 'js' | 'wasm') =>
+  `${endpoint === BUNDLED_TEX ? endpoint : `${import.meta.env.BASE_URL}swiftlatex/`}${SCRIPT[name].replace(/\.js$/, `.${extension}`)}`;
 
 /**
  * Downloads the engine's .wasm once per page before a worker starts, so the startup deadline measures the worker only;
  * the worker then loads it from the HTTP cache. A failed download is retried by the next start.
  */
-export function prefetchWasm(name: EngineName): Promise<void> {
-  let pending = wasmFiles.get(name);
+export function prefetchWasm(name: WorkerName, endpoint = engineEndpoint): Promise<void> {
+  const key = `${endpoint}:${name}`;
+  let pending = wasmFiles.get(key);
   if (!pending) {
     pending = (async () => {
-      const r = await fetch(`${import.meta.env.BASE_URL}swiftlatex/${SCRIPT[name].replace(/\.js$/, '.wasm')}`, { credentials: 'same-origin', signal: AbortSignal.timeout(WASM_DOWNLOAD_MS) });
+      const r = await fetch(engineAsset(name, endpoint, 'wasm'), { credentials: 'same-origin', signal: AbortSignal.timeout(WASM_DOWNLOAD_MS) });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       await r.arrayBuffer?.();
     })().catch((e: unknown) => {
-      wasmFiles.delete(name);
+      wasmFiles.delete(key);
       throw new Error(`The in-browser compiler could not be downloaded (${e instanceof Error ? e.message : String(e)}); retry when online.`);
     });
-    wasmFiles.set(name, pending);
+    wasmFiles.set(key, pending);
   }
   return pending;
 }
@@ -113,19 +132,23 @@ export class Runner {
   /** Directories created in the current worker (its file system cannot create one twice). */
   private dirs = new Set<string>();
   private cancel: (() => void) | null = null;
+  /** A stop invalidates continuations even after their awaited promise has already resolved. */
+  private generation = 0;
 
-  constructor(private name: EngineName, private startupMs = 30_000, private prepare: (name: EngineName) => Promise<void> = prefetchWasm) { liveRunners.add(new WeakRef(this)); }
+  constructor(private name: WorkerName, private startupMs = 30_000, private prepare: (name: WorkerName) => Promise<void> = (name) => prefetchWasm(name, this.endpoint), private endpoint = engineEndpoint) { liveRunners.add(new WeakRef(this)); }
 
   /** Whether a worker is running. */
   get running() { return this.worker !== null; }
 
   private async start(): Promise<Worker> {
+    const generation = this.generation;
     // The download is not part of the startup deadline; cancelling still settles it at once.
     await new Promise<void>((resolve, reject) => {
       this.cancel = () => reject(new Error('Compiler stopped'));
       this.prepare(this.name).then(resolve, reject);
-    }).finally(() => { this.cancel = null; });
-    const w = new Worker(`${import.meta.env.BASE_URL}swiftlatex/${SCRIPT[this.name]}`);
+    }).finally(() => { if (generation === this.generation) this.cancel = null; });
+    if (generation !== this.generation) throw new Error('Compiler stopped');
+    const w = new Worker(engineAsset(this.name, this.endpoint, 'js'));
     this.worker = w;
     this.dirs.clear();
     try {
@@ -142,12 +165,14 @@ export class Runner {
         w.onmessage = (ev) => finish(ev.data?.result === 'ok' ? undefined : new Error('Compiler failed to start'));
         w.onerror = () => finish(new Error('Compiler failed to load'));
       });
-      w.postMessage({ cmd: 'settexliveurl', url: engineEndpoint });
-    } catch (error) { this.stop(); throw error; }
+      if (generation !== this.generation) throw new Error('Compiler stopped');
+      w.postMessage({ cmd: 'settexliveurl', url: this.endpoint });
+    } catch (error) { if (this.worker === w) this.stop(); throw error; }
     return w;
   }
 
   stop() {
+    this.generation++;
     this.cancel?.();
     this.cancel = null;
     this.worker?.terminate();
@@ -155,20 +180,22 @@ export class Runner {
     this.dirs.clear();
   }
 
-  async compile(input: CompileInput, timeoutMs: number, signal?: AbortSignal): Promise<CompileOutput> {
+  async compile(input: CompileInput, timeoutMs: number, signal?: AbortSignal, onBuildStart?: () => void): Promise<CompileOutput> {
     if (signal?.aborted) return { ok: false, log: '! Compilation cancelled' };
     const abort = () => this.stop();
     signal?.addEventListener('abort', abort, { once: true });
-    try { return await this.build(input, timeoutMs); }
+    try { return await this.build(input, timeoutMs, onBuildStart); }
     catch (error) { return { ok: false, log: `! ${error instanceof Error ? error.message : String(error)}` }; }
     finally { signal?.removeEventListener('abort', abort); }
   }
 
-  private async build(input: CompileInput, timeoutMs: number): Promise<CompileOutput> {
+  private async build(input: CompileInput, timeoutMs: number, onBuildStart?: () => void): Promise<CompileOutput> {
     const pathKey = input.files.map((f) => f.path).sort().join('\0');
     // The worker cannot delete files, so a changed file set gets a fresh worker.
     if (this.worker && pathKey !== this.paths) this.stop();
+    const generation = this.generation;
     if (!this.worker) await this.start();
+    if (generation !== this.generation) throw new Error('Compiler stopped');
     this.paths = pathKey;
     const w = this.worker as Worker;
     const dirs = new Set<string>();
@@ -182,6 +209,13 @@ export class Runner {
       ...newDirs.map((path) => ({ cmd: 'mkdir' as const, path })),
       ...input.files.map((f) => ({ cmd: 'writefile' as const, path: f.path })),
     ];
+    // The vendored worker runs BibTeX after each TeX pass. Its first PDF therefore cannot contain a new
+    // bibliography. Keep auxiliary files in the same worker and complete the passes within one deadline.
+    const minimumPasses = this.name !== 'dvipdfm' && input.files.some((f) => f.path.endsWith('.bib')) ? 3 : 1;
+    const command = this.name === 'dvipdfm' ? 'compilepdf' : 'compilelatex';
+    let pass = 1;
+    onBuildStart?.();
+    if (generation !== this.generation) throw new Error('Compiler stopped');
     return new Promise<CompileOutput>((resolve) => {
       const finish = (output: CompileOutput, discard = false) => {
         clearTimeout(timer);
@@ -208,13 +242,19 @@ export class Runner {
         if (d.cmd !== 'compile') return;
         if (acks.length) return finish({ ok: false, log: `! The compiler did not confirm ${acks[0]?.path}; retry to start a fresh worker.` }, true);
         const pdf = d.result === 'ok' && d.pdf ? new Uint8Array(d.pdf) : undefined;
+        const rerun = /Rerun to get cross-references right|Label\(s\) may have changed|There were undefined references|No file .+\.(?:toc|bbl)/i.test(d.log ?? '');
+        if (pdf && d.status === 0 && (pass < minimumPasses || (rerun && pass < 5))) {
+          pass++;
+          w.postMessage({ cmd: command });
+          return;
+        }
         finish({ ok: !!pdf && d.status === 0, ...(pdf ? { pdf } : {}), log: d.log ?? '' });
       };
       try {
         for (const d of newDirs) w.postMessage({ cmd: 'mkdir', url: d });
         for (const f of input.files) w.postMessage({ cmd: 'writefile', url: f.path, src: f.kind === 'text' ? (f.text ?? '') : (f.bytes ?? new Uint8Array()) });
         w.postMessage({ cmd: 'setmainfile', url: input.main });
-        w.postMessage({ cmd: 'compilelatex' });
+        w.postMessage({ cmd: command });
       } catch (error) { finish({ ok: false, log: `! Cannot send compiler input: ${String(error)}` }, true); }
     });
   }
@@ -235,7 +275,8 @@ export async function texServerReachable(): Promise<boolean> {
   }
   let ok = false;
   try {
-    const r = await fetch(`${texliveEndpoint()}pdftex/10/swiftlatexpdftex.fmt`, { method: 'HEAD', signal: AbortSignal.timeout(4000) });
+    const endpoint = texliveEndpoint();
+    const r = await fetch(`${endpoint}${endpoint === BUNDLED_TEX ? 'manifest.json' : 'pdftex/10/swiftlatexpdftex.fmt'}`, { method: 'HEAD', signal: AbortSignal.timeout(4000) });
     ok = r.ok;
   } catch {
     ok = false;
@@ -265,9 +306,10 @@ export async function loadWasmEngine(_project: string): Promise<WasmEngine | nul
   if (safeStorage('hivetex.fakeEngine') === '1') return (await import('./fake-engine.js')).fakeEngine as WasmEngine;
   if (typeof Worker === 'undefined' || typeof WebAssembly === 'undefined') return null;
   await setUpCache();
+  const endpoint = engineEndpoint;
   const supports = await availableEngines();
   if (!supports.length) return null;
-  const runners: Partial<Record<EngineName, Runner>> = {};
+  const runners: Partial<Record<WorkerName, Runner>> = {};
   let disposed = false;
   return {
     kind: 'wasm',
@@ -286,10 +328,35 @@ export async function loadWasmEngine(_project: string): Promise<WasmEngine | nul
       const name = (input.engine === 'xelatex' ? 'xelatex' : 'pdflatex') as EngineName;
       if (input.engine === 'lualatex') return { ok: false, log: '! LuaLaTeX is not available in the browser engine' };
       if (!supports.includes(name)) return { ok: false, log: '! This compiler format is not cached and the TeX package server is unavailable.' };
-      runners[name] ??= new Runner(name);
+      runners[name] ??= new Runner(name, 30_000, name === 'xelatex' ? async () => { await Promise.all([prefetchWasm('xelatex', endpoint), prefetchWasm('dvipdfm', endpoint)]); } : undefined, endpoint);
       activeBuilds++;
-      try { return await (runners[name] as Runner).compile(input, opts.timeoutMs, opts.signal); }
-      finally { activeBuilds--; }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        if (name !== 'xelatex') return await (runners[name] as Runner).compile(input, opts.timeoutMs, opts.signal);
+        // XeTeX emits XDV, not PDF. Both downloads use Runner's cancellable preparation; the single execution
+        // deadline begins with the first TeX pass and also covers converter startup and execution.
+        const controller = new AbortController();
+        const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
+        let deadline = 0;
+        const xdv = await (runners[name] as Runner).compile(input, opts.timeoutMs, signal, () => {
+          deadline = performance.now() + opts.timeoutMs;
+          timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+        });
+        if (controller.signal.aborted) return { ok: false, log: '! Compile timed out during XeTeX/PDF conversion' };
+        if (!xdv.ok || !xdv.pdf) return xdv;
+        if (opts.signal?.aborted || disposed) return { ok: false, log: '! Compilation stopped' };
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) return { ok: false, log: '! Compile timed out before PDF conversion' };
+        const main = input.main.replace(/\.[^.]+$/, '') + '.xdv';
+        // The shared abort deadline bounds this attempt; do not retain a previous attempt's short budget.
+        runners.dvipdfm ??= new Runner('dvipdfm', 30_000, undefined, endpoint);
+        // Include original image/font assets; the generated XDV always wins a same-path collision.
+        const files = [...input.files.filter(f => f.path !== main), { path: main, kind: 'binary' as const, bytes: xdv.pdf }];
+        const pdf = await runners.dvipdfm.compile({ ...input, main, files }, remaining, signal);
+        if (controller.signal.aborted) return { ok: false, log: '! Compile timed out during XeTeX/PDF conversion' };
+        return { ...pdf, log: `${xdv.log}\n${pdf.log}` };
+      } catch (error) { return { ok: false, log: `! ${error instanceof Error ? error.message : String(error)}` }; }
+      finally { clearTimeout(timer); activeBuilds--; }
     },
   };
 }
@@ -297,12 +364,19 @@ export async function loadWasmEngine(_project: string): Promise<WasmEngine | nul
 async function cachedFormat(name: EngineName): Promise<boolean> {
   const rel = name === 'pdflatex' ? 'pdftex/10/swiftlatexpdftex.fmt' : 'xetex/10/swiftlatexxetex.fmt';
   try {
-    if (isDesktop) {
+    if (isDesktop && texliveEndpoint() !== BUNDLED_TEX) {
       const { invoke } = await import('@tauri-apps/api/core');
       return await invoke<boolean>('texcache_contains', { rel });
     }
     if (!('caches' in window)) return false;
-    const hit = await (await caches.open('hivetex-tex-v1')).match(`${texliveEndpoint()}${rel}`);
+    const cache = await caches.open(texCacheName(texliveEndpoint()));
+    if (texliveEndpoint() === BUNDLED_TEX) {
+      const manifest = await cache.match(`${BUNDLED_TEX}manifest.json`);
+      const data = await manifest?.json() as { files: Record<string, string> } | undefined;
+      const hash = data?.files[name === 'pdflatex' ? 'swiftlatexpdftex.fmt' : 'swiftlatexxetex.fmt'];
+      return !!hash && !!(await cache.match(`${BUNDLED_TEX}files/${hash}`))?.ok;
+    }
+    const hit = await cache.match(`${texliveEndpoint()}${rel}`);
     return !!hit?.ok && !hit.headers.get('x-hivetex-missing');
   } catch { return false; }
 }

@@ -81,18 +81,32 @@ jobs:
         run: pnpm --filter @hivetex/desktop e2e
         env:
           HIVETEX_LIFECYCLE_ONLY: '1'
-      - name: Required native RTC and local compilation bridges
+      - name: Required native RTC and real article/report through native and paired helper bridges
         run: |
           pnpm --filter @hivetex/sync exec vitest run test/tauri-rtc.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm --filter @hivetex/compile exec vitest run test/native.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @hivetex/compile exec vitest run test/native-managed.test.ts
         env:
           HIVETEX_NATIVE_TESTS: '1'
+          HIVETEX_IGNORE_SYSTEM_TEX: '1'
+          HIVETEX_TINYTEX_ROOT: ${{ runner.temp }}
       - run: pnpm exec playwright install chromium
-      - name: Required real local WASM compilation and warm offline cache
-        run: pnpm exec playwright test e2e/local-real-compile.spec.ts --retries=0
+      - name: Required Windows WebView2 authoring and real local WASM with warm offline cache
+        run: pnpm exec playwright test e2e/native-authoring.spec.ts e2e/local-real-compile.spec.ts --retries=0
         env:
           CI: 'true'
+          HIVETEX_DESKTOP_AUTHORING: '1'
+          HIVETEX_DESKTOP_INSTALL: '1'
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: native-and-real-compiler
+          path: |
+            test-results/
+            apps/desktop/src-tauri/target/e2e/e2e-results/
+          retention-days: 14
 
   # WebDriver availability and GUI timing vary on hosted runners; run these manually with visible warnings.
   desktop-diagnostics:

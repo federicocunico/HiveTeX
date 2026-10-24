@@ -1,0 +1,81 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { PDFDocumentLoadingTask, PDFPageProxy } from 'pdfjs-dist';
+import { PdfRenderer, type PreviewState } from '../src/lib/pdf-renderer.js';
+
+const deferred = <T>() => { let resolve!: (v: T) => void, reject!: (e: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+const flush = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
+const renderers: PdfRenderer[] = [];
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function(this: HTMLElement) { return Number.parseFloat(this.style.height) || 0; });
+  vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function(this: HTMLElement) {
+    let top = 16, previous = this.previousElementSibling as HTMLElement | null;
+    while (previous) { top += previous.offsetHeight + 16; previous = previous.previousElementSibling as HTMLElement | null; }
+    return top;
+  });
+});
+afterEach(() => { for (const r of renderers.splice(0)) r.close(); vi.restoreAllMocks(); document.body.replaceChildren(); });
+
+function doc(pages = 100, pauseRender = false) {
+  const rendered: number[] = [];
+  const proxies = new Map<number, PDFPageProxy>();
+  const renders = new Map<number, ReturnType<typeof deferred<void>>>();
+  const cancel = vi.fn();
+  const getPage = vi.fn(async (n: number) => {
+    if (!proxies.has(n)) proxies.set(n, {
+      getViewport: ({ scale }: { scale: number }) => ({ width: 600 * scale, height: 800 * scale }),
+      cleanup: vi.fn(),
+      render: () => {
+        rendered.push(n);
+        const gate = deferred<void>(); renders.set(n, gate);
+        if (!pauseRender) gate.resolve();
+        return { promise: gate.promise, cancel: () => { cancel(n); const e = new Error('cancelled'); e.name = 'RenderingCancelledException'; gate.reject(e); } };
+      },
+    } as unknown as PDFPageProxy);
+    return proxies.get(n)!;
+  });
+  const gate = deferred<{ numPages: number; getPage: typeof getPage }>();
+  const destroy = vi.fn(async () => {});
+  const task = { promise: gate.promise, destroy } as unknown as PDFDocumentLoadingTask;
+  return { task, gate, destroy, rendered, renders, cancel, getPage, resolve: () => gate.resolve({ numPages: pages, getPage }) };
+}
+function fixture(tasks: ReturnType<typeof doc>[]) {
+  const scroller = document.createElement('div'); document.body.append(scroller);
+  Object.defineProperty(scroller, 'clientHeight', { value: 600, configurable: true });
+  const states: PreviewState[] = [];
+  let i = 0;
+  const renderer = new PdfRenderer(scroller, async () => tasks[i++]!.task, (s) => states.push(s));
+  renderers.push(renderer);
+  return { renderer, scroller, states };
+}
+
+it('renders pages newly exposed by enlarging the preview without requiring a scroll', async () => {
+  const a = doc(10); const f = fixture([a]);
+  let height = 300;
+  Object.defineProperty(f.scroller, 'clientHeight', { configurable: true, get: () => height });
+  const show = f.renderer.show(new Uint8Array([1]), 0.5); a.resolve(); await show; await flush();
+  expect(a.rendered).toEqual([1, 2]);
+  height = 1000;
+  window.dispatchEvent(new Event('resize'));
+  await flush();
+  const exposedPage = f.scroller.querySelector<HTMLElement>('[data-page="3"]')!;
+  expect(exposedPage.offsetTop).toBeLessThan(height);
+  const before = [...a.rendered];
+  // A normal renderer update immediately fills the hole: the page itself is valid.
+  f.renderer.update(); await flush();
+  expect(a.rendered).toContain(3);
+  expect(before).toContain(3);
+});
+it('preserves the reading anchor across zoom changes while a replacement PDF is loading', async () => {
+  const a = doc(100), b = doc(100), c = doc(100); const f = fixture([a, b, c]);
+  const initial = f.renderer.show(new Uint8Array([1]), 1); a.resolve(); await initial; await flush();
+  const page50 = f.scroller.querySelector<HTMLElement>('[data-page="50"]')!;
+  f.scroller.scrollTop = page50.offsetTop + page50.offsetHeight * 0.4;
+  f.renderer.update(); await flush();
+  const zoomOnce = f.renderer.show(new Uint8Array([1]), 1.1); await flush();
+  // Another click arrives before the preceding generation has loaded its document.
+  const zoomTwice = f.renderer.show(new Uint8Array([1]), 1.2); c.resolve(); await zoomTwice; await flush();
+  b.resolve(); await zoomOnce;
+  const replacement50 = f.scroller.querySelector<HTMLElement>('[data-page="50"]')!;
+  expect((f.scroller.scrollTop - replacement50.offsetTop) / replacement50.offsetHeight).toBeCloseTo(0.4, 3);
+});

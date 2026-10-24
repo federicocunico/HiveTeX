@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { customTexliveEndpoint } from '../lib/wasm-engine.js';
   import { api, apiBase, defaultServer, isDesktop, parseServerUrl, safeStorage, serverLabel, setServerUrl, useDefaultServer } from '../lib/api.js';
   import { auth, logoutAll } from '../lib/auth.svelte.js';
   import { go } from '../lib/router.svelte.js';
-  import { texliveEndpoint } from '../lib/wasm-engine.js';
   import CompilerPanel from '../components/CompilerPanel.svelte';
+  import CompilePreferences from '../components/CompilePreferences.svelte';
   import { compileMigrationPending, dismissCompileMigrationNotice, readCompileMode } from '../lib/compile-mode.js';
   import { resetLayout } from '../lib/layout.svelte.js';
   import { FONT_MAX, FONT_MIN, type Keymap, prefs, setPref } from '../lib/preferences.svelte.js';
@@ -18,7 +19,7 @@
   let error = $state('');
   let info = $state('');
   let serverUrl = $state(apiBase());
-  let texUrl = $state(texliveEndpoint());
+  let texUrl = $state(customTexliveEndpoint());
 
   async function resendVerification() {
     error = info = '';
@@ -100,6 +101,7 @@
   <section class="card" data-testid="preferences" aria-labelledby="prefs-title">
     <h2 id="prefs-title">Preferences</h2>
     <p class="muted" style="margin-top: 0">For this device only. They are never sent to the server or to co-authors.</p>
+    <CompilePreferences />
     <fieldset class="seg-field">
       <legend>Theme</legend>
       <div class="seg">
@@ -149,7 +151,7 @@
         <p class="muted" style="margin-top: -6px"><button type="button" class="small" onclick={async () => { const {stopRuntimes}=await import('../lib/runtimes.js'); await stopRuntimes(); useDefaultServer(); location.reload(); }} data-testid="account-server-default">Use the default server ({serverLabel(defaultServer())})</button></p>
       {/if}
     {/if}
-    <label class="field">TeX package server <small>used by the in-browser compiler only; leave empty for the default</small>
+    <label class="field">TeX package server <small>optional custom server for the in-browser compiler; leave empty to use the compatible resources included with HiveTeX</small>
       <input type="text" bind:value={texUrl} placeholder="https://texlive.example.org/" />
     </label>
     <button type="submit">Save</button>

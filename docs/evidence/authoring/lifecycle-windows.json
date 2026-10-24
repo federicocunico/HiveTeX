@@ -1,0 +1,269 @@
+{
+  "identifier": "app.hivetex.desktop.e2e",
+  "exe": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\hivetex-desktop.exe",
+  "startedAt": "2026-10-23T06:37:35.395Z",
+  "scenarios": [
+    {
+      "label": "12 concurrent cross-path launches (handover delay 5000 ms)",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 63024,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 63024,
+          "title": "HiveTeX"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 48356,
+          "ParentProcessId": 63024,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 44760,
+          "ParentProcessId": 63024,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "label": "12 concurrent cross-path launches (handover delay 0 ms)",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 63884,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 63884,
+          "title": "HiveTeX"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 52788,
+          "ParentProcessId": 63884,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 19856,
+          "ParentProcessId": 63884,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "label": "closed to tray",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 25920,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 0,
+      "windows": [],
+      "owners": [
+        {
+          "id": 25920,
+          "title": "app.hivetex.desktop.e2e-siw"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 29408,
+          "ParentProcessId": 25920,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "label": "reopened by secondary launch",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 25920,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 25920,
+          "title": "HiveTeX"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 29408,
+          "ParentProcessId": 25920,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        },
+        {
+          "ProcessId": 16596,
+          "ParentProcessId": 25920,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        }
+      ]
+    },
+    {
+      "label": "browser pairing reopens window",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 50736,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 50736,
+          "title": "HiveTeX"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 40828,
+          "ParentProcessId": 50736,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        },
+        {
+          "ProcessId": 63548,
+          "ParentProcessId": 50736,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        }
+      ]
+    },
+    {
+      "label": "post-update restart",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 40224,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 40224,
+          "title": "HiveTeX"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 37008,
+          "ParentProcessId": 40224,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 41612,
+          "ParentProcessId": 40224,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "label": "background login startup",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 47144,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 0,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 47144,
+          "title": "app.hivetex.desktop.e2e-siw"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 39260,
+          "ParentProcessId": 47144,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 61400,
+          "ParentProcessId": 47144,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "label": "manual launch with background preference",
+      "identifier": "app.hivetex.desktop.e2e",
+      "pid": 12852,
+      "quitting": false,
+      "trayCount": 1,
+      "version": "0.9.1",
+      "visibleWindows": 1,
+      "windows": [
+        "main"
+      ],
+      "owners": [
+        {
+          "id": 12852,
+          "title": "HiveTeX"
+        }
+      ],
+      "children": [
+        {
+          "ProcessId": 70312,
+          "ParentProcessId": 12852,
+          "Name": "msedgewebview2.exe",
+          "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+        },
+        {
+          "ProcessId": 32652,
+          "ParentProcessId": 12852,
+          "Name": "node.exe",
+          "ExecutablePath": "F:\\github\\p2platex\\apps\\desktop\\src-tauri\\target\\e2e\\debug\\node\\node.exe"
+        }
+      ]
+    },
+    {
+      "label": "maintenance cleanup",
+      "owners": [],
+      "workers": 0,
+      "trayCount": 0,
+      "windows": []
+    }
+  ],
+  "trayMeasurement": "Registered native main tray icon, paired with all owning process counts; excludes stale Explorer icon ghosts",
+  "missingAcceptance": [
+    "current packaged production identity",
+    "macOS",
+    "Linux"
+  ],
+  "passed": true
+}

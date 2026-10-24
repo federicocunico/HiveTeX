@@ -145,9 +145,9 @@ try {
       const hash = await s.blobs.add(bytes);
       s.model.createBinary('fig.png', hash, bytes.length);
       await s.model.flush();
-      return { project: s.project.id, id, hash, deviceId: s.runtime.deviceId };
+      return { project: s.project.id, slug: s.project.slug, id, hash, deviceId: s.runtime.deviceId };
     }, { i, assetBytes });
-    projects.push({ ...project, slug });
+    projects.push(project);
     await page.evaluate(() => { location.hash = '#/'; });
     await page.getByRole('heading', { name: 'Your projects' }).waitFor();
   }
@@ -174,6 +174,7 @@ try {
   await register(member, `bgweb${Date.now().toString(36)}`);
   for (let i = 0; i < projects.length; i++) {
     const p = i ? await ctx.newPage() : member;
+    clients.push(p);
     if (i) await p.goto('/#/');
     const start = Date.now();
     await p.getByTestId('join-btn').click();
@@ -181,7 +182,6 @@ try {
     await p.locator('form:has(h2:text("Join a project")) input[type=password]').fill(projectPw);
     await p.getByRole('button', { name: 'Join', exact: true }).click();
     await p.getByTestId('workspace').waitFor();
-    clients.push(p);
     await replica(p, projects[i], `native seed ${i}`);
     report.bootstrapMs.push(Date.now() - start);
     await until(() => p.evaluate(() => {
@@ -265,6 +265,15 @@ try {
   mkdirSync(dirname(reportFile), { recursive: true });
   writeFileSync(reportFile, JSON.stringify(report, null, 2));
   console.log('ok - no-renderer two-project bootstrap, text/assets, presence, pause, restart and logout');
+} catch (error) {
+  report.error = String(error);
+  report.failedPages = await Promise.all([page, ...clients].filter(Boolean).map(async (p, i) => {
+    mkdirSync(dirname(reportFile), { recursive: true });
+    await p.screenshot({ path: join(dirname(reportFile), `background-failure-${i}.png`) }).catch(() => {});
+    return { url: p.url(), body: await p.locator('body').innerText().catch(() => 'closed') };
+  }));
+  writeFileSync(reportFile, JSON.stringify(report, null, 2));
+  throw error;
 } finally {
   const states = await Promise.all(clients.map((p) => p.evaluate(() => {
     const s = window.__p2p?.session;

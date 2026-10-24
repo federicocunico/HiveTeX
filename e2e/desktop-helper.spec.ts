@@ -65,6 +65,7 @@ test('web: "Compile with my desktop app" pairs once, then builds go to the deskt
     await expect(page.getByTestId('compiled-by')).toBeVisible();
     expect(seen.paths).toEqual([]);
 
+    await page.getByTestId('status-details').click();
     await page.getByTestId('use-desktop').click();
     await expect(page.getByTestId('compiler-state')).toContainText('desktop app (TeX Live)');
     await expect.poll(() => seen.compiles, { timeout: 30_000 }).toBeGreaterThan(0);
@@ -73,7 +74,9 @@ test('web: "Compile with my desktop app" pairs once, then builds go to the deskt
 
     // later sessions use it directly (no new pairing)
     await page.reload();
+    await page.getByTestId('status-details').click();
     await expect(page.getByTestId('compiler-state')).toContainText('desktop app', { timeout: 30_000 });
+    await page.keyboard.press('Escape');
     const before = seen.compiles;
     await page.getByRole('treeitem', { name: 'main.tex' }).click();
     await page.locator('.cm-content').click();

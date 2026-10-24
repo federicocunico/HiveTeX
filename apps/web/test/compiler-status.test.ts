@@ -34,6 +34,7 @@ describe('compiler status', () => {
   it('names the paired desktop helper without a reload and stops offering setup', async () => {
     const s = new ProjectSession(project, user);
     render(StatusBar, { props: { session: s } });
+    screen.getByTestId('status-details').click(); await flush();
     expect(screen.getByTestId('compile-location').textContent).toBe('Set up a local compiler');
     expect(await s.pairDesktopHelper()).toBe('paired');
     await flush();
@@ -49,6 +50,7 @@ describe('compiler status', () => {
     await closedAtOnce.close();
     const s = new ProjectSession(project, user);
     render(StatusBar, { props: { session: s } });
+    screen.getByTestId('status-details').click(); await flush();
     expect(screen.getByTestId('compile-migration').textContent).toContain('Shared compilation was removed');
     expect(screen.getByTestId('compile-migration-setup').textContent).toBe('Set up a local compiler');
     await s.pairDesktopHelper();

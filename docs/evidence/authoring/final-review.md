@@ -1,0 +1,11 @@
+# Authoring workspace final review and archive
+
+On 2026-10-24, the three serialized reviews found five P2 defects, all resolved in the working tree. The [compiler](review-compiler.md), [workspace](review-workspace.md) and [desktop/CI](review-desktop-ci.md) reports record their selective probes, fixes and focused checks. The desktop/CI pass found no additional confirmed P1/P2 defect.
+
+Final integration used distribution `tl2019-5eed4a4ac9c250ecc67f2f74`: the real compiler template matrix passed 4/4 cases, each cold, warm and after offline reopen; the production Vite build passed; the production UI passed 2/2 cases with the same three stages. Current compiler logs, cache identities, downloaded PDFs and checksums are in [wasm-production.json](wasm-production.json). The earlier isolated-checkout manifest equality applies to the prior distribution only; it was not remeasured for this one.
+
+All 27 OpenSpec tasks and planning artifacts were complete. The four deltas were synced into `interface-preferences`, `latex-workspace`, `local-compilation` and `workspace-layout`. The 13 delta requirement blocks match the main specs, while existing Purpose sections and unmentioned requirements remain intact. Strict change validation, normal validation of all 25 main specs and `git diff --check` passed.
+
+Global strict main-spec validation remains warning-red. Before the merge, `latex-workspace` already had three descriptions over 500 characters; all three remain unchanged. `workspace-layout`'s Status bar description was already over 500 characters (634) and is 909 after applying the approved MODIFIED delta. The merge introduces one new long-description warning: `local-compilation`'s Local build scheduling grows from 367 to 645 characters, exactly as written in the approved MODIFIED delta. All 11 ADDED requirement descriptions are under 500 characters. Other existing warnings elsewhere in the main-spec tree, including a placeholder Purpose, were outside this change. No structural validation error was reported.
+
+The change was archived at `openspec/changes/archive/2026-10-24-stabilize-authoring-workspace`. No push, hosted CI run or release publication occurred. macOS/Linux native WebView acceptance remains outstanding as described in the review reports and [acceptance record](../../authoring-acceptance.md).

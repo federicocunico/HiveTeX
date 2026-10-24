@@ -23,3 +23,7 @@ expressturn.info
 
 # Installers built locally by make installer
 dist-installer/
+
+# Reproducible, checksum-pinned compiler assets generated before Vite dev/build.
+apps/web/public/texlive/
+apps/web/.texlive-staging-*/
