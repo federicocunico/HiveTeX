@@ -73,3 +73,20 @@ it('requires the dedicated stress budget and retains its raw measurements', () =
   expect(job).toContain('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }');
   expect(job).toContain('if: always()'); expect(job).toContain('path: test-results/');
 });
+
+it('prepares verified TeX resources before every CI build or browser startup', () => {
+  const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  for (const name of ['checks', 'data-safety-browser', 'authoring-browser', 'authoring-real-and-visual', 'authoring-stress', 'browser-diagnostics']) {
+    const job = ci.split(`  ${name}:`)[1]?.split(/^ {2}[\w-]+:/m)[0] ?? '';
+    const prepare = job.indexOf('uses: ./.github/actions/prepare-tex-distribution');
+    const startup = job.search(/run: (?:pnpm turbo|pnpm exec playwright)/);
+    expect(prepare, `${name}: explicit preparation`).toBeGreaterThan(job.indexOf('pnpm install --frozen-lockfile'));
+    expect(prepare, `${name}: preparation precedes startup`).toBeLessThan(startup);
+    expect(job).toContain('timeout-minutes: 10');
+  }
+  const action = readFileSync(new URL('../../../.github/actions/prepare-tex-distribution/action.yml', import.meta.url), 'utf8');
+  expect(action).toContain("require('node:os').tmpdir()");
+  expect(action).toContain("hashFiles('scripts/tex-distribution.lock.json')");
+  expect(action).toContain('run: node scripts/tex-distribution.mjs');
+  expect(action).not.toContain('apps/web/public/texlive');
+});

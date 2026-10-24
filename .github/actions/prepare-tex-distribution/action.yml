@@ -1,0 +1,21 @@
+name: Prepare pinned TeX distribution
+description: Cache checksum-verified source archives and assemble compiler resources before build or browser startup.
+runs:
+  using: composite
+  steps:
+    - name: Locate the Node temporary directory
+      id: cache-path
+      shell: pwsh
+      run: |
+        $cacheRoot = node -p "require('node:os').tmpdir()"
+        "root=$cacheRoot" >> $env:GITHUB_OUTPUT
+    - name: Cache pinned TeX archives and formats
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ steps.cache-path.outputs.root }}/hivetex-texlive-2019
+          ${{ steps.cache-path.outputs.root }}/hivetex-swiftlatex-fixtures
+        key: ${{ runner.os }}-tex-archives-${{ hashFiles('scripts/tex-distribution.lock.json') }}
+    - name: Verify and assemble the distribution
+      shell: pwsh
+      run: node scripts/tex-distribution.mjs

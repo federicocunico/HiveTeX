@@ -79,6 +79,7 @@ async function record(label, pid, visibleWindows, windowCount = visibleWindows) 
 const killAll = async () => {
   const ended = [];
   for (const a of apps()) ended.push(await stopApp(a.id, () => quitThroughCdp(CDP), 15_000));
+  (report.shutdown ??= []).push({ at: new Date().toISOString(), results: ended });
   return ended;
 };
 const exited = (child) => new Promise((resolve, reject) => {

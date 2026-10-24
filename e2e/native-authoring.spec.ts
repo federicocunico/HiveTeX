@@ -8,6 +8,7 @@ import { articleProject } from './real-workspace.js';
 import { aligned, geometry as measure, scrollToLine, type EditorHost } from './editor-geometry.js';
 import { manuscript } from './fixtures/manuscript.js';
 import { pdfText } from './fixtures/compile-templates.js';
+import { nativeWebview } from './native-webview.mjs';
 
 test('Windows WebView2 authoring: real local automatic PDF and long CRLF editor', async ({}, info) => {
   test.skip(process.env.HIVETEX_DESKTOP_AUTHORING !== '1', 'Missing native acceptance: opt in after building the isolated desktop harness');
@@ -15,10 +16,15 @@ test('Windows WebView2 authoring: real local automatic PDF and long CRLF editor'
   test.setTimeout(240_000);
   await ensureNoTestInstance();
   const port = 9451;
-  const child = spawn(appExe, [], { windowsHide: true, stdio: 'ignore', env: {
-    ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+  const debug = await nativeWebview(appExe, port);
+  const child = spawn(debug.exe, [], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: {
+    ...process.env, ...debug.env,
     HIVETEX_TEST_LIFECYCLE_REPORT: info.outputPath('native-lifecycle-current.json'),
   } });
+  let launchLog = '';
+  child.stdout.on('data', (data) => { launchLog += String(data); });
+  child.stderr.on('data', (data) => { launchLog += String(data); });
+  child.on('error', (error) => { launchLog += String(error); });
   const lifecycle: unknown[] = [];
   const recordLifecycle = async (stage: string) => {
     let state: any;
@@ -62,7 +68,7 @@ test('Windows WebView2 authoring: real local automatic PDF and long CRLF editor'
       await recordLifecycle('before managed compiler setup');
       const installed = p.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke('managed_install', { component: 'tinytex' }));
       // A second launch during real download/extraction must hand over without another owning app/worker.
-      const secondary = spawn(appExe, [], { windowsHide: true, stdio: 'ignore' });
+      const secondary = spawn(debug.exe, [], { windowsHide: true, stdio: 'ignore' });
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => { secondary.kill(); reject(new Error('Secondary launch did not exit during compiler setup')); }, 15_000);
         secondary.once('error', (error) => { clearTimeout(timer); reject(error); });
@@ -147,7 +153,12 @@ test('Windows WebView2 authoring: real local automatic PDF and long CRLF editor'
     await info.attach('native-authoring.json', { body: evidence, contentType: 'application/json' });
     await info.attach('native-compiler.log', { body: automatic.log, contentType: 'text/plain' });
   } finally {
-    await stopApp(child.pid, page ? () => quitThroughPage(page!) : undefined);
-    await cdp?.close().catch(() => {});
+    const processes = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `@(Get-CimInstance Win32_Process -Filter "ParentProcessId=${child.pid}" | Select-Object ProcessId,ParentProcessId,Name,CommandLine) | ConvertTo-Json -Compress`], { encoding: 'utf8', windowsHide: true });
+    await info.attach('native-launch.json', { body: JSON.stringify({ exe: debug.exe, policy: debug.policy, env: debug.env, exitCode: child.exitCode, log: launchLog, children: processes.stdout }), contentType: 'application/json' });
+    try {
+      const stopped = await stopApp(child.pid, page ? () => quitThroughPage(page!) : undefined);
+      console.info(`Native authoring app cleanup: ${stopped}`);
+      await cdp?.close().catch(() => {});
+    } finally { await debug.dispose(); }
   }
 });
