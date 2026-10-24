@@ -154,7 +154,9 @@ test('Windows WebView2 authoring: real local automatic PDF and long CRLF editor'
     await info.attach('native-compiler.log', { body: automatic.log, contentType: 'text/plain' });
   } finally {
     const processes = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `@(Get-CimInstance Win32_Process -Filter "ParentProcessId=${child.pid}" | Select-Object ProcessId,ParentProcessId,Name,CommandLine) | ConvertTo-Json -Compress`], { encoding: 'utf8', windowsHide: true });
-    await info.attach('native-launch.json', { body: JSON.stringify({ exe: debug.exe, policy: debug.policy, env: debug.env, exitCode: child.exitCode, log: launchLog, children: processes.stdout }), contentType: 'application/json' });
+    const launch = JSON.stringify({ exe: debug.exe, env: debug.env, exitCode: child.exitCode, log: launchLog, children: processes.stdout });
+    await writeFile(info.outputPath('native-launch.json'), launch);
+    await info.attach('native-launch.json', { body: launch, contentType: 'application/json' });
     try {
       const stopped = await stopApp(child.pid, page ? () => quitThroughPage(page!) : undefined);
       console.info(`Native authoring app cleanup: ${stopped}`);

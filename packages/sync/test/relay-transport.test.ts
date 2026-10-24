@@ -1,5 +1,5 @@
 import { RelayHandshake, type RelaySession } from '@hivetex/crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeRelayWire, encodeRelayFrame, RelayTransport, type RelayTransportOptions } from '../src/relay-transport.js';
 import type { ChannelName } from '../src/transport.js';
 import { TestAuthority, identity } from './helpers.js';
@@ -123,6 +123,32 @@ describe('application relay transport (3.2)', () => {
     await asset;
     await until(() => f.got.bulk.length === 1, 3000);
     expect(f.a.limited).toBe(false);
+  });
+
+  it('reschedules a limit wakeup that fires before the wall-clock deadline', async () => {
+    const f = await pair();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    f.a.noteLimited('relay_limited', 1000);
+    const queued = f.a.send('bulk', text('queued asset'));
+    queued.catch(() => {});
+    try {
+      clock.mockReturnValue(1999);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(f.a.limited).toBe(true);
+      expect(f.a.stats.limitedReason).toBe('relay_limited');
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      expect(f.a.stats.sentFragments).toBe(0);
+      clock.mockReturnValue(2000);
+      await vi.advanceTimersByTimeAsync(1);
+      await queued;
+      expect(f.a.stats.queuedBytes).toBe(0);
+    } finally {
+      f.a.close(); f.b.close();
+      clock.mockRestore(); vi.useRealTimers();
+    }
   });
 
   it('reserves text credit while an asset fills the window and its ACKs are stalled', async () => {

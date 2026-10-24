@@ -8,6 +8,14 @@ export function geometry() {
   const view = (document.querySelector('[data-testid=editor]') as EditorHost)?.__hivetexEditor;
   if (!view) throw new Error('No active development editor');
   const viewport = view.scrollDOM.getBoundingClientRect();
+  // Collapsed source rows may lose their gutter label when CodeMirror remeasures them. Inspect source DOM
+  // independently so that this defect cannot disappear from the probe along with its numeric label.
+  const collapsed: number[] = [];
+  for (const row of view.contentDOM.querySelectorAll<HTMLElement>('.cm-line')) {
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom < viewport.top || rect.top >= viewport.bottom) continue;
+    if (rect.height < view.defaultLineHeight - 1.5) collapsed.push(view.state.doc.lineAt(view.posAtDOM(row, 0)).number);
+  }
   const rows: Array<{ line: number; delta: number; top: number; gutter: number; height: number }> = [];
   for (const el of view.dom.querySelectorAll<HTMLElement>('.cm-lineNumbers .cm-gutterElement')) {
     if (getComputedStyle(el).visibility === 'hidden' || !/^\d+$/.test(el.textContent?.trim() ?? '')) continue;
@@ -25,7 +33,7 @@ export function geometry() {
   }
   return {
     maxDelta: Math.max(0, ...rows.map((r) => r.delta)), rows,
-    collapsed: rows.filter((r) => r.height < view.defaultLineHeight - 1.5).map((r) => r.line),
+    collapsed,
     font: getComputedStyle(view.contentDOM).fontSize,
     lineHeight: getComputedStyle(view.contentDOM).lineHeight,
     documentOverflow: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),

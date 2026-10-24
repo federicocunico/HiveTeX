@@ -222,11 +222,18 @@ export class RelayTransport implements PeerTransport {
     this.stats.limitedUntil = until;
     this.stats.limitedReason = reason;
     if (this.limitedTimer) clearTimeout(this.limitedTimer);
-    this.limitedTimer = setTimeout(() => {
+    const wake = () => {
       this.limitedTimer = null;
+      // Timers can wake just before a wall-clock deadline (notably on Windows). Keep a future wakeup:
+      // pumping while still limited would otherwise leave bulk queued forever with no timer to resume it.
+      if (this.limited) {
+        this.limitedTimer = setTimeout(wake, Math.max(1, this.stats.limitedUntil - Date.now()));
+        return;
+      }
       this.stats.limitedReason = null;
       void this.pump();
-    }, until - Date.now());
+    };
+    this.limitedTimer = setTimeout(wake, Math.max(1, until - Date.now()));
   }
 
   /** Text and control first; bulk (assets) waits while the relay is limited. */

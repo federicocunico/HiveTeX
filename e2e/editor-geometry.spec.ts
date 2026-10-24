@@ -47,8 +47,11 @@ for (const eol of ['\n', '\r\n'] as const) {
     await aligned(page);
     if (eol === '\r\n') {
       await scrollToLine(page, 1);
+      // CodeMirror measures scroll requests asynchronously; the final distant row can still be mounted here.
+      await expect.poll(async () => (await page.evaluate(geometry)).rows.some((row) => row.line === 2), { message: 'blank CRLF row is visible before the collapse control' }).toBe(true);
+      await aligned(page);
       const collapsed = await page.addStyleTag({ content: '.cm-line { min-height: 0 !important; }' });
-      expect((await page.evaluate(geometry)).collapsed.length, 'detect CR-only blank rows even when gutter and source collapse together').toBeGreaterThan(0);
+      await expect.poll(async () => (await page.evaluate(geometry)).collapsed.length, { message: 'detect CR-only blank rows even when gutter and source collapse together' }).toBeGreaterThan(0);
       await collapsed.evaluate((el) => el.remove());
       await aligned(page);
     }

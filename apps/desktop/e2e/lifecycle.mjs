@@ -27,7 +27,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const exe = process.env.HIVETEX_APP ?? appExe;
 const CDP = Number(process.env.HIVETEX_CDP_PORT ?? 9448);
 // Every launch can be asked to quit through its page (secondaries hand over before they create one).
-const appEnv = (extra = {}) => ({ ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP}`, HIVETEX_TEST_LIFECYCLE_REPORT: telemetry, ...extra });
+const appEnv = (extra = {}) => ({ ...process.env, HIVETEX_TEST_CDP_PORT: String(CDP), HIVETEX_TEST_LIFECYCLE_REPORT: telemetry, ...extra });
 const copyDir = mkdtempSync(join(tmpdir(), 'hivetex-instance-'));
 assert.equal(dirname(resolve(copyDir)), resolve(tmpdir()), 'temporary executable directory stays within the test temp root');
 const copy = join(copyDir, 'hivetex-desktop.exe');

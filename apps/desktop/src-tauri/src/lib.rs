@@ -612,6 +612,17 @@ pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     // The WebRTC stack's own warnings, for connection reports (masked, bounded; src/rtc_log.rs).
     rtc_log::install();
+    let context = tauri::generate_context!();
+    #[cfg(all(target_os = "windows", feature = "test-picker"))]
+    let context = {
+        let mut context = context;
+        if let Some(args) = std::env::var("HIVETEX_TEST_CDP_PORT").ok().as_deref().and_then(test_cdp_args) {
+            for window in &mut context.config_mut().app.windows {
+                window.additional_browser_args = Some(args.clone());
+            }
+        }
+        context
+    };
     let builder = tauri::Builder::default();
     // A second launch focuses the running instance (one worker, one network identity per project).
     #[cfg(desktop)]
@@ -816,7 +827,7 @@ pub fn run() {
             store_cmd::recovery_save_finish,
             store_cmd::recovery_save_abort
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running HiveTeX")
         .run(|app, event| {
             // Closing the last window keeps background synchronization running; only Quit exits.
@@ -832,6 +843,12 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(any(test, all(target_os = "windows", feature = "test-picker")))]
+fn test_cdp_args(port: &str) -> Option<String> {
+    let port: u16 = port.parse().ok()?;
+    (port >= 1024).then(|| format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --remote-debugging-port={port}"))
 }
 
 /// Desktop UI tests: the "picked" folder is `$HIVETEX_TEST_PICK_DIR`, or the sub-folder named in its `.next-pick`
@@ -864,6 +881,14 @@ mod test_picker {
 
 #[cfg(test)]
 mod picker_tests {
+    #[test]
+    fn test_cdp_port_accepts_only_unprivileged_numeric_ports() {
+        assert!(super::test_cdp_args("9451").unwrap().ends_with("--remote-debugging-port=9451"));
+        for valid in ["1024", "65535"] { assert!(super::test_cdp_args(valid).is_some()); }
+        for invalid in ["0", "1023", "65536", "9451 --remote-debugging-address=0.0.0.0", ""] {
+            assert!(super::test_cdp_args(invalid).is_none());
+        }
+    }
     /// The test picker must never be part of a default (release) build.
     #[test]
     fn test_picker_is_not_a_default_feature() {
