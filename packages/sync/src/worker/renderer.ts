@@ -58,6 +58,9 @@ export class WorkerRenderer {
     { revision: number; ready: boolean; buffer: Delta[]; pending: Promise<void> | null }
   >();
   private complete = new Set<string>();
+  private availabilityCbs = new Set<(docId: string) => void>();
+  private refreshingDocs: Promise<void> | null = null;
+  private docsRefreshRequested = false;
   private pending = new Map<
     number,
     { docId: string; update: Uint8Array; source: "editor" | "folder" }
@@ -95,6 +98,7 @@ export class WorkerRenderer {
     this.model.flush = async () => {
       await this.chain;
       for (const seq of this.pending.keys()) await this.send(seq);
+      await this.call('project.flush', {});
       await localFlush();
     };
     this.model.availability = (docId) =>
@@ -103,6 +107,14 @@ export class WorkerRenderer {
         : (this.model.getLoadedDoc(docId)?.store.clients.size ?? 0) > 0
           ? "partial"
           : "unknown";
+    this.model.onAvailability = (cb) => {
+      this.availabilityCbs.add(cb);
+      return () => this.availabilityCbs.delete(cb);
+    };
+    this.model.initializeLocal = async (replacedSources = false) => {
+      await this.command({ kind: 'initialize', replacedSources });
+      await this.refreshDocs();
+    };
     const awareness = new Awareness(this.model.root);
     awareness.on("update", (_changes: unknown, origin: unknown) => {
       if (origin === BRIDGE_ORIGIN || this.closed) return;
@@ -342,11 +354,11 @@ export class WorkerRenderer {
       await this.refreshDocs();
       return id;
     };
-    this.model.applyBatch = async (ops) => ({
-      created: new Map(
-        Object.entries((await this.command({ kind: "batch", ops })) as Record<string, string>),
-      ),
-    });
+    this.model.applyBatch = async (ops) => {
+      const created = new Map(Object.entries((await this.command({ kind: 'batch', ops })) as Record<string, string>));
+      await this.refreshDocs();
+      return { created };
+    };
     this.model.rename = (id, path, origin) => {
       void this.command({ kind: "rename", id, path, ...(origin === MIRROR_ORIGIN ? { source: 'folder' as const } : {}) }).catch((e) => this.fail(e));
     };
@@ -419,6 +431,7 @@ export class WorkerRenderer {
       "ticket",
       "merge",
       "recovery",
+      "availability",
     ])
       this.subscriptions.push(
         this.link.on("project." + event, (p) => {
@@ -436,6 +449,8 @@ export class WorkerRenderer {
             }
             this.emit();
             for (const cb of this.historyCbs) cb();
+          } else if (event === 'availability') {
+            void this.refreshDocs().catch((e) => this.fail(e));
           } else if (event === "delta") this.delta(p.data);
           else if (event === "replace") {
             this.docs.delete(p.data.docId);
@@ -529,14 +544,26 @@ export class WorkerRenderer {
     });
     return this.reattaching;
   }
-  private async refreshDocs() {
-    for (const d of await this.call<Array<{ docId: string; complete: boolean }>>(
-      "project.docs",
-      {},
-    )) {
-      if (d.complete) this.complete.add(d.docId);
-      else this.complete.delete(d.docId);
-    }
+  private refreshDocs(): Promise<void> {
+    // A batch can initialize thousands of documents. Coalesce its events, while retaining a refresh requested
+    // during an RPC so callers never rely on a response captured before their command completed.
+    this.docsRefreshRequested = true;
+    this.refreshingDocs ??= Promise.resolve().then(async () => {
+      try {
+        while (this.docsRefreshRequested) {
+          this.docsRefreshRequested = false;
+          const docs = await this.call<Array<{ docId: string; complete: boolean }>>('project.docs', {});
+          const previous = this.complete;
+          this.complete = new Set(docs.filter(d => d.complete).map(d => d.docId));
+          for (const docId of this.complete) if (!previous.has(docId)) {
+            for (const cb of this.availabilityCbs) cb(docId);
+          }
+        }
+      } finally {
+        this.refreshingDocs = null;
+      }
+    });
+    return this.refreshingDocs;
   }
   private attachDoc(docId: string, doc: Y.Doc): Promise<void> {
     const existing = this.docs.get(docId);

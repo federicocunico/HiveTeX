@@ -1,4 +1,5 @@
 import { generateDeviceKeys } from '@hivetex/crypto';
+import { ROOT_DOC_ID } from '@hivetex/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ConnectionManager, ManagerOptions } from '../src/connect.js';
 import { MemoryPersistence } from '../src/persistence.js';
@@ -50,9 +51,9 @@ function adapters(w: World): RuntimeAdapters {
 }
 const runtimes: ProjectRuntime[] = [];
 afterEach(async () => { for (const r of runtimes.splice(0)) await r.close(); });
-async function runtime(w: World, o: { deviceId?: string | null; isLocal?: boolean } = {}) {
+async function runtime(w: World, o: { deviceId?: string | null; isLocal?: boolean; createdHere?: boolean; store?: MemoryPersistence } = {}) {
   const r = new ProjectRuntime({
-    projectId: 'p', isLocal: o.isLocal ?? false, role: 'editor', createdHere: false, store: new MemoryPersistence(),
+    projectId: 'p', isLocal: o.isLocal ?? false, role: 'editor', createdHere: o.createdHere ?? false, store: o.store ?? new MemoryPersistence(),
     keys: await generateDeviceKeys(), deviceId: o.deviceId === undefined ? null : o.deviceId, canWrite: () => true,
     adapters: adapters(w), retryMs: 30, randomId: () => 'tmp',
   });
@@ -69,6 +70,19 @@ const until = async (cond: () => boolean, ms = 2000) => {
 };
 
 describe('project runtime (4.1)', () => {
+  it('opens a freshly created shared project durably without networking and recovers it on reopen', async () => {
+    const w: World = { online: false, calls: [], managers: [] };
+    const store = new MemoryPersistence();
+    const first = await runtime(w, { createdHere: true, store });
+    expect(first.model.availability(ROOT_DOC_ID)).toBe('complete');
+    expect(await store.getMeta('availability')).toMatchObject({ initializedHere: true });
+    expect(w.calls).toEqual([]);
+    await first.close();
+    const again = await runtime(w, { store });
+    expect(again.model.availability(ROOT_DOC_ID)).toBe('complete');
+    expect(w.calls).toEqual([]);
+  });
+
   it('starts offline with a temporary id, then registers, loads keys and gets a ticket by itself', async () => {
     const w: World = { online: false, calls: [], managers: [] };
     const r = await runtime(w);

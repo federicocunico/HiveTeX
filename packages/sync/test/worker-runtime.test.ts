@@ -9,6 +9,7 @@ import { WorkerRenderer } from "../src/worker/renderer.js";
 import { encodeValue, decodeValue } from "../src/native-persistence.js";
 import { fakeNative } from "./native-fake.js";
 import { sha256Hex } from '../src/model.js';
+import { acquireProject } from '../src/snapshot.js';
 import { emptySeedData, type SeedData } from '../src/worker/catalog.js';
 import * as Y from 'yjs';
 
@@ -130,6 +131,42 @@ describe("live packaged worker and editor replica", () => {
     await again.close();
     await b.close();
     w.child.stdin.end();
+  });
+
+  it('captures an imported batch offline and preserves its completeness after a worker restart', async () => {
+    const native = fakeNative();
+    const first = start(native);
+    const editor = new WorkerRenderer(first.link);
+    const p = project('local-import');
+    await editor.open(p);
+    const becameComplete: string[] = [];
+    editor.model.onAvailability(docId => becameComplete.push(docId));
+    const asset = new Uint8Array([1, 2, 3]);
+    const hash = await editor.blobs.add(asset);
+    await editor.model.applyBatch([
+      { op: 'text', path: 'paper.tex', text: 'complete import' },
+      { op: 'binary', path: 'figure.png', hash, size: asset.length },
+      { op: 'setting', key: 'main', value: 'paper.tex' },
+    ]);
+    await editor.model.flush();
+    expect(editor.model.missingText()).toEqual([]);
+    expect(becameComplete).toContain(`f:${editor.model.find('paper.tex')!.id}`);
+    const captured = await acquireProject(editor.mesh, editor.model, editor.blobs);
+    expect(captured.complete).toBe(true);
+    await editor.close();
+    first.child.stdin.end();
+    await new Promise<void>(resolve => first.child.once('exit', () => resolve()));
+    const second = start(native);
+    const reopened = new WorkerRenderer(second.link);
+    await reopened.open({ ...p, createdHere: false });
+    const restored = await acquireProject(reopened.mesh, reopened.model, reopened.blobs);
+    expect(restored.complete).toBe(true);
+    if (restored.complete) {
+      expect(restored.capture.settings.main).toBe('paper.tex');
+      expect(restored.assets.get(hash)).toEqual(asset);
+      expect(restored.capture.files.find(f => f.path === 'paper.tex')?.text).toBe('complete import');
+    }
+    await reopened.close(); second.child.stdin.end();
   });
   it("denies viewer commands, rejects account substitution, and cannot dispatch generic filesystem requests", async () => {
     const w = start(),

@@ -21,3 +21,12 @@ it('never labels a compiler setup note as No problems', () => {
   expect(screen.queryByText('No problems')).toBeNull();
   expect(screen.getByText('Build blocked')).toBeTruthy();
 });
+
+it.each(['unreadable', 'local'])('offers local restoration without a mandatory co-author action for %s project inputs', (outcome) => {
+  const onRestore = vi.fn();
+  render(ProblemsPanel, { diagnostics: [], failed: true, failure: explainFailure('incomplete', [], [{ path: '(file list)', kind: 'project', outcome }]), expanded: false, onToggle: vi.fn(), onGo: vi.fn(), onRetry: vi.fn(), onSync: vi.fn(), onRestore });
+  expect(screen.queryByRole('button', { name: 'Sync inputs' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Import sources…' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Retry build' })).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).not.toContain('Reconnect to a co-author');
+});

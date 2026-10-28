@@ -1,11 +1,19 @@
 # Importing existing projects
 
-You can bring existing LaTeX sources into HiveTeX when you **create a project** (the *Start from existing sources*
+Choose **Import ZIP…** on the projects home page, alongside **Open folder…**, **Join with ID** and **New project**, to
+start a new project from an Overleaf or other source ZIP. Pick the ZIP, adjust the suggested project name and create
+the project. If the archive contains several main documents, choose which one to compile in the preview.
+
+You can also bring existing LaTeX sources into HiveTeX when you **create a project** (the *Start from existing sources*
 fields) or, if you are an owner or editor, **inside an open project** with **Import…** in the Files panel (or *Import…* in the command palette, Ctrl+K). Uploading or
 dropping files and folders on the file tree goes through the same steps.
 
 Everything happens **on your device**. Archives and files are read in the browser (or desktop app) and reach your
 collaborators only through the normal peer-to-peer sync. Nothing is uploaded to the server.
+
+After a successful import the sources, assets and build settings are saved on this device. You can reopen, edit,
+export and compile the project without a co-author connected. Compilation still needs a compatible local compiler
+and its packages. A local storage failure is shown instead of claiming that an import has been saved.
 
 ## What you can import
 
@@ -58,6 +66,12 @@ You can:
 
 Overwriting a text file applies the difference as a normal edit. Collaborators who have that file open see the new text
 without the file closing.
+
+If an older project reports that its local file list is not ready, use **Import sources…** in Problems and select the
+complete original ZIP or folder. Review **Replace project contents** and confirm twice to restore the full source
+tree without waiting for a co-author. For an incomplete replica, locally held document states and assets are retained
+in **History → Recovery** before replacement; they are not presented as a complete restorable snapshot. Ordinary
+**Add and update files** imports do not declare an incomplete joined project complete.
 
 *Cancel* (or <kbd>Esc</kbd>) leaves the project untouched. If the archive is damaged or unsafe, nothing is imported.
 

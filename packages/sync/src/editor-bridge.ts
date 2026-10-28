@@ -187,6 +187,7 @@ export type ActorCommand =
   | { kind: 'rename'; id: string; path: string; source?: 'folder' }
   | { kind: 'delete'; id: string; source?: 'folder' }
   | { kind: 'batch'; ops: import('./model.js').BatchOp[] }
+  | { kind: 'initialize'; replacedSources: boolean }
   | { kind: 'undo'; changeSetId: string }
   | { kind: 'restore-deleted'; id: string; deletionId: string; path?: string }
   | { kind: 'confirm-deletion'; id: string; deletionId: string; expectedRevision: number }
@@ -210,6 +211,9 @@ export class ActorCommands {
     try {
       let value: unknown;
       switch (c.kind) {
+        case 'initialize':
+          await m.initializeLocal(c.replacedSources === true);
+          break;
         case 'create':
           value = await m.createTextNow(c.path, c.text ?? '', c.source==='folder'?MIRROR_ORIGIN:undefined, this.o.canApply);
           break;

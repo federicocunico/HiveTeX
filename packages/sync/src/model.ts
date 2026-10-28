@@ -152,6 +152,8 @@ export class ProjectModel {
   private closed = false;
   /** Documents known to be complete (persisted under AVAILABILITY_KEY). */
   private complete = new Set<string>();
+  /** Local creation evidence, independent of the completeness of subsequently received text bodies. */
+  private initializedHere = false;
   private availListeners = new Set<(docId: string) => void>();
   private availTimer: ReturnType<typeof setTimeout> | null = null;
   private availWrite: Promise<void> = Promise.resolve();
@@ -361,14 +363,26 @@ export class ProjectModel {
       return;
     }
     const docs = (rec as { docs?: unknown } | undefined)?.docs;
+    this.initializedHere = (rec as { v?: unknown; initializedHere?: unknown } | undefined)?.v === 1
+      && (rec as { initializedHere?: unknown }).initializedHere === true;
     const stored = await this.store.listDocs();
     for (const d of stored) this.storedAtOpen.add(d);
     if (Array.isArray(docs)) {
       for (const d of docs) if (typeof d === 'string') this.complete.add(d);
+      if (this.initializedHere && !this.complete.has(ROOT_DOC_ID)) this.markComplete(ROOT_DOC_ID);
       return;
     }
     for (const d of stored) this.complete.add(d);
     this.scheduleAvailability();
+  }
+
+  /** For local creation, or an explicitly confirmed complete-source replacement (never a merge import). */
+  async initializeLocal(replacedSources = false) {
+    if (replacedSources) for (const f of this.list()) if (f.kind === 'text') this.markComplete(fileDocId(f.id));
+    this.initializedHere = true;
+    this.markComplete(ROOT_DOC_ID);
+    this.scheduleAvailability();
+    await this.flush();
   }
 
   /** What this device holds of the document right now (synchronous: it never consults peers or storage). */
@@ -422,10 +436,18 @@ export class ProjectModel {
       const docs = [...this.complete];
       // Content first: the record must never outlive the edits it vouches for.
       await Promise.all([...this.persisters.values()].map((p) => p.flush()));
-      await this.store.setMeta(AVAILABILITY_KEY, { v: 1, docs });
+      try {
+        await this.store.setMeta(AVAILABILITY_KEY, { v: 1, docs, ...(this.initializedHere ? { initializedHere: true } : {}) });
+        this.durabilityError('availability', null);
+      } catch (error) {
+        this.durabilityError('availability', error);
+        this.scheduleAvailability(this.persistOpts.retryMs ?? 500);
+        throw error;
+      }
     };
     const next = this.availWrite.then(run, run);
-    this.availWrite = next.catch(() => {});
+    this.availWrite = next;
+    void next.catch(() => {});
     return next;
   }
 
@@ -518,6 +540,7 @@ export class ProjectModel {
       this.availTimer = null;
       await this.writeAvailability();
     }
+    await this.availWrite;
     } finally { this.durabilityWaiters.delete(reject); }
   }
 

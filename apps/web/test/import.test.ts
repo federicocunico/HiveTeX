@@ -307,6 +307,7 @@ describe('plan and apply', () => {
     expect(m.list().map((f) => f.path)).toEqual(['main.tex']);
     expect(m.settings.get('main')).toBe('main.tex');
     expect(m.settings.get('engine')).toBe('xelatex');
+    expect(m.availability('root')).toBe('complete');
   });
 
   it('leaves the project unchanged when a blob write fails', async () => {
@@ -314,6 +315,24 @@ describe('plan and apply', () => {
     const plan = await planFor(m, bundle({ 'a.tex': 'a', 'b.png': new Uint8Array([1]) }));
     await expect(applyImport(m, async () => { throw new Error('disk full'); }, plan, { mode: 'merge', resolutions: new Map(), defaultResolution: 'overwrite' })).rejects.toThrow(/disk full/);
     expect(m.list()).toEqual([]);
+  });
+
+  it('does not report import success when local completeness cannot be saved, and retains the sources for retry', async () => {
+    const m = await project();
+    const write = m.store.setMeta.bind(m.store);
+    let fail = true;
+    m.store.setMeta = async (key, value) => {
+      if (key === 'availability' && fail) throw new Error('local storage full');
+      await write(key, value);
+    };
+    const plan = await planFor(m, bundle({ 'main.tex': DOC }));
+    await expect(applyImport(m, putBlob, plan, { mode: 'merge', resolutions: new Map(), defaultResolution: 'keep' })).rejects.toThrow('local storage full');
+    expect(m.saveState.failing).toBe(true);
+    expect((await m.openText(m.find('main.tex')!.id)).toString()).toBe(DOC);
+    fail = false;
+    await expect.poll(() => m.saveState.failing).toBe(false);
+    await m.flush();
+    await m.destroy();
   });
 });
 

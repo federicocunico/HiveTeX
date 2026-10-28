@@ -20,6 +20,7 @@
     onRetry,
     onSetup,
     onSync,
+    onRestore,
     expanded,
     onToggle,
     onGo,
@@ -38,6 +39,7 @@
     onRetry?: () => void;
     onSetup?: () => void;
     onSync?: () => void;
+    onRestore?: (() => void) | undefined;
     expanded: boolean;
     onToggle: () => void;
     onGo: (file: string, line: number) => void;
@@ -70,6 +72,7 @@
         <strong>{failure.summary}</strong> {failure.recovery}
         {#if failure.action === 'setup' && onSetup}<button type="button" class="small" onclick={onSetup}>Compiler setup</button>{/if}
         {#if failure.action === 'sync' && onSync}<button type="button" class="small" onclick={onSync}>Sync inputs</button>{/if}
+        {#if (failure.action === 'restore' || failure.action === 'sync') && onRestore}<button type="button" class="small" onclick={onRestore}>Import sources…</button>{/if}
         {#if onRetry}<button type="button" class="small" onclick={onRetry}>Retry build</button>{/if}
       </div>
     {/if}

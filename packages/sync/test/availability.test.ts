@@ -1,4 +1,4 @@
-import { fileDocId } from '@hivetex/protocol';
+import { ROOT_DOC_ID, fileDocId } from '@hivetex/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { ProjectModel } from '../src/model.js';
@@ -17,6 +17,49 @@ async function open(store = new MemoryPersistence()) {
 }
 
 describe('local completeness is separate from loaded or stored documents (5.1)', () => {
+  it('persists local initialization and repairs a missing root flag from that evidence', async () => {
+    const { m, store } = await open();
+    await m.initializeLocal();
+    const id = await m.createTextNow('main.tex', 'local source');
+    await m.flush();
+    const record = await store.getMeta('availability') as { docs: string[]; initializedHere: boolean };
+    expect(record.initializedHere).toBe(true);
+    await m.destroy();
+    await store.setMeta('availability', { v: 1, ...record, docs: record.docs.filter(d => d !== ROOT_DOC_ID) });
+    const again = await open(store);
+    expect(again.m.availability(ROOT_DOC_ID)).toBe('complete');
+    expect((await again.m.openText(id)).toString()).toBe('local source');
+    await again.m.destroy();
+  });
+
+  it('does not promote a joined root when a local file is added or the store is reopened', async () => {
+    const { m, store } = await open();
+    await m.createTextNow('local.tex', 'my addition');
+    await m.flush();
+    expect(m.availability(ROOT_DOC_ID)).toBe('partial');
+    await m.destroy();
+    const again = await open(store);
+    expect(again.m.availability(ROOT_DOC_ID)).toBe('partial');
+    await again.m.destroy();
+  });
+
+  it('reports an initialization save failure and retries its evidence durably', async () => {
+    const { m, store } = await open();
+    const setMeta = store.setMeta.bind(store);
+    let fail = true;
+    store.setMeta = async (key, value) => {
+      if (key === 'availability' && fail) throw new Error('disk full');
+      await setMeta(key, value);
+    };
+    await expect(m.initializeLocal()).rejects.toThrow('disk full');
+    expect(m.saveState.failing).toBe(true);
+    fail = false;
+    await waitFor(() => !m.saveState.failing);
+    await m.flush();
+    expect(await store.getMeta('availability')).toMatchObject({ initializedHere: true, docs: [ROOT_DOC_ID] });
+    await m.destroy();
+  });
+
   it('classifies unknown, partial, locally created empty and reopened complete documents', async () => {
     const { m, store } = await open();
     // never seen: unknown, even though a file-table entry may name it

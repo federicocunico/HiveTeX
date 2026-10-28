@@ -14,7 +14,7 @@
   import { DEFAULT_TEMPLATE, TEMPLATES, templateFiles } from '../lib/templates.js';
   import { type LocalProject, createLocalProject, listLocalProjects } from '../lib/local-projects.js';
   import LocalProjectActions from '../components/LocalProjectActions.svelte';
-  import { ChevronRight, CloudUpload, FolderOpen, Link, Lock, Plus, Search } from '../ui/icons.js';
+  import { ChevronRight, CloudUpload, FolderInput, FolderOpen, Link, Lock, Plus, Search } from '../ui/icons.js';
   import Dialog from '../ui/Dialog.svelte';
   import Icon from '../ui/Icon.svelte';
 
@@ -48,6 +48,22 @@
   let importIsFolder = $state(false);
   let archiveInput = $state<HTMLInputElement>();
   let folderInput = $state<HTMLInputElement>();
+  let homeZipInput = $state<HTMLInputElement>();
+
+  function openZipPicker() {
+    if (!homeZipInput) return;
+    homeZipInput.value = '';
+    homeZipInput.click();
+  }
+
+  function pickHomeZip(e: Event) {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!file) return;
+    importFiles = [file];
+    importIsFolder = false;
+    slug = file.name.replace(/\.zip$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 31) || 'project';
+    openNew();
+  }
 
   // folders (where each project lives on this device)
   const folders = foldersSupported();
@@ -140,6 +156,7 @@
               ...(fromUnprotected ? { passwordProtected: false } : { password: fromPassword }),
             })
           ).project.id;
+      markCreatedHere(id);
       await rememberFolder(id, fromFolder);
       markFreshFolderProject(id);
       go(`/p/${id}`);
@@ -185,6 +202,7 @@
   onMount(() =>
     registerCommands([
       { id: 'new-project', title: 'New project', group: 'Project', icon: Plus, aliases: ['create', 'template'], run: openNew },
+      { id: 'import-zip-project', title: 'Import ZIP…', group: 'Project', icon: FolderInput, aliases: ['overleaf', 'archive'], run: openZipPicker },
       { id: 'join-project', title: 'Join a project with its ID', group: 'Project', icon: Link, aliases: ['join', 'invitation'], run: openJoin },
       ...(folders ? [{ id: 'open-folder', title: 'Open a folder as a project', group: 'Project' as const, icon: FolderOpen, aliases: ['folder', 'git clone'], run: () => void openFolder() }] : []),
     ]),
@@ -284,9 +302,11 @@
 </script>
 
 <div class="page projects">
+  <input hidden bind:this={homeZipInput} type="file" accept=".zip" aria-label="Import ZIP archive" onchange={pickHomeZip} data-testid="home-zip-input" />
   <div class="title">
     <h1>Your projects</h1>
     <div class="actions">
+      <button type="button" onclick={openZipPicker} data-testid="import-zip-btn" data-tip="Create a project from an Overleaf or other source ZIP"><Icon icon={FolderInput} />Import ZIP…</button>
       {#if folders}
         <button type="button" onclick={openFolder} data-testid="open-folder" data-tip="Open a folder on this device (for example a git clone) as a project"><Icon icon={FolderOpen} />Open folder…</button>
       {/if}
@@ -332,7 +352,10 @@
       <div class="empty">
         <h2>Start your first paper</h2>
         <p>Pick a template that already compiles. Your projects stay on this computer until you sign in and share them.</p>
-        <div class="actions"><button type="button" class="primary" onclick={openNew}><Icon icon={Plus} />New project</button></div>
+        <div class="actions">
+          <button type="button" onclick={openZipPicker}><Icon icon={FolderInput} />Import ZIP…</button>
+          <button type="button" class="primary" onclick={openNew}><Icon icon={Plus} />New project</button>
+        </div>
       </div>
     {/if}
   {:else if projects.length === 0}
@@ -341,6 +364,7 @@
       <h2>Start your first paper</h2>
       <p>Pick a template that already compiles, or join a co-author's project with the ID and password they sent you.</p>
       <div class="actions">
+        <button type="button" onclick={openZipPicker}><Icon icon={FolderInput} />Import ZIP…</button>
         <button type="button" class="primary" onclick={openNew}><Icon icon={Plus} />New project</button>
         <button type="button" onclick={openJoin}><Icon icon={Link} />Join with ID</button>
       </div>
@@ -429,6 +453,7 @@
     <details class="sources" open={importFiles.length > 0}>
       <summary>Start from existing sources instead</summary>
       <p class="hint">An Overleaf or GitHub .zip, an arXiv .tar.gz, or a folder. The template is not used when you import.</p>
+      {#if importFiles.length}<p class="hint" data-testid="selected-import-source">Selected: {importFiles[0]?.name}</p>{/if}
       <div class="two">
         <div class="field">
           <label for="np-archive">Archive</label>

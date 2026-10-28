@@ -103,6 +103,7 @@ export class WorkerProjects {
         const unsubs: Array<() => void> = [
           off,
           replaced,
+          r.model.onAvailability((docId) => this.emitFor(key, 'availability', { docId })),
           onRecoveryChange(project.store, () => this.emitFor(key, "recovery", {})),
           r.mesh.onPeerJoin((p) => this.emitFor(key, "peer.join", peer(p))),
           r.mesh.onPeerLeave((p) => this.emitFor(key, "peer.leave", peer(p))),

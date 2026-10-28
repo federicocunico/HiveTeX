@@ -20,3 +20,13 @@ it('names unavailable inputs and preserves source diagnostics with a location', 
   expect(explainFailure('incomplete', [], ['image.png'])).toMatchObject({ kind: 'input', action: 'sync', summary: expect.stringContaining('image.png') });
   expect(explainFailure('log', [{ file: 'chapter.tex', line: 12, severity: 'error', message: 'Undefined control sequence' }])).toMatchObject({ kind: 'source', summary: 'Undefined control sequence', recovery: expect.stringContaining('chapter.tex, line 12') });
 });
+
+it('distinguishes unreadable local storage and an unknown file list from missing remote content', () => {
+  const storage = explainFailure('incomplete', [], [{ path: '(project storage)', kind: 'project', outcome: 'unreadable' }]);
+  expect(storage).toMatchObject({ kind: 'input', action: 'restore', summary: expect.stringContaining('storage') });
+  expect(storage.recovery).not.toContain('co-author');
+  const root = explainFailure('incomplete', [], [{ path: '(file list)', kind: 'project', outcome: 'local' }]);
+  expect(root).toMatchObject({ action: 'restore', summary: expect.stringContaining('file list') });
+  expect(root.recovery).not.toContain('Reconnect');
+  expect(explainFailure('incomplete', [], [{ path: 'chapter.tex', kind: 'text', outcome: 'unavailable' }]).action).toBe('sync');
+});

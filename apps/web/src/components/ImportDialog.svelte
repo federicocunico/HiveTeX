@@ -4,7 +4,7 @@
   /** What the dialog was opened for. */
   export type ImportRequest =
     /** "Import…" button: let the user pick an archive, files or a folder. */
-    | { kind: 'pick' }
+    | { kind: 'pick'; restore?: boolean }
     /** A single archive was uploaded/dropped into the tree: extract it, or add it as a file? */
     | { kind: 'archive-choice'; item: LooseItem; dir: string }
     /** Something to read (archive, folder, files). `fresh` = new project: skip the preview unless ambiguous. */
@@ -76,6 +76,7 @@
   );
 
   onMount(() => {
+    if (request.kind === 'pick' && request.restore) mode = 'replace';
     if (request.kind === 'load') void start(request.load, request.fresh ?? false);
     else stage = request.kind;
     void tick().then(focusFirst);
@@ -107,7 +108,7 @@
       const hasMain = !!cur && !!session.model.find(cur);
       mainChoice = hasMain ? (cur as string) : (b.detection.main ?? '');
       const empty = session.files.length === 0;
-      if ((fresh || empty) && !b.detection.ambiguous && plan.changed.length === 0) await apply();
+      if (mode !== 'replace' && (fresh || empty) && !b.detection.ambiguous && plan.changed.length === 0) await apply();
       else {
         stage = 'preview';
         await tick();

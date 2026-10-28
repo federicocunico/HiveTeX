@@ -202,7 +202,7 @@ export class ProjectRuntime {
     this.model = new ProjectModel(store);
     if (this.o.localAuthor) this.model.localAuthor = { ...this.o.localAuthor, device: this.o.deviceId ?? `key:${this.o.keys.edPub}` };
     await this.model.init();
-    if (this.o.isLocal || this.o.createdHere) this.model.markComplete(ROOT_DOC_ID);
+    if (this.o.isLocal || this.o.createdHere) await this.model.initializeLocal();
     this.model.onSaveState((st) => {
       this.saveFailing = st.failing;
       this.emit();

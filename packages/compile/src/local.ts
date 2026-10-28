@@ -182,7 +182,7 @@ export class LocalCompiler {
       return this.publish({ result: {
         stateHash: input?.stateHash ?? '', ok: false, diagnostics: [], log: `! Local compile failed: ${message}`,
         ...(e instanceof IncompleteInputError ? { incomplete: e.missing.map((m) => m.path) } : {}),
-        failure: explainFailure(message, [], e instanceof IncompleteInputError ? e.missing.map((m) => m.path) : []),
+        failure: explainFailure(message, [], e instanceof IncompleteInputError ? e.missing : []),
         by: this.o.self, at: Date.now(), seq: ++this.seq,
       } });
     } finally {

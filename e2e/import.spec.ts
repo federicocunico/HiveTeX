@@ -54,8 +54,12 @@ test('create a project from an Overleaf zip; co-author sees the files; viewers c
   const owner = await newUser(ownerCtx, 'ima');
   const page = owner.page;
 
-  await openNewProject(page);
-  await page.getByTestId('create-archive').setInputFiles(
+  await expect(page.getByTestId('import-zip-btn')).toBeVisible();
+  const picker = page.waitForEvent('filechooser');
+  await page.getByTestId('import-zip-btn').click();
+  await (await picker).setFiles([]);
+  await expect(page.getByRole('dialog', { name: 'New project' })).toHaveCount(0);
+  await page.getByTestId('home-zip-input').setInputFiles(
     zipFile('overleaf.zip', {
       'paper.tex': DOC('\\usepackage{fontspec}\n'),
       'sections/intro.tex': '\\section{Intro}',
@@ -76,6 +80,14 @@ test('create a project from an Overleaf zip; co-author sees the files; viewers c
   await expect(fileIn(page, 'paper.aux')).toHaveCount(0);
   expect(await settings(page, 'main')).toBe('paper.tex');
   expect(await settings(page, 'engine')).toBe('xelatex');
+
+  await page.getByTestId('compile-btn').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__p2p.session.result?.ok)).toBe(true);
+  await page.reload();
+  await expect(fileIn(page, 'paper.tex')).toBeVisible();
+  await page.getByTestId('compile-btn').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__p2p.session.result?.ok)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__p2p.session.mesh.peers.length)).toBe(0);
 
   const guest = await newUser(guestCtx, 'imb');
   await guest.page.goto('/#/');

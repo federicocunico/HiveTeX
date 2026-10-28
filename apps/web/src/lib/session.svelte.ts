@@ -1,4 +1,5 @@
 import { exportRecoveryZip } from './recovery-export.js';
+import * as Y from 'yjs';
 import { prefs, onPreferencesChange } from './preferences.svelte.js';
 import type { StoredDeviceKeys } from '@hivetex/crypto';
 import {
@@ -28,6 +29,7 @@ import {
   type Persistence,
   Mesh,
   ProjectModel,
+  preserveRecovery,
   type PeerProbeResult,
   type PeerRoute,
   type RtcFactory,
@@ -45,7 +47,7 @@ import {
 import { BackupAgent, GitHubClient, importRepo, type Binding } from '@hivetex/github';
 import { api, apiBase, isDesktop, wsBase } from './api.js';
 import { copyText } from './clipboard.js';
-import { takeCreatedHere } from './created-here.js';
+import { acknowledgeCreatedHere, takeCreatedHere } from './created-here.js';
 import { isLocalProjectId } from './local-projects.js';
 import { openProjectStore, hasNativeProjectStore, type StoreRef } from './project-store.js';
 import { type HostedRuntime, attachRuntime } from './runtimes.js';
@@ -769,6 +771,7 @@ export class ProjectSession {
       },
     });
     await runtime.open();
+    acknowledgeCreatedHere(pid);
     return {
       runtime,
       store: opened.store,
@@ -786,6 +789,7 @@ export class ProjectSession {
   private async openWorkerRuntime(keys: StoredDeviceKeys): Promise<HostedRuntime> {
     const { openDesktopWorker } = await import('./desktop-worker.js');
     const hosted = await openDesktopWorker(this.project, this.user.id, takeCreatedHere(this.project.id));
+    acknowledgeCreatedHere(this.project.id);
     return {
       runtime: hosted.renderer.runtime, store: hosted.renderer.store, storeKind: 'native', keys,
       recoveryEntries: () => hosted.renderer.recoveryEntries(),
@@ -992,7 +996,22 @@ export class ProjectSession {
   async applyImport(plan: ImportPlan, choices: ApplyChoices, onProgress?: (done: number, total: number) => void): Promise<ApplyResult> {
     if (!this.canWrite) throw new Error('Read-only members cannot import into the project.');
     // Replacing deletes files: keep a restorable snapshot of the tree as it was.
-    if (choices.mode === 'replace' && this.files.length > 0) await this.model.captureSnapshot();
+    if (choices.mode === 'replace' && this.files.length > 0) {
+      if (this.model.availability(ROOT_DOC_ID) === 'complete' && this.model.missingText().length === 0) await this.model.captureSnapshot();
+      else {
+        // An incomplete replica cannot make a restorable snapshot. Keep every local state before the explicitly
+        // confirmed replacement without waiting for peers or inventing missing contents.
+        const reason = 'Before restoring complete project sources';
+        await preserveRecovery(this.store, 'file-list.yjs', Y.encodeStateAsUpdate(this.model.root), reason);
+        for (const f of this.files) {
+          if (f.kind === 'text') await preserveRecovery(this.store, `${f.path}.yjs`, Y.encodeStateAsUpdate((await this.model.openText(f.id)).doc!), reason, { fileId: f.id });
+          else if (f.kind === 'binary' && f.hash) {
+            const bytes = await this.store.getBlob(f.hash);
+            if (bytes) await preserveRecovery(this.store, f.path, bytes, reason, { fileId: f.id });
+          }
+        }
+      }
+    }
     return applyImport(this.model, (b) => this.blobs.add(b), plan, choices, onProgress);
   }
 

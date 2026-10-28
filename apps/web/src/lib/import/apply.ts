@@ -17,5 +17,8 @@ export async function applyImport(
 ): Promise<ApplyResult> {
   const { ops, result } = await buildOps(plan, choices, putBlob, onProgress);
   if (ops.length > 0) await model.applyBatch(ops);
+  if (choices.mode === 'replace') await model.initializeLocal(true);
+  // The summary promises saved sources, including completeness metadata, rather than only an in-memory tree.
+  await model.flush();
   return result;
 }

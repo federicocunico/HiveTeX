@@ -1061,6 +1061,7 @@
             </div>
             <ProblemsPanel
               failure={s.compileFailure}
+              onRestore={s.canWrite ? () => (importRequest = { kind: 'pick', restore: s.model.availability('root') !== 'complete' }) : undefined}
               onRetry={() => void compileNow()}
               onSetup={() => go('/account')}
               onSync={() => void s.syncNow()}
